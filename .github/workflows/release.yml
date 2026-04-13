@@ -1,0 +1,193 @@
+name: Create release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-binaries:
+    strategy:
+      matrix:
+        include:
+          - rid: osx-arm64
+            os: macos-14
+            binary: ck-osx-arm64
+          - rid: osx-x64
+            os: ubuntu-latest
+            binary: ck-osx-x64
+          - rid: linux-x64
+            os: ubuntu-latest
+            binary: ck-linux-x64
+          - rid: win-x64
+            os: windows-latest
+            binary: ck-win-x64.exe
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish ${{ matrix.rid }}
+        shell: bash
+        run: |
+          dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
+            -c Release -r ${{ matrix.rid }} -p:PublishSingleFile=true \
+            -o /tmp/ck-publish -v q
+          ext=""
+          [[ "${{ matrix.rid }}" == win-* ]] && ext=".exe"
+          cp /tmp/ck-publish/ck${ext} ${{ matrix.binary }}
+          chmod +x ${{ matrix.binary }} 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.rid }}
+          path: ${{ matrix.binary }}
+
+  create-release:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/binaries
+          merge-multiple: true
+
+      - name: Restore execute bits
+        run: |
+          chmod +x /tmp/binaries/ck-osx-arm64
+          chmod +x /tmp/binaries/ck-osx-x64
+          chmod +x /tmp/binaries/ck-linux-x64
+
+      - name: Build per-platform archives
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+
+          build_archive() {
+            local platform="$1"   # osx-arm64 | osx-x64 | linux-x64
+            local binary="$2"     # ck-osx-arm64 | ...
+            local archive="context-king-${platform}.tar.gz"
+
+            # Stage the files
+            local stage="/tmp/stage-${platform}/context-king"
+            mkdir -p "$stage/scripts"
+            mkdir -p "$stage/skills/ck"
+            mkdir -p "$stage/skills/ck-find-scope"
+            mkdir -p "$stage/skills/ck-signatures"
+            mkdir -p "$stage/skills/ck-get-method-source"
+            mkdir -p "$stage/skills/ck-index"
+            mkdir -p "$stage/hooks"
+            mkdir -p "$stage/models/bge-small-en-v1.5/onnx"
+            mkdir -p "$stage/rules"
+
+            cp /tmp/binaries/"$binary"         "$stage/skills/ck/$binary"
+            chmod +x                            "$stage/skills/ck/$binary"
+            cp skills/ck/ck                    "$stage/skills/ck/ck"
+            cp skills/ck/ck.cmd                "$stage/skills/ck/ck.cmd"
+            chmod +x                            "$stage/skills/ck/ck"
+            cp skills/ck-find-scope/SKILL.md   "$stage/skills/ck-find-scope/"
+            cp skills/ck-signatures/SKILL.md   "$stage/skills/ck-signatures/"
+            cp skills/ck-get-method-source/SKILL.md "$stage/skills/ck-get-method-source/"
+            cp skills/ck-index/SKILL.md        "$stage/skills/ck-index/"
+            cp hooks/ck-read-guard.sh          "$stage/hooks/"
+            cp hooks/ck-read-guard.ps1         "$stage/hooks/"
+            cp hooks/ck-search-guard.sh        "$stage/hooks/"
+            cp hooks/ck-search-guard.ps1       "$stage/hooks/"
+            cp hooks/agent-usage-guard.sh      "$stage/hooks/"
+            cp hooks/agent-usage-guard.ps1     "$stage/hooks/"
+            chmod +x "$stage/hooks/ck-read-guard.sh" \
+                     "$stage/hooks/ck-search-guard.sh" \
+                     "$stage/hooks/agent-usage-guard.sh"
+            cp -r models/bge-small-en-v1.5/.  "$stage/models/bge-small-en-v1.5/"
+            cp rules/ck-code-search-protocol.md "$stage/rules/"
+            cp scripts/deploy.sh               "$stage/scripts/"
+            cp scripts/deploy-codex.sh         "$stage/scripts/"
+            cp scripts/deploy-opencode.sh      "$stage/scripts/"
+            cp scripts/install.sh              "$stage/scripts/"
+            chmod +x "$stage/scripts/"*.sh
+
+            tar -czf "/tmp/$archive" -C "/tmp/stage-${platform}" context-king
+            echo "Built: $archive"
+          }
+
+          build_archive "osx-arm64"  "ck-osx-arm64"
+          build_archive "osx-x64"    "ck-osx-x64"
+          build_archive "linux-x64"  "ck-linux-x64"
+
+          # Windows zip
+          local win_stage="/tmp/stage-win/context-king"
+          mkdir -p "$win_stage/scripts"
+          mkdir -p "$win_stage/skills/ck"
+          mkdir -p "$win_stage/skills/ck-find-scope"
+          mkdir -p "$win_stage/skills/ck-signatures"
+          mkdir -p "$win_stage/skills/ck-get-method-source"
+          mkdir -p "$win_stage/skills/ck-index"
+          mkdir -p "$win_stage/hooks"
+          mkdir -p "$win_stage/models/bge-small-en-v1.5/onnx"
+          mkdir -p "$win_stage/rules"
+
+          cp /tmp/binaries/ck-win-x64.exe    "$win_stage/skills/ck/"
+          cp skills/ck/ck                    "$win_stage/skills/ck/"
+          cp skills/ck/ck.cmd                "$win_stage/skills/ck/"
+          cp skills/ck-find-scope/SKILL.md   "$win_stage/skills/ck-find-scope/"
+          cp skills/ck-signatures/SKILL.md   "$win_stage/skills/ck-signatures/"
+          cp skills/ck-get-method-source/SKILL.md "$win_stage/skills/ck-get-method-source/"
+          cp skills/ck-index/SKILL.md        "$win_stage/skills/ck-index/"
+          cp hooks/ck-read-guard.sh          "$win_stage/hooks/"
+          cp hooks/ck-read-guard.ps1         "$win_stage/hooks/"
+          cp hooks/ck-search-guard.sh        "$win_stage/hooks/"
+          cp hooks/ck-search-guard.ps1       "$win_stage/hooks/"
+          cp hooks/agent-usage-guard.sh      "$win_stage/hooks/"
+          cp hooks/agent-usage-guard.ps1     "$win_stage/hooks/"
+          cp -r models/bge-small-en-v1.5/.  "$win_stage/models/bge-small-en-v1.5/"
+          cp rules/ck-code-search-protocol.md "$win_stage/rules/"
+          cp scripts/deploy.ps1              "$win_stage/scripts/"
+          cp scripts/deploy-codex.ps1        "$win_stage/scripts/"
+          cp scripts/deploy-opencode.ps1     "$win_stage/scripts/"
+          cp scripts/install.ps1             "$win_stage/scripts/"
+
+          cd /tmp/stage-win && zip -r /tmp/context-king-windows.zip context-king
+          echo "Built: context-king-windows.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Context King ${{ github.ref_name }}"
+          body: |
+            ## Install
+
+            **Mac / Linux (one-liner):**
+            ```bash
+            curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/install.sh | bash
+            ```
+
+            **Windows (PowerShell 7+):**
+            ```powershell
+            irm https://github.com/Fredrik-C/ContextKing/releases/latest/download/install.ps1 | iex
+            ```
+
+            Or download the archive for your platform and run `bash scripts/install.sh` from within it.
+
+            ## Platform archives
+            | File | Platform |
+            |------|----------|
+            | `context-king-osx-arm64.tar.gz` | macOS Apple Silicon |
+            | `context-king-osx-x64.tar.gz` | macOS Intel |
+            | `context-king-linux-x64.tar.gz` | Linux x86-64 |
+            | `context-king-windows.zip` | Windows x86-64 |
+          files: |
+            /tmp/context-king-osx-arm64.tar.gz
+            /tmp/context-king-osx-x64.tar.gz
+            /tmp/context-king-linux-x64.tar.gz
+            /tmp/context-king-windows.zip
+            scripts/install.sh
+            scripts/install.ps1

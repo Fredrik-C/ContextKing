@@ -1,0 +1,10 @@
+{
+  "tools": {
+    "bash": {
+      "allow": [
+        ".opencode/skills/ck/ck *",
+        ".opencode\\skills\\ck\\ck.cmd *"
+      ]
+    }
+  }
+}

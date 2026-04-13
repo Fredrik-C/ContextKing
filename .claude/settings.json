@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/ck-bash-grep-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-bash-grep-guard.ps1 || exit 0'"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,140 @@
+name: Build binaries
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish osx-arm64
+        run: |
+          dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
+            -c Release -r osx-arm64 -p:PublishSingleFile=true \
+            -o /tmp/ck-publish -v q
+          cp /tmp/ck-publish/ck ck-osx-arm64
+          chmod +x ck-osx-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ck-osx-arm64
+          path: ck-osx-arm64
+
+  build-macos-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish osx-x64
+        run: |
+          dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
+            -c Release -r osx-x64 -p:PublishSingleFile=true \
+            -o /tmp/ck-publish -v q
+          cp /tmp/ck-publish/ck ck-osx-x64
+          chmod +x ck-osx-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ck-osx-x64
+          path: ck-osx-x64
+
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish linux-x64
+        run: |
+          dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
+            -c Release -r linux-x64 -p:PublishSingleFile=true \
+            -o /tmp/ck-publish -v q
+          cp /tmp/ck-publish/ck ck-linux-x64
+          chmod +x ck-linux-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ck-linux-x64
+          path: ck-linux-x64
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish win-x64
+        shell: pwsh
+        run: |
+          dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj `
+            -c Release -r win-x64 -p:PublishSingleFile=true `
+            -o $env:TEMP\ck-publish -v q
+          Copy-Item $env:TEMP\ck-publish\ck.exe ck-win-x64.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ck-win-x64
+          path: ck-win-x64.exe
+
+  commit-binaries:
+    needs: [build-macos-arm64, build-macos-x64, build-linux-x64, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ck-osx-arm64
+          path: skills/ck
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ck-osx-x64
+          path: skills/ck
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ck-linux-x64
+          path: skills/ck
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ck-win-x64
+          path: skills/ck
+
+      - name: Restore execute bits
+        run: |
+          chmod +x skills/ck/ck-osx-arm64
+          chmod +x skills/ck/ck-osx-x64
+          chmod +x skills/ck/ck-linux-x64
+
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'ci: update all platform binaries [skip ci]'
+          file_pattern: >-
+            skills/ck/ck-osx-arm64
+            skills/ck/ck-osx-x64
+            skills/ck/ck-linux-x64
+            skills/ck/ck-win-x64.exe
