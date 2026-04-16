@@ -218,30 +218,14 @@ not just committed state.
 
 ### Quick install (recommended)
 
-Use this if you just want to install Context King into a repo. No need to clone the
-repository — the installer downloads everything automatically.
+See the [latest release](https://github.com/Fredrik-C/ContextKing/releases/latest) for
+platform-specific installation instructions and downloads.
 
 The installer auto-detects which AI CLI tools are configured in the target repo
 (`.claude/` → Claude Code, `.codex/` → Codex CLI, `.opencode/` → OpenCode) and deploys
 support only for the ones present. Initialize at least one CLI tool in your repo first,
-then run (from your repository root):
-
-**Mac / Linux:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install.sh | bash
-```
-To install into a specific repo instead of the current directory:
-```bash
-curl -fsSL https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install.sh | bash -s -- /path/to/your-repo
-```
-
-**Windows (PowerShell 7+):**
-```powershell
-irm https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install.ps1 | iex
-```
-
-That's it. The installer downloads the platform binary, models, skills, hooks, and rules,
-then deploys everything to the right locations. Safe to re-run — all steps are idempotent.
+then run the install command from the root of the repository where you want Context King
+installed.
 
 ---
 

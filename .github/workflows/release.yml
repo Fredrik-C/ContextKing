@@ -169,6 +169,9 @@ jobs:
           body: |
             ## Install
 
+            Run the install command **from the root of the repository** where you want Context King installed.
+            Initialize at least one AI CLI tool first (Claude Code, Codex CLI, or OpenCode).
+
             **Mac / Linux (one-liner):**
             ```bash
             curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/install.sh | bash
