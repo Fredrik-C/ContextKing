@@ -126,7 +126,7 @@ jobs:
           build_archive "linux-x64"  "ck-linux-x64"
 
           # Windows zip
-          local win_stage="/tmp/stage-win/context-king"
+          win_stage="/tmp/stage-win/context-king"
           mkdir -p "$win_stage/scripts"
           mkdir -p "$win_stage/skills/ck"
           mkdir -p "$win_stage/skills/ck-find-scope"
