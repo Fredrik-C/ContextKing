@@ -55,10 +55,11 @@ not scale. A 20 000-file codebase would require 20 000 embedding passes at index
 20 000 vectors to score at query time. That means minutes to build, slow queries, and heavy storage.
 
 Context King makes a calculated trade-off: it embeds *leaf folders* (folders that directly
-contain `.cs` files) and creates a lexical of the files. A 20 000-file repo has roughly 2 000–3 000 leaf
-folders. The index builds in under 15 seconds for a 20 000 files codebase (Mac/Linux OS), 
-fits entirely in memory for scoring, and still captures the conceptual structure of the codebase because folder and
-filename tokens carry most of the semantic signal about what code lives where.
+contain `.cs` files) rather than individual files. A 20 000-file repo has roughly 2 000-3 000
+leaf folders. The index builds in under 15 seconds (Mac/Linux), fits entirely in memory for
+scoring, and still captures the conceptual structure of the codebase. See
+[How semantic matching works](#how-semantic-matching-works) for details on what goes into each
+folder embedding.
 
 The remaining precision comes from `ck signatures` (live AST, no index) and
 `ck get-method-source` (targeted single-member extraction using AST), which operate at the file and
