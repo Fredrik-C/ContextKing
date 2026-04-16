@@ -23,6 +23,7 @@ $GithubOwner  = 'Fredrik-C'
 $GithubRepo   = 'ContextKing'
 $GithubBranch = 'main'
 $GithubRaw    = "https://raw.githubusercontent.com/$GithubOwner/$GithubRepo/$GithubBranch"
+$GithubRelease = "https://github.com/$GithubOwner/$GithubRepo/releases/latest/download"
 
 function Get-RemoteFile {
     param([string]$Url, [string]$Dest)
@@ -113,9 +114,9 @@ if ($LocalRepo) {
             Write-Host " done"
         }
 
-        # Windows binary (~29 MB)
-        Write-Host "  binary: ck-win-x64.exe (~29 MB)..." -NoNewline
-        Get-RemoteFile "$GithubRaw/skills/ck/ck-win-x64.exe" (Join-Path $AssetsDir 'skills\ck\ck-win-x64.exe')
+        # Windows binary (~29 MB, from GitHub Releases)
+        Write-Host "  binary: ck-win-x64.exe (~29 MB, from latest release)..." -NoNewline
+        Get-RemoteFile "$GithubRelease/ck-win-x64.exe" (Join-Path $AssetsDir 'skills\ck\ck-win-x64.exe')
         Write-Host " done"
 
         # Hooks
@@ -141,6 +142,12 @@ if ($LocalRepo) {
         Write-Host "  rules/ck-code-search-protocol.md..." -NoNewline
         Get-RemoteFile "$GithubRaw/rules/ck-code-search-protocol.md" `
             (Join-Path $AssetsDir 'rules\ck-code-search-protocol.md')
+        Write-Host " done"
+
+        # Plugins (OpenCode hooks)
+        Write-Host "  plugins/ck-guards.ts..." -NoNewline
+        Get-RemoteFile "$GithubRaw/plugins/ck-guards.ts" `
+            (Join-Path $AssetsDir 'plugins\ck-guards.ts')
         Write-Host " done"
 
         Write-Host ""

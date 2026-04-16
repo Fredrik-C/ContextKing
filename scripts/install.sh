@@ -22,6 +22,7 @@ GITHUB_OWNER="Fredrik-C"
 GITHUB_REPO="ContextKing"
 GITHUB_BRANCH="main"
 GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
+GITHUB_RELEASE="https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 die()      { echo "Error: $*" >&2; exit 1; }
@@ -158,11 +159,11 @@ else
   done
   chmod +x "$ASSETS_DIR/skills/ck/ck"
 
-  # Platform binary (largest file — show explicit progress)
+  # Platform binary (largest file — downloaded from GitHub Releases)
   _bin="ck-${PLATFORM}"
   [ "$PLATFORM" = "win-x64" ] && _bin="ck-win-x64.exe"
-  progress "binary: $_bin (~30–46 MB)"
-  download "${GITHUB_RAW}/skills/ck/${_bin}" "$ASSETS_DIR/skills/ck/${_bin}"
+  progress "binary: $_bin (~30–46 MB, from latest release)"
+  download "${GITHUB_RELEASE}/${_bin}" "$ASSETS_DIR/skills/ck/${_bin}"
   [ "$PLATFORM" != "win-x64" ] && chmod +x "$ASSETS_DIR/skills/ck/${_bin}"
   done_
 

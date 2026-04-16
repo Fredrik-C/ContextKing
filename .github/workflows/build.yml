@@ -96,45 +96,4 @@ jobs:
           name: ck-win-x64
           path: ck-win-x64.exe
 
-  commit-binaries:
-    needs: [build-macos-arm64, build-macos-x64, build-linux-x64, build-windows]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: ck-osx-arm64
-          path: skills/ck
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: ck-osx-x64
-          path: skills/ck
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: ck-linux-x64
-          path: skills/ck
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: ck-win-x64
-          path: skills/ck
-
-      - name: Restore execute bits
-        run: |
-          chmod +x skills/ck/ck-osx-arm64
-          chmod +x skills/ck/ck-osx-x64
-          chmod +x skills/ck/ck-linux-x64
-
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: 'ci: update all platform binaries [skip ci]'
-          file_pattern: >-
-            skills/ck/ck-osx-arm64
-            skills/ck/ck-osx-x64
-            skills/ck/ck-linux-x64
-            skills/ck/ck-win-x64.exe

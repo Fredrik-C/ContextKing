@@ -88,6 +88,7 @@ jobs:
             mkdir -p "$stage/hooks"
             mkdir -p "$stage/models/bge-small-en-v1.5/onnx"
             mkdir -p "$stage/rules"
+            mkdir -p "$stage/plugins"
 
             cp /tmp/binaries/"$binary"         "$stage/skills/ck/$binary"
             chmod +x                            "$stage/skills/ck/$binary"
@@ -109,6 +110,7 @@ jobs:
                      "$stage/hooks/agent-usage-guard.sh"
             cp -r models/bge-small-en-v1.5/.  "$stage/models/bge-small-en-v1.5/"
             cp rules/ck-code-search-protocol.md "$stage/rules/"
+            cp plugins/ck-guards.ts            "$stage/plugins/"
             cp scripts/deploy.sh               "$stage/scripts/"
             cp scripts/deploy-codex.sh         "$stage/scripts/"
             cp scripts/deploy-opencode.sh      "$stage/scripts/"
@@ -134,6 +136,7 @@ jobs:
           mkdir -p "$win_stage/hooks"
           mkdir -p "$win_stage/models/bge-small-en-v1.5/onnx"
           mkdir -p "$win_stage/rules"
+          mkdir -p "$win_stage/plugins"
 
           cp /tmp/binaries/ck-win-x64.exe    "$win_stage/skills/ck/"
           cp skills/ck/ck                    "$win_stage/skills/ck/"
@@ -150,6 +153,7 @@ jobs:
           cp hooks/agent-usage-guard.ps1     "$win_stage/hooks/"
           cp -r models/bge-small-en-v1.5/.  "$win_stage/models/bge-small-en-v1.5/"
           cp rules/ck-code-search-protocol.md "$win_stage/rules/"
+          cp plugins/ck-guards.ts            "$win_stage/plugins/"
           cp scripts/deploy.ps1              "$win_stage/scripts/"
           cp scripts/deploy-codex.ps1        "$win_stage/scripts/"
           cp scripts/deploy-opencode.ps1     "$win_stage/scripts/"
@@ -189,5 +193,9 @@ jobs:
             /tmp/context-king-osx-x64.tar.gz
             /tmp/context-king-linux-x64.tar.gz
             /tmp/context-king-windows.zip
+            /tmp/binaries/ck-osx-arm64
+            /tmp/binaries/ck-osx-x64
+            /tmp/binaries/ck-linux-x64
+            /tmp/binaries/ck-win-x64.exe
             scripts/install.sh
             scripts/install.ps1

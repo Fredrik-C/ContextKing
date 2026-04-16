@@ -417,3 +417,14 @@ FodyWeavers.xsd
 *.msm
 *.msp
 .ck-index/
+
+# Context King platform binaries (built by CI, distributed via GitHub Releases)
+skills/ck/ck-osx-arm64
+skills/ck/ck-osx-x64
+skills/ck/ck-linux-x64
+skills/ck/ck-win-x64.exe
+.opencode/skills/ck/ck-osx-arm64
+.opencode/skills/ck/ck-osx-x64
+.opencode/skills/ck/ck-linux-x64
+.opencode/skills/ck/ck-win-x64.exe
+.DS_Store
