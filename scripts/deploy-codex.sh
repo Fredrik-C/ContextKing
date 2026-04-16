@@ -99,7 +99,7 @@ if [ -n "$TARGET_REPO" ]; then
 
   GITIGNORE="$TARGET_REPO/.gitignore"
   if [ -f "$GITIGNORE" ]; then
-    if ! grep -qxF '.ck-index/' "$GITIGNORE"; then
+    if ! grep -qF '.ck-index' "$GITIGNORE"; then
       {
         echo ''
         echo '# Context King index'

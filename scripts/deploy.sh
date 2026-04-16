@@ -200,7 +200,7 @@ if [ "$HAS_CLAUDE" = true ]; then
   # 6. Add .ck-index/ to .gitignore
   GITIGNORE="$TARGET/.gitignore"
   if [ -f "$GITIGNORE" ]; then
-    if ! grep -qxF '.ck-index/' "$GITIGNORE"; then
+    if ! grep -qF '.ck-index' "$GITIGNORE"; then
       echo '' >> "$GITIGNORE"
       echo '# Context King index' >> "$GITIGNORE"
       echo '.ck-index/' >> "$GITIGNORE"

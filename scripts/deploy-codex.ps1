@@ -64,7 +64,7 @@ if (-not [string]::IsNullOrWhiteSpace($TargetRepo)) {
     $gitignorePath = Join-Path $TargetRepo '.gitignore'
     if (Test-Path -LiteralPath $gitignorePath) {
         $existing = Get-Content -LiteralPath $gitignorePath -Raw
-        if ($existing -notmatch [regex]::Escape('.ck-index/')) {
+        if ($existing -notmatch '\.ck-index') {
             Add-Content -LiteralPath $gitignorePath -Value "`n# Context King index`n.ck-index/"
             Write-Host '  Added .ck-index/ to .gitignore'
         } else {
