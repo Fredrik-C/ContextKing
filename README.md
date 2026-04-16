@@ -416,8 +416,8 @@ mv skills/ck/ContextKing.Cli skills/ck/ck-osx-arm64
 chmod +x skills/ck/ck-osx-arm64 skills/ck/ck
 ```
 
-Pre-built binaries for macOS (arm64, x64), Linux (x64), and Windows (x64) are committed to
-`skills/ck/` and rebuilt automatically by GitHub Actions whenever `src/` changes.
+Pre-built binaries for macOS (arm64, x64), Linux (x64), and Windows (x64) are published as
+GitHub Release assets and rebuilt automatically by GitHub Actions on each tagged release.
 
 ---
 
