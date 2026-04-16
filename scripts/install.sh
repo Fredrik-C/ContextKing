@@ -189,6 +189,12 @@ else
     "$ASSETS_DIR/models/bge-small-en-v1.5/onnx/model_quantized.onnx"
   done_
 
+  # Plugins (OpenCode hooks)
+  mkdir -p "$ASSETS_DIR/plugins"
+  progress "plugins/ck-guards.ts"
+  download "${GITHUB_RAW}/plugins/ck-guards.ts" "$ASSETS_DIR/plugins/ck-guards.ts"
+  done_
+
   # Rules
   mkdir -p "$ASSETS_DIR/rules"
   progress "rules/ck-code-search-protocol.md"
