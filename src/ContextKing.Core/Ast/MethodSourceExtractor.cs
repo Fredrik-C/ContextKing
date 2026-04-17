@@ -65,6 +65,24 @@ public static class MethodSourceExtractor
         return results;
     }
 
+    /// <summary>
+    /// Returns all member names in the file (methods, constructors, properties).
+    /// Used for fuzzy-match suggestions when a member name is not found.
+    /// </summary>
+    public static IReadOnlyList<string> GetAllMemberNames(string filePath)
+    {
+        var source = File.ReadAllText(filePath);
+        var tree   = CSharpSyntaxTree.ParseText(source, path: filePath);
+        var root   = tree.GetRoot();
+
+        return root.DescendantNodes()
+            .Select(GetMemberName)
+            .Where(n => n is not null)
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
     // ── Name / type helpers ──────────────────────────────────────────────────────
 
     private static string? GetMemberName(SyntaxNode node) => node switch

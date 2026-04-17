@@ -90,6 +90,9 @@ internal static class SearchCommand
         var result = scopedSearcher.Search(
             dbPath, repoRoot, query, pattern, topK, minScore, ignoreCase: !caseSensitive);
 
+        // Guard: detect repeated searches returning the same folders
+        EmitDedupHintIfNeeded(repoRoot, result.Folders, pattern!);
+
         if (result.Matches.Count == 0)
         {
             // Still show the folders that were searched
@@ -154,5 +157,47 @@ internal static class SearchCommand
             Matches are grouped by folder, ordered by semantic relevance score.
             First call auto-builds the index if not present. Progress goes to stderr.
             """);
+    }
+
+    /// <summary>
+    /// Detects when repeated ck search calls return the same top folders, which indicates
+    /// the agent is re-running with rephrased --query text instead of changing --pattern.
+    /// Emits a stderr hint to change --pattern or proceed to ck signatures.
+    /// </summary>
+    private static void EmitDedupHintIfNeeded(
+        string repoRoot, IReadOnlyList<ScoredFolder> folders, string currentPattern)
+    {
+        try
+        {
+            var indexDir = Path.Combine(repoRoot, ".ck-index");
+            var stateFile = Path.Combine(indexDir, "last-search-state.txt");
+
+            var topFolders = folders.Take(5).Select(f => f.Path).Order().ToList();
+            var currentKey = string.Join("|", topFolders);
+
+            if (File.Exists(stateFile))
+            {
+                var lines = File.ReadAllLines(stateFile);
+                if (lines.Length >= 2)
+                {
+                    var previousKey = lines[0];
+                    var previousPattern = lines[1];
+                    if (previousKey == currentKey && previousPattern == currentPattern)
+                    {
+                        Console.Error.WriteLine(
+                            "[ck hint] Same folders and pattern as previous search — rephrasing --query " +
+                            "does not change results. Either change --pattern to search for a different " +
+                            "keyword, or proceed to 'ck signatures' on the returned folders.");
+                    }
+                }
+            }
+
+            if (Directory.Exists(indexDir))
+                File.WriteAllText(stateFile, $"{currentKey}\n{currentPattern}\n");
+        }
+        catch
+        {
+            // Best-effort hint — never fail the search.
+        }
     }
 }

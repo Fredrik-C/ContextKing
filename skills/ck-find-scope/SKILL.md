@@ -62,6 +62,18 @@ below the cluster floor to return the whole relevant cluster, or a few points ab
 to trim the tail. The exact value is codebase-dependent — do not use a fixed threshold without
 first checking your own score range.
 
+## Do not re-run with rephrased query text
+
+The semantic ranking is **stable across synonym variations**. Queries like
+`"stripe interac refund terminal card present"` and `"stripe interac present refund terminal
+card-present"` produce the same folder rankings — the embedding model treats these as the
+same concept.
+
+If the returned folders look right, **proceed to `ck signatures`** on those folders. Do not
+re-run `find-scope` hoping different wording will surface different folders. If the folders
+are genuinely wrong, the issue is domain vocabulary — try terms from the codebase's own naming
+conventions (class names, namespace segments) rather than synonyms of the same concept.
+
 ## Use multiple keywords — this matters
 
 The search combines semantic similarity with exact keyword matching. More keywords in the query

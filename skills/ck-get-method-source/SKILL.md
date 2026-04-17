@@ -54,6 +54,21 @@ only `content` has comments stripped.
 - **`body_only`** — skip repetitive boilerplate in the signature, get straight to the logic.
 - **`body_without_comments`** — strip noise from heavily commented methods; span is still accurate for cross-referencing.
 
+### `<member-name>` is an exact match — not a keyword search
+
+The `<member-name>` argument must match the **exact `memberName` column** from `ck signatures`
+output. It is not a keyword search:
+
+- `Refund` will **NOT** match `RefundPaymentAsync`
+- `Charge` will **NOT** match `ChargeCreditCardAsync`
+
+**Always copy the member name from `ck signatures` output** rather than guessing. If you have
+not run `ck signatures` on the file yet, do that first — the signatures output gives you the
+exact names to use.
+
+If the name is not found, the CLI will suggest the closest matches as a fallback. But the
+correct workflow is to always have the exact name from signatures before calling this tool.
+
 ### Disambiguation
 
 When a name has multiple overloads the result array contains all of them.

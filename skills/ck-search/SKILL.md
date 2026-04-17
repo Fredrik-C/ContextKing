@@ -37,12 +37,39 @@ ranking** with **keyword search** (git grep) in a single call. Use this instead 
 .claude\skills\ck\ck.cmd search --query "<scope description>" --pattern "<keyword>" [options]
 ```
 
+## How --query and --pattern work (two-stage pipeline)
+
+`ck search` is a **two-stage pipeline**, not a single search box:
+
+1. **`--query`** selects **which folders** to search. It uses semantic embedding similarity —
+   the same mechanism as `ck find-scope`. Rephrasing the query with synonyms (`"stripe interac
+   refund terminal"` vs `"stripe interac present refund terminal card-present"`) produces
+   **nearly identical folder rankings**. The semantic model treats these as the same concept.
+
+2. **`--pattern`** filters **lines within those folders** using literal `git grep` (regex).
+   This is where specificity matters: `RefundPaymentAsync` finds different lines than `Refund`.
+
+**If you got the right folders but wrong matches:** change `--pattern`, not `--query`.
+Only change `--query` when the returned folders are in the **wrong area** of the codebase entirely.
+
+**Do not re-run with rephrased query text.** If a search returned relevant folders, those
+folders will not change with synonym variations. Proceed to `ck signatures` on the returned
+folders, or run another `ck search` with a **different `--pattern`** targeting a different symbol.
+
+## Do not pipe output through grep or head
+
+The output of `ck search` is already structured and compact — folder scores followed by matching
+lines grouped by folder. **Do not** pipe it through `grep`, `head`, or other filters. Filtering
+discards the folder scores and grouping structure that you need to decide where to look next.
+
+If the output is too large, reduce `--top` or add `--min-score` to narrow the folder set.
+
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--query <text>` | (required) | Semantic scope description — same multi-keyword query as `find-scope` |
-| `--pattern <text>` | (required) | Keyword or regex to search for within the scoped folders |
+| `--query <text>` | (required) | Semantic scope description — determines which folders are searched |
+| `--pattern <text>` | (required) | Literal keyword or regex to match within the scoped folders (git grep) |
 | `--top <n>` | 10 | Number of top-ranked folders to search within |
 | `--min-score <f>` | off | Exclude folders below this score threshold |
 | `--case-sensitive` | off | Make pattern matching case-sensitive (default: case-insensitive) |

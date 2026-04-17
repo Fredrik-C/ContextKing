@@ -86,6 +86,29 @@ internal static class GetMethodSourceCommand
                 var typeHint = typeFilter is not null ? $" in type '{typeFilter}'" : string.Empty;
                 Console.Error.WriteLine(
                     $"[ck get-method-source] No member '{memberName}' found{typeHint} in '{filePath}'.");
+
+                // Suggest closest member names as a guard against guessing
+                var allNames = IsTypeScriptFile(filePath)
+                    ? TsMethodSourceExtractor.GetAllMemberNames(filePath)
+                    : MethodSourceExtractor.GetAllMemberNames(filePath);
+
+                var suggestions = allNames
+                    .Where(n => n.Contains(memberName, StringComparison.OrdinalIgnoreCase)
+                             || memberName.Contains(n, StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.Ordinal)
+                    .Take(10)
+                    .ToList();
+
+                if (suggestions.Count > 0)
+                {
+                    Console.Error.WriteLine($"[ck get-method-source] Did you mean: {string.Join(", ", suggestions)}");
+                    Console.Error.WriteLine($"[ck get-method-source] Run 'ck signatures {filePath}' to see all member names.");
+                }
+                else
+                {
+                    Console.Error.WriteLine($"[ck get-method-source] Run 'ck signatures {filePath}' to see all available member names.");
+                }
+
                 Console.WriteLine("[]");
                 return Task.FromResult(1);
             }

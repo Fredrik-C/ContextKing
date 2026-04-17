@@ -37,6 +37,14 @@ Passing a folder processes every `.cs` file in that subtree recursively. This is
 follow-up to `ck find-scope`: take the returned folder path and feed it straight in — no glob
 expansion, no file enumeration, no risk of accidentally leaving files out.
 
+**Use the leaf folder from `ck find-scope`, not a parent folder.** For example, if `find-scope`
+returned `src/.../Terminals/Adyen/`, pass that — not `src/.../Gateways/Adyen/` (a parent that
+may contain hundreds of files across subfolders). Parent folders produce overwhelming output
+that wastes tokens. If the command processes more than ~30 files, you passed too broad a
+folder — narrow to a subfolder or pass specific files. Individual files can legitimately have
+many signatures (large service classes with 40+ methods are common); the concern is folder
+breadth, not per-file depth.
+
 **Specific files or glob patterns:**
 ```bash
 # Mac / Linux — specific files or glob

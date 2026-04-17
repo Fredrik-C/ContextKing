@@ -54,3 +54,12 @@ Windows PowerShell equivalents use `.claude\skills\ck\ck.cmd` instead.
    right file, run signatures first.
 9. **Do NOT use `find`, `ls`, or `Search` to enumerate files** after CK has returned results.
    Pass the folder directly to `ck signatures` — it recursively processes all supported files.
+10. **Do NOT re-run `ck search` or `ck find-scope` with rephrased query text.** The semantic
+    ranking is stable across synonym variations — rephrasing produces the same folders. If you
+    got the right folders but wrong matches, change `--pattern` in `ck search`. If the folders
+    are wrong, use different domain vocabulary (class names, namespace segments), not synonyms.
+11. **Do NOT pipe `ck search` output through `grep` or `head`.** The output is already structured.
+    Filtering it discards folder scores and grouping. Use `--top` or `--min-score` to limit results.
+12. **`ck get-method-source <member-name>` is an exact name match**, not a keyword search.
+    `Refund` will not match `RefundPaymentAsync`. Always get the exact name from
+    `ck signatures` output before calling `get-method-source`.

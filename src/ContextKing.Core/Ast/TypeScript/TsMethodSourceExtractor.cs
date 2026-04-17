@@ -27,6 +27,36 @@ public static class TsMethodSourceExtractor
         return results;
     }
 
+    /// <summary>
+    /// Returns all member names in the file. Used for fuzzy-match suggestions
+    /// when a member name is not found.
+    /// </summary>
+    public static IReadOnlyList<string> GetAllMemberNames(string filePath)
+    {
+        var source = File.ReadAllText(filePath);
+        using var parser = new Parser();
+        var tree = parser.ParseString(source);
+        var root = tree.root_node();
+        var names = new List<string>();
+        CollectMemberNames(root, source, names);
+        return names.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    private static void CollectMemberNames(TSNode node, string source, List<string> names)
+    {
+        var nodeType = node.type();
+        if (IsMemberNode(nodeType))
+        {
+            var name = GetFieldText(node, "name", source);
+            if (name is not null)
+                names.Add(name);
+            return;
+        }
+
+        for (uint i = 0; i < node.child_count(); i++)
+            CollectMemberNames(node.child(i), source, names);
+    }
+
     private static void FindMembers(
         TSNode node, string source, string filePath,
         string memberName, string? typeFilter, SourceMode mode,

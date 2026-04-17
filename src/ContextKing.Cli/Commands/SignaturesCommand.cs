@@ -89,6 +89,14 @@ internal static class SignaturesCommand
         if (tsFiles.Count > 0)
             TsSignatureExtractor.Extract(tsFiles, Console.Out, Console.Error);
 
+        // Guard: warn when too many files were processed (broad folder passed)
+        if (valid.Count > 30)
+        {
+            Console.Error.WriteLine(
+                $"[ck hint] {valid.Count} files processed — this is a broad folder. " +
+                "Pass the leaf folder from 'ck find-scope' or specific files to reduce output.");
+        }
+
         // Hint: if the folder contains only small files, suggest reading directly next time.
         EmitSmallFolderHint(valid);
 
