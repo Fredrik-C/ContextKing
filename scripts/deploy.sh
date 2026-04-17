@@ -119,10 +119,8 @@ if [ "$HAS_CLAUDE" = true ]; then
 
   chmod +x \
     "$DOT_CLAUDE/skills/ck/ck" \
-    "$DOT_CLAUDE/skills/ck/ck-osx-arm64" \
-    "$DOT_CLAUDE/skills/ck/ck-osx-x64" \
-    "$DOT_CLAUDE/skills/ck/ck-linux-x64" \
     2>/dev/null || true
+  # Platform binaries (ck-osx-arm64 etc.) get chmod from install.sh
 
   # 3. Copy rules
   echo "  Copying rules..."
