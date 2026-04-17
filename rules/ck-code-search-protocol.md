@@ -5,6 +5,13 @@ narrowing scope first produces false positives, wastes tokens, and reads the wro
 
 **Before any Glob, Grep, or Read on an unknown file location, use a CK command first.**
 
+### Step 0 — Plan before searching
+
+Before starting code exploration, list the **specific things you need to find** (interfaces,
+implementations, callers, DTOs, etc.). Work through them **one at a time** — fully resolve
+each item with find-scope → signatures → get-method-source before moving to the next. Do not
+interleave searches for different items; that causes you to revisit the same areas repeatedly.
+
 ### Step 1 — Choose the right entry point
 
 **If you have a keyword** (method name, class name, symbol, error message):

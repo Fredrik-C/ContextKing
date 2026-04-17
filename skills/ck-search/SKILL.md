@@ -25,6 +25,16 @@ ranking** with **keyword search** (git grep) in a single call. Use this instead 
 - You need a truly repo-wide search with no semantic scoping — use `grep -rn` directly
   (but consider whether scoping would actually help).
 
+## Budget your searches
+
+Each `ck search` call adds output to your context window. For a typical task you should need
+**3–6 searches** to locate all relevant code — one per distinct concept you need to find.
+If you are past 8 searches, you are almost certainly re-searching areas you already found.
+Stop searching and switch to `ck signatures` on the folders you have.
+
+**Pattern:** Search once per concept → commit to the returned folders → use signatures and
+get-method-source to drill in. Do not search again for the same concept with different wording.
+
 ## Command
 
 **Mac / Linux:**

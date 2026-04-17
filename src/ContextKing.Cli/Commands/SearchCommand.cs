@@ -162,7 +162,8 @@ internal static class SearchCommand
     /// <summary>
     /// Detects when repeated ck search calls return the same top folders, which indicates
     /// the agent is re-running with rephrased --query text instead of changing --pattern.
-    /// Emits a stderr hint to change --pattern or proceed to ck signatures.
+    /// Also tracks total search count and nudges the agent to commit to signatures after
+    /// too many searches.
     /// </summary>
     private static void EmitDedupHintIfNeeded(
         string repoRoot, IReadOnlyList<ScoredFolder> folders, string currentPattern)
@@ -175,9 +176,14 @@ internal static class SearchCommand
             var topFolders = folders.Take(5).Select(f => f.Path).Order().ToList();
             var currentKey = string.Join("|", topFolders);
 
+            int searchCount = 1;
+
             if (File.Exists(stateFile))
             {
                 var lines = File.ReadAllLines(stateFile);
+                if (lines.Length >= 3 && int.TryParse(lines[2], out var prev))
+                    searchCount = prev + 1;
+
                 if (lines.Length >= 2)
                 {
                     var previousKey = lines[0];
@@ -192,8 +198,24 @@ internal static class SearchCommand
                 }
             }
 
+            // Escalating nudge based on total search count in this session
+            if (searchCount == 8)
+            {
+                Console.Error.WriteLine(
+                    "[ck hint] You have run 8 searches. Stop searching and commit to the folders " +
+                    "you have. Use 'ck signatures' on the most relevant folders, then " +
+                    "'ck get-method-source' to read specific methods.");
+            }
+            else if (searchCount > 12)
+            {
+                Console.Error.WriteLine(
+                    $"[ck hint] {searchCount} searches so far — this is excessive. Each search " +
+                    "adds to your context window. Proceed with 'ck signatures' on the folders " +
+                    "you already found.");
+            }
+
             if (Directory.Exists(indexDir))
-                File.WriteAllText(stateFile, $"{currentKey}\n{currentPattern}\n");
+                File.WriteAllText(stateFile, $"{currentKey}\n{currentPattern}\n{searchCount}\n");
         }
         catch
         {
