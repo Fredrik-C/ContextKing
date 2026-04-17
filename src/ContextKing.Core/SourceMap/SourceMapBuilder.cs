@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ContextKing.Core.Ast;
+using ContextKing.Core.Ast.TypeScript;
 using ContextKing.Core.Embedding;
 using ContextKing.Core.Git;
 
@@ -26,7 +27,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     /// Checks whether the index is fresh, stale, or missing.
     /// Staleness is detected by comparing the stored fingerprint against the current
     /// working-tree state from git. The fingerprint covers the active branch name,
-    /// the set of .cs filenames, and their content hashes, so it changes when files
+    /// the set of source filenames, and their content hashes, so it changes when files
     /// are added/removed/renamed/modified or when the active branch changes.
     /// </summary>
     public static IndexStatus GetStatus(
@@ -57,7 +58,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     /// <summary>
     /// Builds or incrementally updates the index for <paramref name="repoRoot"/>.
     /// Re-embeds folders whose file content changed (add/remove/rename/modify).
-    /// Public method names from .cs files are extracted and included as lexical
+    /// Public method names from source files are extracted and included as lexical
     /// keywords in the folder embedding.
     /// Progress messages go to <paramref name="progress"/> (stderr by convention).
     /// </summary>
@@ -75,7 +76,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
 
         if (forceRebuild) index.ClearAllFolders();
 
-        var gitFolders = GitTracker.ListCsFilesByFolder(repoRoot, _excludeSegments);
+        var gitFolders = GitTracker.ListSourceFilesByFolder(repoRoot, _excludeSegments);
         progress?.Report($"Found {gitFolders.Count} leaf folders to index.");
 
         // ── Classify each folder: re-embed or skip ────────────────────────────
@@ -113,7 +114,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
                     var pathTokens     = PathTokenizer.TokenizePath(folderPath);
                     var fileTokens     = string.Join(' ', files.Keys.Select(PathTokenizer.TokenizeFileName));
 
-                    // Extract public method names from all .cs files (Roslyn parse — CPU + I/O)
+                    // Extract public method names from all source files (Roslyn/tree-sitter parse — CPU + I/O)
                     var methodNames  = ExtractPublicMethodNames(repoRoot, folderPath, files.Keys);
                     var methodTokens = methodNames.Count > 0
                         ? " " + string.Join(' ', methodNames)
@@ -148,7 +149,8 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     // ── Pure computation helpers ──────────────────────────────────────────────
 
     /// <summary>
-    /// Extracts distinct public method names from all .cs files in a folder.
+    /// Extracts distinct public method names from all source files in a folder.
+    /// Dispatches to the appropriate extractor based on file extension.
     /// Names are returned as-is (not split by camelCase) for use as exact-match keywords.
     /// </summary>
     private static IReadOnlyList<string> ExtractPublicMethodNames(
@@ -168,7 +170,11 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
                 repoRoot,
                 relPath.Replace('/', Path.DirectorySeparatorChar));
 
-            foreach (var name in PublicMethodNameExtractor.ExtractFromFile(absPath))
+            var extracted = IsTypeScriptFile(fileName)
+                ? TsPublicMethodNameExtractor.ExtractFromFile(absPath)
+                : PublicMethodNameExtractor.ExtractFromFile(absPath);
+
+            foreach (var name in extracted)
             {
                 if (seen.Add(name))
                     names.Add(name);
@@ -177,6 +183,10 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
 
         return names;
     }
+
+    private static bool IsTypeScriptFile(string path) =>
+        path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
 
     private static string SerialiseHashes(Dictionary<string, string> files)
         => JsonSerializer.Serialize(

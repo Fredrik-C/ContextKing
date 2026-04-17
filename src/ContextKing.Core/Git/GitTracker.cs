@@ -5,7 +5,7 @@ using System.Text;
 namespace ContextKing.Core.Git;
 
 /// <summary>
-/// Wraps git CLI calls to discover worktree structure and enumerate tracked .cs files.
+/// Wraps git CLI calls to discover worktree structure and enumerate tracked source files (.cs, .ts, .tsx).
 /// </summary>
 public static class GitTracker
 {
@@ -37,9 +37,19 @@ public static class GitTracker
         catch { return "unknown"; }
     }
 
+    private static readonly string SourceFilePathspec = "-- *.cs *.ts *.tsx";
+
+    /// <summary>
+    /// File extensions considered as source files for indexing.
+    /// </summary>
+    private static bool IsSourceFile(string path) =>
+        path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Computes a short fingerprint (16 hex chars) covering the current branch name,
-    /// the set of .cs filenames, and their content hashes.
+    /// the set of source filenames, and their content hashes.
     /// The fingerprint changes when a file is added, removed, renamed, OR modified.
     /// Used by <see cref="SourceMap.SourceMapBuilder.GetStatus"/> to detect staleness.
     /// </summary>
@@ -47,9 +57,9 @@ public static class GitTracker
     {
         excludeSegments ??= ["Test", "Tests", "Specs"];
 
-        // Staged/committed .cs files with blob hashes
+        // Staged/committed source files with blob hashes
         // git ls-files -s outputs: "<mode> <hash> <stage>\t<relpath>"
-        var stagedOutput = RunGit("ls-files -s --abbrev=8 -- *.cs", repoRoot);
+        var stagedOutput = RunGit($"ls-files -s --abbrev=8 {SourceFilePathspec}", repoRoot);
         var entries = new SortedSet<string>(StringComparer.Ordinal);
 
         foreach (var line in stagedOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -66,7 +76,7 @@ public static class GitTracker
         // Remove tracked files deleted in the working tree
         try
         {
-            var deleted = RunGit("ls-files --deleted -- *.cs", repoRoot);
+            var deleted = RunGit($"ls-files --deleted {SourceFilePathspec}", repoRoot);
             foreach (var line in deleted.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var path = line.TrimEnd('\r').Replace('\\', '/');
@@ -75,14 +85,14 @@ public static class GitTracker
         }
         catch { /* git error — skip */ }
 
-        // Add untracked .cs files with pseudo-hashes
+        // Add untracked source files with pseudo-hashes
         try
         {
-            var others = RunGit("ls-files --others --exclude-standard -- *.cs", repoRoot);
+            var others = RunGit($"ls-files --others --exclude-standard {SourceFilePathspec}", repoRoot);
             foreach (var line in others.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var path = line.TrimEnd('\r').Replace('\\', '/');
-                if (!path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!IsSourceFile(path)) continue;
                 if (IsExcluded(path, excludeSegments)) continue;
 
                 var absPath = Path.Combine(repoRoot, path.Replace('/', Path.DirectorySeparatorChar));
@@ -99,14 +109,14 @@ public static class GitTracker
     }
 
     /// <summary>
-    /// Returns all .cs files visible to the index, grouped by their relative folder path.
+    /// Returns all source files (.cs, .ts, .tsx) visible to the index, grouped by their relative folder path.
     /// "Visible" means: staged/committed files, minus files deleted in the working tree,
     /// plus untracked files present in the working tree.
     /// Key: forward-slash relative folder path (e.g. "src/Modules/Payment").
     /// Value: dictionary of filename → hash (git blob hash for tracked, wt:{mtime}:{size} for untracked).
     /// Folders whose path contains any <paramref name="excludeSegments"/> are omitted.
     /// </summary>
-    public static Dictionary<string, Dictionary<string, string>> ListCsFilesByFolder(
+    public static Dictionary<string, Dictionary<string, string>> ListSourceFilesByFolder(
         string repoRoot,
         IReadOnlyList<string>? excludeSegments = null)
     {
@@ -114,7 +124,7 @@ public static class GitTracker
 
         // 1. Staged/committed files with blob hashes
         // git ls-files -s outputs: "<mode> <hash> <stage>\t<relpath>"
-        var stagedOutput = RunGit("ls-files -s --abbrev=8 -- *.cs", repoRoot);
+        var stagedOutput = RunGit($"ls-files -s --abbrev=8 {SourceFilePathspec}", repoRoot);
         var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
 
         foreach (var line in stagedOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -132,7 +142,7 @@ public static class GitTracker
         //    These still appear in git ls-files -s but the file is gone from disk.
         try
         {
-            var deleted = RunGit("ls-files --deleted -- *.cs", repoRoot);
+            var deleted = RunGit($"ls-files --deleted {SourceFilePathspec}", repoRoot);
             foreach (var line in deleted.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var relPath  = line.TrimEnd('\r').Replace('\\', '/');
@@ -149,15 +159,15 @@ public static class GitTracker
         }
         catch { /* git error — skip */ }
 
-        // 3. Add untracked .cs files (working-tree only, not yet staged).
+        // 3. Add untracked source files (working-tree only, not yet staged).
         //    Use wt:{mtime_ticks}:{size} as a pseudo-hash so content/filename changes are detected.
         try
         {
-            var others = RunGit("ls-files --others --exclude-standard -- *.cs", repoRoot);
+            var others = RunGit($"ls-files --others --exclude-standard {SourceFilePathspec}", repoRoot);
             foreach (var line in others.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var relPath = line.TrimEnd('\r').Replace('\\', '/');
-                if (!relPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!IsSourceFile(relPath)) continue;
                 if (IsExcluded(relPath, excludeSegments)) continue;
 
                 var absPath = Path.Combine(repoRoot, relPath.Replace('/', Path.DirectorySeparatorChar));

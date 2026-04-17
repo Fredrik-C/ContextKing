@@ -55,24 +55,24 @@ public class GitTrackerTests : IDisposable
             "abbreviated hash is 5+ hex characters");
     }
 
-    // ── ListCsFilesByFolder ────────────────────────────────────────────────────
+    // ── ListSourceFilesByFolder ────────────────────────────────────────────────────
 
     [Fact]
-    public void ListCsFilesByFolder_EmptyRepo_ReturnsEmpty()
+    public void ListSourceFilesByFolder_EmptyRepo_ReturnsEmpty()
     {
-        var result = GitTracker.ListCsFilesByFolder(_repo.Root);
+        var result = GitTracker.ListSourceFilesByFolder(_repo.Root);
         result.Should().BeEmpty();
     }
 
     [Fact]
-    public void ListCsFilesByFolder_GroupsByFolder()
+    public void ListSourceFilesByFolder_GroupsByFolder()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs");
         _repo.WriteFile("src/Payment/StripeGateway.cs");
         _repo.WriteFile("src/Auth/AuthController.cs");
         _repo.StageAndCommit();
 
-        var result = GitTracker.ListCsFilesByFolder(_repo.Root);
+        var result = GitTracker.ListSourceFilesByFolder(_repo.Root);
 
         result.Should().ContainKey("src/Payment");
         result.Should().ContainKey("src/Auth");
@@ -82,7 +82,7 @@ public class GitTrackerTests : IDisposable
     }
 
     [Fact]
-    public void ListCsFilesByFolder_ExcludesTestFoldersByDefault()
+    public void ListSourceFilesByFolder_ExcludesTestFoldersByDefault()
     {
         // The exclusion logic does exact segment matching: a segment must equal "Tests"
         // (case-insensitive). Use bare segment names, not dotted names like "Payment.Tests".
@@ -91,7 +91,7 @@ public class GitTrackerTests : IDisposable
         _repo.WriteFile("src/Specs/SpecFile.cs");
         _repo.StageAndCommit();
 
-        var result = GitTracker.ListCsFilesByFolder(_repo.Root);
+        var result = GitTracker.ListSourceFilesByFolder(_repo.Root);
 
         result.Should().ContainKey("src/Payment");
         result.Keys.Should().NotContain("src/Tests");
@@ -99,20 +99,23 @@ public class GitTrackerTests : IDisposable
     }
 
     [Fact]
-    public void ListCsFilesByFolder_IgnoresNonCsFiles()
+    public void ListSourceFilesByFolder_IgnoresNonSourceFiles()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs");
         _repo.WriteFile("src/Payment/README.md");
         _repo.WriteFile("src/Payment/config.json");
+        _repo.WriteFile("src/Payment/utils.ts");
+        _repo.WriteFile("src/Payment/Component.tsx");
         _repo.StageAndCommit();
 
-        var result = GitTracker.ListCsFilesByFolder(_repo.Root);
+        var result = GitTracker.ListSourceFilesByFolder(_repo.Root);
 
-        result["src/Payment"].Keys.Should().BeEquivalentTo(["PaymentService.cs"]);
+        result["src/Payment"].Keys.Should().BeEquivalentTo(
+            ["PaymentService.cs", "utils.ts", "Component.tsx"]);
     }
 
     [Fact]
-    public void ListCsFilesByFolder_UntrackedFile_IsIncluded()
+    public void ListSourceFilesByFolder_UntrackedFile_IsIncluded()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs");
         _repo.StageAndCommit();
@@ -120,13 +123,13 @@ public class GitTrackerTests : IDisposable
         // Write a new file but do NOT stage or commit it
         _repo.WriteFile("src/Payment/NewService.cs");
 
-        var result = GitTracker.ListCsFilesByFolder(_repo.Root);
+        var result = GitTracker.ListSourceFilesByFolder(_repo.Root);
 
         result["src/Payment"].Keys.Should().Contain("NewService.cs");
     }
 
     [Fact]
-    public void ListCsFilesByFolder_TrackedFiledDeletedFromDisk_IsExcluded()
+    public void ListSourceFilesByFolder_TrackedFiledDeletedFromDisk_IsExcluded()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs");
         _repo.WriteFile("src/Payment/OldService.cs");
@@ -135,19 +138,19 @@ public class GitTrackerTests : IDisposable
         // Delete from disk without staging the deletion
         _repo.DeleteFile("src/Payment/OldService.cs");
 
-        var result = GitTracker.ListCsFilesByFolder(_repo.Root);
+        var result = GitTracker.ListSourceFilesByFolder(_repo.Root);
 
         result["src/Payment"].Keys.Should().NotContain("OldService.cs");
         result["src/Payment"].Keys.Should().Contain("PaymentService.cs");
     }
 
     [Fact]
-    public void ListCsFilesByFolder_FileHashes_AreNonEmpty()
+    public void ListSourceFilesByFolder_FileHashes_AreNonEmpty()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs");
         _repo.StageAndCommit();
 
-        var result = GitTracker.ListCsFilesByFolder(_repo.Root);
+        var result = GitTracker.ListSourceFilesByFolder(_repo.Root);
 
         result["src/Payment"]["PaymentService.cs"].Should().NotBeNullOrEmpty();
     }
