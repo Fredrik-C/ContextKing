@@ -24,7 +24,7 @@ if ($hasCk -and $hasPipe) {
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'block'
+            permissionDecision = 'deny'
             permissionDecisionReason = @"
 [ck-guard] BLOCKED — do not pipe ck output through head, grep, or tail.
 

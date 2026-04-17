@@ -140,7 +140,10 @@ ck search --query "order status" --pattern "OrderStatus\.(Cancelled|Refunded)"
 
 ## Behaviour
 
-- **Auto-builds index on first call** if no index exists (same as `find-scope`).
+- **Fast path:** When `--type` + `--name` are provided, tries a repo-wide `git grep` first.
+  If the symbol is found, results are returned **instantly without loading the index**.
+  Falls back to scoped search only if the fast path finds nothing.
+- **Auto-builds index** only when the fast path misses (or when using `--pattern`).
 - Uses `git grep` internally — only searches tracked (committed/staged) files.
 - Typed search uses Perl-compatible regex (`-P`) for precise matching.
 - Case-insensitive by default; add `--case-sensitive` for exact matching.

@@ -73,6 +73,85 @@ public sealed class ScopedSearcher(SourceMapSearcher searcher)
     }
 
     /// <summary>
+    /// Fast path: repo-wide git grep for a typed pattern, skipping the semantic index entirely.
+    /// Returns null if no matches found (caller should fall back to scoped search).
+    /// </summary>
+    public static ScopedSearchResult? SearchRepoWide(
+        string repoRoot,
+        SearchType searchType,
+        string name,
+        bool ignoreCase = true)
+    {
+        if (searchType == SearchType.File)
+            return SearchRepoWideByFilename(repoRoot, name, ignoreCase);
+
+        var pattern = SearchPatternRegistry.BuildPattern(searchType, name);
+        if (pattern is null)
+            return null;
+
+        var matches = GitGrepExtendedRepoWide(repoRoot, pattern, ignoreCase);
+        if (matches.Count == 0)
+            return null;
+
+        // Derive folder list from matches
+        var folders = matches
+            .Select(m =>
+            {
+                var lastSlash = m.File.LastIndexOf('/');
+                return lastSlash >= 0 ? m.File[..lastSlash] : ".";
+            })
+            .Distinct(StringComparer.Ordinal)
+            .Select(p => new ScoredFolder(p, 1.0f))
+            .ToList();
+
+        return new ScopedSearchResult(folders, matches);
+    }
+
+    private static ScopedSearchResult? SearchRepoWideByFilename(
+        string repoRoot, string name, bool ignoreCase)
+    {
+        var comparison = ignoreCase
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var output = RunGitSafe(["ls-files"], repoRoot);
+        var matches = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(f => f.TrimEnd('\r'))
+            .Where(f => Path.GetFileNameWithoutExtension(f).Contains(name, comparison))
+            .Select(f =>
+            {
+                var lastSlash = f.LastIndexOf('/');
+                return new ScopedMatch(f, 0, $"[file] {Path.GetFileName(f)}", 1.0f);
+            })
+            .ToList();
+
+        if (matches.Count == 0)
+            return null;
+
+        var folders = matches
+            .Select(m =>
+            {
+                var lastSlash = m.File.LastIndexOf('/');
+                return lastSlash >= 0 ? m.File[..lastSlash] : ".";
+            })
+            .Distinct(StringComparer.Ordinal)
+            .Select(p => new ScoredFolder(p, 1.0f))
+            .ToList();
+
+        return new ScopedSearchResult(folders, matches);
+    }
+
+    private static List<ScopedMatch> GitGrepExtendedRepoWide(
+        string repoRoot, string pattern, bool ignoreCase)
+    {
+        var argList = new List<string> { "grep", "-n", "--no-color", "-P" };
+        if (ignoreCase) argList.Add("-i");
+        argList.AddRange(["-e", pattern]);
+
+        return ParseGrepOutput(RunGitSafe(argList, repoRoot));
+    }
+
+    /// <summary>
     /// For SearchType.File: lists tracked files in each folder whose name contains the search term.
     /// </summary>
     private static ScopedSearchResult SearchByFilename(

@@ -98,6 +98,26 @@ internal static class SearchCommand
             return 1;
         }
 
+        // Fast path: when --type + --name are provided, try repo-wide git grep first.
+        // This skips index loading/building entirely when the symbol is found directly.
+        if (searchType is not null && name is not null)
+        {
+            var fastResult = ScopedSearcher.SearchRepoWide(
+                repoRoot, searchType.Value, name, ignoreCase: !caseSensitive);
+
+            if (fastResult is not null)
+            {
+                Console.Error.WriteLine("[ck search] Fast path: found via repo-wide search (index not needed).");
+                EmitDedupHintIfNeeded(repoRoot, fastResult.Value.Folders,
+                    SearchPatternRegistry.BuildPattern(searchType.Value, name) ?? name);
+                PrintResults(fastResult.Value);
+                return 0;
+            }
+
+            // Fast path found nothing — fall through to scoped search
+            Console.Error.WriteLine("[ck search] Fast path: no repo-wide matches, falling back to scoped search...");
+        }
+
         var dbPath = SourceMapBuilder.GetDbPath(repoRoot);
 
         // Auto-build index on first use if missing or stale
@@ -150,6 +170,13 @@ internal static class SearchCommand
             return 0;
         }
 
+        PrintResults(result);
+
+        return 0;
+    }
+
+    private static void PrintResults(ScopedSearchResult result)
+    {
         // Group matches by folder, preserving folder score order
         var folderOrder = result.Folders.Select(f => f.Path).ToList();
         var matchesByFolder = result.Matches
@@ -171,8 +198,6 @@ internal static class SearchCommand
             foreach (var match in group)
                 Console.WriteLine($"  {match.File}:{match.Line}: {match.Content}");
         }
-
-        return 0;
     }
 
     private static bool TryParseSearchType(string value, out SearchType result)

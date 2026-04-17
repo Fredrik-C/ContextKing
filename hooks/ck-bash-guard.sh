@@ -40,7 +40,7 @@ Remove the pipe and re-run the ck command directly." \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "permissionDecision": "block",
+        "permissionDecision": "deny",
         "permissionDecisionReason": $reason
       }
     }'
