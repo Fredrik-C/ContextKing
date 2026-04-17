@@ -1,4 +1,5 @@
 using ContextKing.Core.Git;
+using ContextKing.Core.Search;
 using ContextKing.Core.SourceMap;
 using ContextKing.Cli;
 
@@ -10,6 +11,8 @@ internal static class SearchCommand
     {
         string? query    = null;
         string? pattern  = null;
+        string? name     = null;
+        string? typeStr  = null;
         string? repo     = null;
         int     topK     = 10;
         float   minScore = 0f;
@@ -22,6 +25,8 @@ internal static class SearchCommand
             {
                 case "--query"     when i + 1 < args.Length: query   = args[++i]; break;
                 case "--pattern"   when i + 1 < args.Length: pattern = args[++i]; break;
+                case "--name"      when i + 1 < args.Length: name    = args[++i]; break;
+                case "--type"      when i + 1 < args.Length: typeStr = args[++i]; break;
                 case "--repo"      when i + 1 < args.Length: repo    = args[++i]; break;
                 case "--top"       when i + 1 < args.Length:
                     if (int.TryParse(args[++i], out int k) && k > 0) { topK = k; topKSet = true; }
@@ -48,10 +53,37 @@ internal static class SearchCommand
             return 1;
         }
 
-        if (string.IsNullOrWhiteSpace(pattern))
+        // Determine search mode: typed (--type + --name) or raw (--pattern)
+        SearchType? searchType = null;
+        if (typeStr is not null)
         {
-            Console.Error.WriteLine("[ck search] Error: --pattern is required.");
+            if (!TryParseSearchType(typeStr, out var parsed))
+            {
+                Console.Error.WriteLine($"[ck search] Error: unknown --type '{typeStr}'. Valid types: class, method, member, file.");
+                return 1;
+            }
+            searchType = parsed;
+        }
+
+        bool hasTyped  = searchType is not null || name is not null;
+        bool hasRaw    = pattern is not null;
+
+        if (!hasTyped && !hasRaw)
+        {
+            Console.Error.WriteLine("[ck search] Error: provide either --name (with optional --type) or --pattern.");
             PrintHelp();
+            return 1;
+        }
+
+        if (hasTyped && hasRaw)
+        {
+            Console.Error.WriteLine("[ck search] Error: --pattern cannot be combined with --type/--name. Use one mode or the other.");
+            return 1;
+        }
+
+        if (hasTyped && string.IsNullOrWhiteSpace(name))
+        {
+            Console.Error.WriteLine("[ck search] Error: --name is required when using --type.");
             return 1;
         }
 
@@ -87,16 +119,32 @@ internal static class SearchCommand
         var searcher       = new SourceMapSearcher(searchEmbedder);
         var scopedSearcher = new ScopedSearcher(searcher);
 
-        var result = scopedSearcher.Search(
-            dbPath, repoRoot, query, pattern, topK, minScore, ignoreCase: !caseSensitive);
+        ScopedSearchResult result;
 
-        // Guard: detect repeated searches returning the same folders
-        EmitDedupHintIfNeeded(repoRoot, result.Folders, pattern!);
+        if (searchType is not null)
+        {
+            result = scopedSearcher.SearchTyped(
+                dbPath, repoRoot, query, searchType.Value, name!,
+                topK, minScore, ignoreCase: !caseSensitive);
+
+            var effectivePattern = SearchPatternRegistry.BuildPattern(searchType.Value, name!) ?? name!;
+            EmitDedupHintIfNeeded(repoRoot, result.Folders, effectivePattern);
+        }
+        else
+        {
+            // --name without --type: use name as a plain keyword pattern
+            var effectivePattern = pattern ?? name!;
+            result = scopedSearcher.Search(
+                dbPath, repoRoot, query, effectivePattern,
+                topK, minScore, ignoreCase: !caseSensitive);
+
+            EmitDedupHintIfNeeded(repoRoot, result.Folders, effectivePattern);
+        }
 
         if (result.Matches.Count == 0)
         {
-            // Still show the folders that were searched
-            Console.Error.WriteLine($"[ck search] No matches for '{pattern}' in top {result.Folders.Count} folders.");
+            var searchTerm = name ?? pattern;
+            Console.Error.WriteLine($"[ck search] No matches for '{searchTerm}' in top {result.Folders.Count} folders.");
             foreach (var f in result.Folders)
                 Console.Error.WriteLine($"  {f.Score:F4}\t{f.Path}");
             return 0;
@@ -107,11 +155,9 @@ internal static class SearchCommand
         var matchesByFolder = result.Matches
             .GroupBy(m =>
             {
-                // Find which folder this file belongs to
                 foreach (var fp in folderOrder)
                     if (m.File.StartsWith(fp + "/", StringComparison.Ordinal) || m.File.StartsWith(fp + "\\", StringComparison.Ordinal))
                         return fp;
-                // Fallback: use the file's directory
                 var lastSlash = m.File.LastIndexOf('/');
                 return lastSlash >= 0 ? m.File[..lastSlash] : ".";
             })
@@ -129,21 +175,44 @@ internal static class SearchCommand
         return 0;
     }
 
+    private static bool TryParseSearchType(string value, out SearchType result)
+    {
+        result = value.ToLowerInvariant() switch
+        {
+            "class"  => SearchType.Class,
+            "method" => SearchType.Method,
+            "member" => SearchType.Member,
+            "file"   => SearchType.File,
+            _ => (SearchType)(-1),
+        };
+        return (int)result >= 0;
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("""
             ck search — scoped keyword search (semantic folder ranking + git grep)
 
             Usage:
-              ck search --query <scope-text> --pattern <keyword> [options]
+              ck search --query <scope-text> --name <symbol> [--type <kind>] [options]
+              ck search --query <scope-text> --pattern <regex> [options]
+
+            Two modes:
+              Typed search (preferred):
+                --name <symbol>     Symbol name to search for (e.g. "TerminalGateway")
+                --type <kind>       Symbol type: class, method, member, file
+                                    Generates language-aware regex automatically.
+                                    If omitted with --name, searches as a plain keyword.
+
+              Raw pattern (fallback):
+                --pattern <regex>   Raw regex for git grep (when you need full control)
 
             Combines semantic folder ranking with keyword search in one call.
             First ranks folders by semantic relevance to --query, then searches
-            within the top folders for --pattern using git grep.
+            within the top folders.
 
             Options:
               --query <text>      Semantic scope description (same as find-scope) (required)
-              --pattern <text>    Keyword or regex to search for within scoped folders (required)
               --repo <path>       Path to git repo root (default: git rev-parse from cwd)
               --top <n>           Number of folders to search within (default: 10)
               --min-score <f>     Exclude folders with score below this threshold
