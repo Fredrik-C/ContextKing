@@ -190,3 +190,14 @@ Never use a repo-wide `**/*.cs` Glob or Grep after find-scope has narrowed the a
 
 **Step 3 — read only what you need** using `ck get-method-source` for a single method, or
 a full Read only when several members from the same file are needed.
+
+## When NOT to use find-scope
+
+`find-scope` is for **semantic folder discovery** — finding *where* in the codebase a concept
+lives. It is **not** the right tool for:
+
+- **Cross-cutting reference searches** (who calls X, who implements interface Y, all usages of
+  an enum value). Use `grep -rn` scoped to the relevant module for these.
+- **Exact symbol lookup** when you already know the file or folder. Go straight to
+  `ck signatures` or `ck get-method-source`.
+- **Non-C# files** (SQL, config, YAML, etc.).

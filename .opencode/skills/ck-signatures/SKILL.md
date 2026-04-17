@@ -120,6 +120,32 @@ Layer 3: ck find-scope "order query repository database"   → ck signatures <fo
 Each layer's signatures output tells you exactly which calls to trace in the next layer.
 Do not stop at the first layer — "end-to-end" means tracing all the way to the I/O boundary.
 
+## Filtering signatures with grep
+
+Large files can produce hundreds of signature lines. **Pipe to `grep`** to filter to the
+relevant subset and save context:
+
+```bash
+# Show only refund-related members:
+.opencode/skills/ck/ck signatures src/Gateways/StripePaymentGateway.cs | grep -i refund
+
+# Show members matching multiple terms:
+.opencode/skills/ck/ck signatures src/Payments/PaymentComponent.cs | grep -iE "terminal|card.?present"
+
+# Include a few lines of context around matches:
+.opencode/skills/ck/ck signatures src/Queues/QueueItemComponent.cs | grep -A2 "TerminalPayment"
+```
+
+This is especially useful when scanning a gateway or component with many methods and you only
+care about a specific operation.
+
+## IMPORTANT: always use get-method-source after identifying a target
+
+Once you have identified the target member from signatures output, **always** use
+`ck get-method-source` to read its implementation. **Do not** fall back to a full file `Read`
+when you only need one method — that wastes tokens and context window. The only exception is
+when you need several members from the same file; then a full `Read` is acceptable.
+
 ## When to use
 
 - **Impact analysis**: pass the folder path to map the complete method surface before deciding
