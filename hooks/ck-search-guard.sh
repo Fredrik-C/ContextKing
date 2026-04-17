@@ -26,16 +26,15 @@ if [[ "$TOOL" == "Glob" ]]; then
   [[ "$DEPTH" -gt 3 ]] && exit 0
 
   jq -n \
-    --arg reason "[ck-guard] Globbing for source files across a wide path (pattern: '$PATTERN', path: '${SEARCH_PATH:-(repo root)}').
+    --arg reason "[ck-guard] Broad source file glob detected (pattern: '$PATTERN', path: '${SEARCH_PATH:-(repo root)}').
 
-Run ck find-scope FIRST to narrow scope:
-  .claude/skills/ck/ck find-scope --query \"<multi-keyword description — module, concept, operation, type>\"
+Use ck search to find what you need with semantic scoping:
+  .claude/skills/ck/ck search --query \"<domain description>\" --pattern \"<keyword>\"
 
-Or use ck search to combine scope + keyword search in one call:
-  .claude/skills/ck/ck search --query \"<scope description>\" --pattern \"<keyword>\"
+If you don't have a keyword yet, use ck find-scope to discover the right area:
+  .claude/skills/ck/ck find-scope --query \"<multi-keyword description>\"
 
-Then scope this search to the returned folder path.
-Proceed only if the scope is already narrowed to a specific folder." \
+Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files." \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -67,14 +66,13 @@ if [[ "$TOOL" == "Grep" ]]; then
   jq -n \
     --arg reason "[ck-guard] Broad source file grep detected (path: '${SEARCH_PATH:-(repo root)}').
 
-Run ck find-scope FIRST to narrow scope:
-  .claude/skills/ck/ck find-scope --query \"<multi-keyword description — module, concept, operation, type>\"
+Use ck search to find what you need with semantic scoping:
+  .claude/skills/ck/ck search --query \"<domain description>\" --pattern \"<keyword>\"
 
-Or use ck search to combine scope + keyword search in one call:
-  .claude/skills/ck/ck search --query \"<scope description>\" --pattern \"<keyword>\"
+If you don't have a keyword yet, use ck find-scope to discover the right area:
+  .claude/skills/ck/ck find-scope --query \"<multi-keyword description>\"
 
-Then scope this grep to the returned folder path.
-Proceed only once the scope is narrowed to a specific folder." \
+Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files." \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",

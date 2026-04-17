@@ -25,16 +25,15 @@ if ($toolName -eq "Glob") {
     if ($depth -gt 3) { exit 0 }
 
     $displayPath = if ($searchPath) { $searchPath } else { "(repo root)" }
-    $reason = "[ck-guard] Globbing for source files across a wide path (pattern: '$pattern', path: '$displayPath').
+    $reason = "[ck-guard] Broad source file glob detected (pattern: '$pattern', path: '$displayPath').
 
-Run ck find-scope FIRST to narrow scope:
-  .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description — module, concept, operation, type>`"
+Use ck search to find what you need with semantic scoping:
+  .claude\skills\ck\ck.cmd search --query `"<domain description>`" --pattern `"<keyword>`"
 
-Or use ck search to combine scope + keyword search in one call:
-  .claude\skills\ck\ck.cmd search --query `"<scope description>`" --pattern `"<keyword>`"
+If you don't have a keyword yet, use ck find-scope to discover the right area:
+  .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description>`"
 
-Then scope this search to the returned folder path.
-Proceed only if the scope is already narrowed to a specific folder."
+Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files."
 
     @{
         hookSpecificOutput = @{
@@ -59,16 +58,15 @@ if ($toolName -eq "Grep") {
     if ($depth -gt 3) { exit 0 }
 
     $displayPath = if ($searchPath) { $searchPath } else { "(repo root)" }
-    $reason = "[ck-guard] Grepping source files across a wide path (path: '$displayPath').
+    $reason = "[ck-guard] Broad source file grep detected (path: '$displayPath').
 
-Run ck find-scope FIRST to narrow scope:
-  .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description — module, concept, operation, type>`"
+Use ck search to find what you need with semantic scoping:
+  .claude\skills\ck\ck.cmd search --query `"<domain description>`" --pattern `"<keyword>`"
 
-Or use ck search to combine scope + keyword search in one call:
-  .claude\skills\ck\ck.cmd search --query `"<scope description>`" --pattern `"<keyword>`"
+If you don't have a keyword yet, use ck find-scope to discover the right area:
+  .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description>`"
 
-Then scope this Grep to the returned folder path.
-Proceed only if the scope is already narrowed to a specific folder."
+Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files."
 
     @{
         hookSpecificOutput = @{

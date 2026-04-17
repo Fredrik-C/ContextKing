@@ -3,67 +3,54 @@
 This codebase has a large number of C# and TypeScript files across many folders. Searching without
 narrowing scope first produces false positives, wastes tokens, and reads the wrong files.
 
-**Before any Glob, Grep, or Read on an unknown file location, run `ck find-scope`:**
+**Before any Glob, Grep, or Read on an unknown file location, use a CK command first.**
 
-Mac / Linux / Git Bash:
+### Step 1 — Choose the right entry point
+
+**If you have a keyword** (method name, class name, symbol, error message):
 ```bash
-.opencode/skills/ck/ck find-scope --query "<multi-keyword description of what you need>"
+.opencode/skills/ck/ck search --query "<domain description>" --pattern "<keyword>"
 ```
+This is the most common case. It combines semantic folder ranking with git grep in one
+call — no need for separate find-scope + grep round-trips. Use `--top 20` to widen scope.
 
-Windows PowerShell / cmd:
-```powershell
-.opencode\skills\ck\ck.cmd find-scope --query "<multi-keyword description of what you need>"
+**If you only need to discover the right area** (no specific keyword yet):
+```bash
+.opencode/skills/ck/ck find-scope --query "<multi-keyword description>"
 ```
+Use this when you're exploring — e.g. "where does payment processing live?" — and don't
+yet have a symbol to search for.
 
-Rules:
-1. Always run `ck find-scope` first when the relevant folder is not already known.
-2. Use **multiple keywords** — combine the module name, concept, operation, and type.
+Windows PowerShell equivalents use `.opencode\skills\ck\ck.cmd` instead.
+
+### Rules
+
+1. **Always start with `ck search` or `ck find-scope`** when the relevant folder is unknown.
+   Never jump straight to Glob, Grep, Read, or `grep -r`.
+2. Use **multiple keywords** in `--query` — combine the module name, concept, operation, and type.
    Good: `"stripe payment disbursement payout reconciliation"`
    Bad:  `"stripe"` or `"payment"`
-3. Scope all subsequent Glob/Grep searches to the folder(s) returned — never use `**/*.cs` or
-   `**/*.ts` from the repo root after find-scope has identified the area. Pass the returned
-   folder as the `path` parameter to Glob/Grep.
-4. Do NOT run a broad Grep or Glob across the repo as a supplement to find-scope. If you need to
-   search for a symbol, scope it to the returned folder.
-5. Process find-scope results before issuing more find-scope queries. Run one query, inspect the
-   returned folders, proceed to signatures — only issue a second find-scope if the first results
-   did not cover the area you need.
+3. **Never use `grep -r`, `grep -rn`, or bash grep** to search source files. Use `ck search`
+   with `--pattern` instead. This is the single most important rule — bash grep bypasses
+   semantic scoping and wastes tokens scanning irrelevant files.
+4. Scope all subsequent Glob/Grep searches to the folder(s) returned — never use `**/*.cs` or
+   `**/*.ts` from the repo root. Pass the returned folder as the `path` parameter to Glob/Grep.
+5. Do NOT run a broad Grep or Glob across the repo as a supplement to CK results. If CK results
+   don't cover what you need, run another `ck search` or `ck find-scope` with different keywords.
 6. Before reading ANY `.cs`, `.ts`, or `.tsx` file, run `ck signatures` first to confirm it
    contains what you need:
-
-   Mac / Linux / Git Bash:
    ```bash
    .opencode/skills/ck/ck signatures <folder-or-file>
    ```
-   Windows PowerShell / cmd:
-   ```powershell
-   .opencode\skills\ck\ck.cmd signatures <folder-or-file>
-   ```
-   Pass the **folder path** from find-scope to get all signatures in one call.
+   Pass the **folder path** to get all signatures in one call.
    Proceed to Read only after signatures output confirms the file is relevant.
 7. After signatures identifies the right file and method, use `ck get-method-source` to read just
    that method — not the whole file:
-
-   Mac / Linux / Git Bash:
    ```bash
    .opencode/skills/ck/ck get-method-source <file> <MethodName>
    ```
-   Fall back to a full Read only when you need several members from the same file.
+   Fall back to a full Read only when you need 3+ members from the same file.
 8. Never Read a `.cs`, `.ts`, or `.tsx` file speculatively. If you are not certain it is the
    right file, run signatures first.
-9. **Do NOT use `find`, `ls`, or `Search` to enumerate files** after find-scope has returned
-   results. Pass the folder directly to `ck signatures` — it recursively processes all
-   supported files (`.cs`, `.ts`, `.tsx`) in the folder.
-10. **When you need to grep for a keyword across multiple folders**, use `ck search` instead of
-    running `ck find-scope` followed by manual `grep -r` calls:
-
-    Mac / Linux / Git Bash:
-    ```bash
-    .opencode/skills/ck/ck search --query "<scope description>" --pattern "<keyword>"
-    ```
-    Windows PowerShell / cmd:
-    ```powershell
-    .opencode\skills\ck\ck.cmd search --query "<scope description>" --pattern "<keyword>"
-    ```
-    This combines semantic folder ranking with git grep in one call — no need for separate
-    grep commands. Use `--top 20` to widen the search area if needed.
+9. **Do NOT use `find`, `ls`, or `Search` to enumerate files** after CK has returned results.
+   Pass the folder directly to `ck signatures` — it recursively processes all supported files.

@@ -1,13 +1,13 @@
 ---
 name: ck-search
-description: Scoped keyword search combining semantic folder ranking with git grep. Use when you need to find a specific symbol, method name, or keyword across the codebase without resorting to broad grep.
+description: Preferred entry point for code navigation. Scoped keyword search combining semantic folder ranking with git grep. Use this FIRST when you have a symbol, method name, or keyword to find. Replaces broad grep -r calls entirely.
 ---
 
-# ck search — Scoped Keyword Search
+# ck search — Scoped Keyword Search (preferred entry point)
 
-Combines **semantic folder ranking** (same as `ck find-scope`) with **keyword search**
-(git grep) in a single call. Use this instead of running `ck find-scope` followed by
-multiple `grep -r` commands.
+The **recommended first step** for most code navigation tasks. Combines **semantic folder
+ranking** with **keyword search** (git grep) in a single call. Use this instead of `grep -r`,
+`grep -rn`, or running `ck find-scope` followed by manual grep commands.
 
 ## When to use
 

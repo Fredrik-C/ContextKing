@@ -54,14 +54,13 @@ export default async function ckGuards() {
           throw new Error(
             `[ck-guard] Broad source file glob detected (pattern: "${pattern}", path: "${path || "repo root"}").
 
-Run ck find-scope FIRST to narrow scope:
-  ${CK} find-scope --query "<multi-keyword description — module, concept, operation, type>"
+Use ck search to find what you need with semantic scoping:
+  ${CK} search --query "<domain description>" --pattern "<keyword>"
 
-Or use ck search to combine scope + keyword search in one call:
-  ${CK} search --query "<scope description>" --pattern "<keyword>"
+If you don't have a keyword yet, use ck find-scope to discover the right area:
+  ${CK} find-scope --query "<multi-keyword description>"
 
-Then scope this glob to the returned folder path.
-Proceed only once the scope is narrowed to a specific folder.`
+Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files.`
           )
         }
         return
@@ -79,14 +78,13 @@ Proceed only once the scope is narrowed to a specific folder.`
           throw new Error(
             `[ck-guard] Broad source file grep detected (path: "${path || "repo root"}").
 
-Run ck find-scope FIRST to narrow scope:
-  ${CK} find-scope --query "<multi-keyword description — module, concept, operation, type>"
+Use ck search to find what you need with semantic scoping:
+  ${CK} search --query "<domain description>" --pattern "<keyword>"
 
-Or use ck search to combine scope + keyword search in one call:
-  ${CK} search --query "<scope description>" --pattern "<keyword>"
+If you don't have a keyword yet, use ck find-scope to discover the right area:
+  ${CK} find-scope --query "<multi-keyword description>"
 
-Then scope this grep to the returned folder path.
-Proceed only once the scope is narrowed to a specific folder.`
+Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files.`
           )
         }
         return
@@ -103,12 +101,14 @@ Proceed only once the scope is narrowed to a specific folder.`
           throw new Error(
             `[ck-guard] bash grep on source files detected.
 
-Do NOT use bash grep to search this codebase — follow the code search protocol:
+Do NOT use bash grep to search this codebase. Use ck search instead:
 
+  ${CK} search --query "<domain description>" --pattern "<keyword>"
+
+Or follow the full protocol:
   1. ${CK} find-scope --query "<module, concept, operation, type>"
-  2. ${CK} search --query "<scope description>" --pattern "<keyword>"
-  3. ${CK} signatures <folder-or-file>
-  4. ${CK} get-method-source <file> <MemberName>
+  2. ${CK} signatures <folder-or-file>
+  3. ${CK} get-method-source <file> <MemberName>
 
 Use the native grep tool (not bash grep) only within a scoped folder.`
           )

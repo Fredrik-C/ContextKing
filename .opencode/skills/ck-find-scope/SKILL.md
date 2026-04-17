@@ -1,13 +1,16 @@
 ---
 name: ck-find-scope
-description: Semantic folder search to narrow scope before file/method searches in large C# and TypeScript repos. ALWAYS run this first when the relevant folder area is unknown. Use multiple descriptive keywords for best results.
+description: Semantic folder search for pure discovery when you don't have a keyword yet. If you have a keyword to search for, use ck-search instead — it combines scope + grep in one call.
 ---
 
 # ck find-scope — Semantic Scope Search
 
-**Run this before any file or method search** when the relevant part of the codebase is not already
-known. It narrows the search to the most relevant folder subtree, eliminating false-positive matches
-in unrelated areas and avoiding unnecessary file reads.
+Use this for **pure discovery** when you don't yet have a specific keyword, symbol, or method
+name to search for. It narrows the search to the most relevant folder subtree, eliminating
+false-positive matches in unrelated areas.
+
+**If you have a keyword** (method name, class name, symbol), use `ck search` instead — it
+combines semantic folder ranking with keyword search in one call and is more efficient.
 
 ## This is step 1 — always run it first
 
