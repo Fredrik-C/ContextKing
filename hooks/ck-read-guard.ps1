@@ -22,11 +22,19 @@ if (-not $filePath -or -not ($filePath -match '\.(cs|tsx?)$')) {
 }
 
 $baseName = Split-Path $filePath -Leaf
-$reason = "[ck-guard] Reading a source file: '$baseName'.
-If you are evaluating multiple candidate files, prefer:
-  .claude\skills\ck\ck.cmd signatures <filepath>
-This lists all method signatures via live AST parsing without reading the full file.
-Proceed with Read when this is the specific file you need."
+$reason = "[ck-guard] STOP — you are about to read '$baseName' in full.
+
+Do NOT read the entire file. Use targeted extraction instead:
+
+  1. Run signatures first (if you haven't already):
+     .claude\skills\ck\ck.cmd signatures $filePath
+
+  2. Then extract only the method you need:
+     .claude\skills\ck\ck.cmd get-method-source $filePath <MethodName>
+
+Full file reads waste tokens. Read the whole file ONLY when you need 3+ methods from it.
+If you have already confirmed via signatures that this file is relevant AND you need
+multiple members, proceed with the Read."
 
 @{
     hookSpecificOutput = @{

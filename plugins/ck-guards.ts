@@ -57,6 +57,9 @@ export default async function ckGuards() {
 Run ck find-scope FIRST to narrow scope:
   ${CK} find-scope --query "<multi-keyword description — module, concept, operation, type>"
 
+Or use ck search to combine scope + keyword search in one call:
+  ${CK} search --query "<scope description>" --pattern "<keyword>"
+
 Then scope this glob to the returned folder path.
 Proceed only once the scope is narrowed to a specific folder.`
           )
@@ -79,6 +82,9 @@ Proceed only once the scope is narrowed to a specific folder.`
 Run ck find-scope FIRST to narrow scope:
   ${CK} find-scope --query "<multi-keyword description — module, concept, operation, type>"
 
+Or use ck search to combine scope + keyword search in one call:
+  ${CK} search --query "<scope description>" --pattern "<keyword>"
+
 Then scope this grep to the returned folder path.
 Proceed only once the scope is narrowed to a specific folder.`
           )
@@ -100,8 +106,9 @@ Proceed only once the scope is narrowed to a specific folder.`
 Do NOT use bash grep to search this codebase — follow the code search protocol:
 
   1. ${CK} find-scope --query "<module, concept, operation, type>"
-  2. ${CK} signatures <folder-or-file>
-  3. ${CK} get-method-source <file> <MemberName>
+  2. ${CK} search --query "<scope description>" --pattern "<keyword>"
+  3. ${CK} signatures <folder-or-file>
+  4. ${CK} get-method-source <file> <MemberName>
 
 Use the native grep tool (not bash grep) only within a scoped folder.`
           )

@@ -22,14 +22,19 @@ case "$FILE_PATH" in
 esac
 
 jq -n \
-  --arg reason "[ck-guard] About to read '$(basename "$FILE_PATH")' in full.
+  --arg reason "[ck-guard] STOP — you are about to read '$(basename "$FILE_PATH")' in full.
 
-Have you run 'ck signatures' on this file yet?
-If not, do it now — it shows all method/property signatures without reading the full file:
-  .claude/skills/ck/ck signatures $FILE_PATH
+Do NOT read the entire file. Use targeted extraction instead:
 
-Proceed with Read only after signatures output has confirmed this file contains
-what you need. Reading the wrong file wastes tokens and context." \
+  1. Run signatures first (if you haven't already):
+     .claude/skills/ck/ck signatures $FILE_PATH
+
+  2. Then extract only the method you need:
+     .claude/skills/ck/ck get-method-source $FILE_PATH <MethodName>
+
+Full file reads waste tokens. Read the whole file ONLY when you need 3+ methods from it.
+If you have already confirmed via signatures that this file is relevant AND you need
+multiple members, proceed with the Read." \
   '{
     "hookSpecificOutput": {
       "hookEventName": "PreToolUse",

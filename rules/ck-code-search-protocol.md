@@ -54,3 +54,16 @@ Rules:
 9. **Do NOT use `find`, `ls`, or `Search` to enumerate files** after find-scope has returned
    results. Pass the folder directly to `ck signatures` — it recursively processes all
    supported files (`.cs`, `.ts`, `.tsx`) in the folder.
+10. **When you need to grep for a keyword across multiple folders**, use `ck search` instead of
+    running `ck find-scope` followed by manual `grep -r` calls:
+
+    Mac / Linux / Git Bash:
+    ```bash
+    .claude/skills/ck/ck search --query "<scope description>" --pattern "<keyword>"
+    ```
+    Windows PowerShell / cmd:
+    ```powershell
+    .claude\skills\ck\ck.cmd search --query "<scope description>" --pattern "<keyword>"
+    ```
+    This combines semantic folder ranking with git grep in one call — no need for separate
+    grep commands. Use `--top 20` to widen the search area if needed.

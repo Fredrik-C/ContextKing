@@ -30,6 +30,9 @@ if ($toolName -eq "Glob") {
 Run ck find-scope FIRST to narrow scope:
   .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description — module, concept, operation, type>`"
 
+Or use ck search to combine scope + keyword search in one call:
+  .claude\skills\ck\ck.cmd search --query `"<scope description>`" --pattern `"<keyword>`"
+
 Then scope this search to the returned folder path.
 Proceed only if the scope is already narrowed to a specific folder."
 
@@ -60,6 +63,9 @@ if ($toolName -eq "Grep") {
 
 Run ck find-scope FIRST to narrow scope:
   .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description — module, concept, operation, type>`"
+
+Or use ck search to combine scope + keyword search in one call:
+  .claude\skills\ck\ck.cmd search --query `"<scope description>`" --pattern `"<keyword>`"
 
 Then scope this Grep to the returned folder path.
 Proceed only if the scope is already narrowed to a specific folder."

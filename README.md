@@ -44,6 +44,7 @@ Context King installs four commands into your AI CLI tool:
 | Command | What it does |
 |---|---|
 | `ck find-scope` | Semantic search over the folder tree. Returns the X most relevant folders |
+| `ck search` | Scoped keyword search: semantic folder ranking + git grep in one call |
 | `ck signatures` | Live AST extraction. Lists every method/property signature in a set of files |
 | `ck get-method-source` | Reads one named member using AST (method/constructor/property) and returns exact line+char spans |
 | `ck index` | Builds or refreshes the semantic index (runs automatically on first use) |
@@ -416,6 +417,22 @@ ck find-scope --query "<multi-keyword description>" [--top <n>] [--repo <path>]
 
 Output: `<score>\t<relative-folder-path>`, one line per result, sorted by score descending.
 Default `--top 10`. Auto-builds index on first call.
+
+### `ck search`
+
+```
+ck search --query <scope-text> --pattern <keyword> [--top <n>] [--min-score <f>] [--case-sensitive] [--repo <path>]
+```
+
+Combines semantic folder ranking with keyword search in one call. First ranks folders by
+semantic relevance to `--query`, then searches within the top folders for `--pattern` using
+git grep. Case-insensitive by default.
+
+Output: matches grouped by folder, ordered by semantic relevance score:
+```
+<score>\t<folder-path>
+  <file>:<line>: <matching-content>
+```
 
 ### `ck signatures`
 

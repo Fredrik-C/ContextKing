@@ -101,7 +101,7 @@ if ($LocalRepo) {
         }
 
         # Skills: SKILL.md files
-        foreach ($skill in @('ck-find-scope', 'ck-signatures', 'ck-get-method-source', 'ck-index')) {
+        foreach ($skill in @('ck-find-scope', 'ck-search', 'ck-signatures', 'ck-get-method-source', 'ck-index')) {
             Write-Host "  skills/$skill/SKILL.md..." -NoNewline
             Get-RemoteFile "$GithubRaw/skills/$skill/SKILL.md" (Join-Path $AssetsDir "skills\$skill\SKILL.md")
             Write-Host " done"

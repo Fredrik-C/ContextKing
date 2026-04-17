@@ -143,7 +143,7 @@ else
   done
 
   # Skills: SKILL.md files
-  for _skill in ck-find-scope ck-signatures ck-get-method-source ck-index; do
+  for _skill in ck-find-scope ck-search ck-signatures ck-get-method-source ck-index; do
     mkdir -p "$ASSETS_DIR/skills/$_skill"
     progress "skills/$_skill/SKILL.md"
     download "${GITHUB_RAW}/skills/${_skill}/SKILL.md" "$ASSETS_DIR/skills/$_skill/SKILL.md"
