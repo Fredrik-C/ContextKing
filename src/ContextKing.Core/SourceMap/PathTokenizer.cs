@@ -70,6 +70,55 @@ public static partial class PathTokenizer
         return string.Join(' ', SplitSegment(nameWithoutExt));
     }
 
+    /// <summary>
+    /// Produces a readable phrase from a folder path for embedding.
+    /// Keeps structural segments like "src", "Modules" while splitting camelCase
+    /// into space-separated words. Does NOT deduplicate — preserves phrase structure.
+    /// Example: "src/Modules/PaymentProcessing/Gateways/Adyen"
+    ///       → "src Modules Payment Processing Gateways Adyen"
+    /// </summary>
+    public static string PathToPhrase(string relPath)
+    {
+        var parts = new List<string>();
+        foreach (var segment in relPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            // Strip interface 'I' prefix
+            var seg = segment;
+            if (seg.Length > 2 && seg[0] == 'I' && char.IsUpper(seg[1]))
+                seg = seg[1..];
+
+            foreach (var token in CamelCaseSplitter().Split(seg))
+            {
+                if (token.Length > 0)
+                    parts.Add(token);
+            }
+        }
+        return string.Join(' ', parts);
+    }
+
+    /// <summary>
+    /// Produces a readable phrase from a file name for embedding.
+    /// Example: "AdyenFeeCalculator.cs" → "Adyen Fee Calculator"
+    /// </summary>
+    public static string FileNameToPhrase(string fileName)
+    {
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+        var seg = nameWithoutExt;
+        if (seg.Length > 2 && seg[0] == 'I' && char.IsUpper(seg[1]))
+            seg = seg[1..];
+
+        return string.Join(' ', CamelCaseSplitter().Split(seg).Where(t => t.Length > 0));
+    }
+
+    /// <summary>
+    /// Produces a readable phrase from a method name for embedding.
+    /// Example: "RequestTerminalAuthorizationAsync" → "Request Terminal Authorization Async"
+    /// </summary>
+    public static string MethodNameToPhrase(string methodName)
+    {
+        return string.Join(' ', CamelCaseSplitter().Split(methodName).Where(t => t.Length > 0));
+    }
+
     private static IEnumerable<string> SplitSegment(string segment)
     {
         // Strip leading interface 'I': IPaymentGateway → PaymentGateway

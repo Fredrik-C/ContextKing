@@ -69,7 +69,7 @@ public class SourceMapIndexTests : IDisposable
 
         var rows = new[]
         {
-            new FolderRow("src/Payment", "src payment", blob, "{}", "StripeService.cs")
+            new FolderRow("src/Payment", "src payment", "src Payment", blob, "{}", "StripeService.cs")
         };
         Index.UpsertFolders(rows);
 
@@ -87,8 +87,8 @@ public class SourceMapIndexTests : IDisposable
         Index.EnsureSchema();
         var blob = SourceMapIndex.EncodeEmbedding(new float[384]);
 
-        Index.UpsertFolders([new FolderRow("src/A", "original", blob, "{}", "a.cs")]);
-        Index.UpsertFolders([new FolderRow("src/A", "updated",  blob, "{}", "a.cs")]);
+        Index.UpsertFolders([new FolderRow("src/A", "original", "original text", blob, "{}", "a.cs")]);
+        Index.UpsertFolders([new FolderRow("src/A", "updated",  "updated text", blob, "{}", "a.cs")]);
 
         var folders = Index.LoadIndexedFolders();
         folders.Should().HaveCount(1);
@@ -100,7 +100,7 @@ public class SourceMapIndexTests : IDisposable
     {
         Index.EnsureSchema();
         var blob = SourceMapIndex.EncodeEmbedding(new float[384]);
-        Index.UpsertFolders([new FolderRow("src/X", "tokens", blob, "{\"a.cs\":\"abc\"}", "a.cs")]);
+        Index.UpsertFolders([new FolderRow("src/X", "tokens", "embedding text", blob, "{\"a.cs\":\"abc\"}", "a.cs")]);
 
         var states = Index.LoadFolderStates();
         states.Should().ContainKey("src/X");
@@ -114,7 +114,7 @@ public class SourceMapIndexTests : IDisposable
         Index.EnsureSchema();
         // Insert a row with a real embedding and one without
         var blob = SourceMapIndex.EncodeEmbedding(new float[384]);
-        Index.UpsertFolders([new FolderRow("src/Good", "tokens", blob, "{}", "f.cs")]);
+        Index.UpsertFolders([new FolderRow("src/Good", "tokens", "embedding text", blob, "{}", "f.cs")]);
 
         // Directly insert a row with no embedding via the state-loading path
         // (can't do this through UpsertFolders, so verify via LoadFolderStates instead)
@@ -133,8 +133,8 @@ public class SourceMapIndexTests : IDisposable
         Index.EnsureSchema();
         var blob = SourceMapIndex.EncodeEmbedding(new float[384]);
         Index.UpsertFolders([
-            new FolderRow("src/Keep",   "tokens", blob, "{}", "a.cs"),
-            new FolderRow("src/Remove", "tokens", blob, "{}", "b.cs"),
+            new FolderRow("src/Keep",   "tokens", "embedding text", blob, "{}", "a.cs"),
+            new FolderRow("src/Remove", "tokens", "embedding text", blob, "{}", "b.cs"),
         ]);
 
         Index.DeleteFolders(["src/Keep"]);
@@ -149,7 +149,7 @@ public class SourceMapIndexTests : IDisposable
     {
         Index.EnsureSchema();
         var blob = SourceMapIndex.EncodeEmbedding(new float[384]);
-        Index.UpsertFolders([new FolderRow("src/A", "tokens", blob, "{}", "a.cs")]);
+        Index.UpsertFolders([new FolderRow("src/A", "tokens", "embedding text", blob, "{}", "a.cs")]);
 
         Index.DeleteFolders([]);
 
@@ -161,7 +161,7 @@ public class SourceMapIndexTests : IDisposable
     {
         Index.EnsureSchema();
         var blob = SourceMapIndex.EncodeEmbedding(new float[384]);
-        Index.UpsertFolders([new FolderRow("src/A", "tokens", blob, "{}", "a.cs")]);
+        Index.UpsertFolders([new FolderRow("src/A", "tokens", "embedding text", blob, "{}", "a.cs")]);
 
         Index.ClearAllFolders();
 

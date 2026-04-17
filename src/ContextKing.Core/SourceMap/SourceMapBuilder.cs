@@ -116,13 +116,27 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
 
                     // Extract public method names from all source files (Roslyn/tree-sitter parse — CPU + I/O)
                     var methodNames  = ExtractPublicMethodNames(repoRoot, folderPath, files.Keys);
-                    var methodTokens = methodNames.Count > 0
-                        ? " " + string.Join(' ', methodNames)
-                        : string.Empty;
 
-                    var combined = $"{pathTokens} {fileTokens}{methodTokens}".Trim();
-                    var blob     = SourceMapIndex.EncodeEmbedding(embedder.Embed(combined));
-                    results[i]   = new FolderRow(folderPath, combined, blob, fileHashesJson, filenameSetKey);
+                    // Match tokens: lowercase split tokens for exact-match scoring.
+                    // Method names are also split so query term "refund" matches "RefundPaymentAsync".
+                    var methodMatchTokens = methodNames.Count > 0
+                        ? " " + string.Join(' ', methodNames.SelectMany(n => PathTokenizer.MethodNameToPhrase(n)
+                            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(t => t.ToLowerInvariant())))
+                        : string.Empty;
+                    var combined = $"{pathTokens} {fileTokens}{methodMatchTokens}".Trim();
+
+                    // Embedding text: readable phrase for BGE semantic embedding.
+                    // Preserves casing and word structure for better embedding quality.
+                    var pathPhrase   = PathTokenizer.PathToPhrase(folderPath);
+                    var filePhrase   = string.Join(", ", files.Keys.Select(PathTokenizer.FileNameToPhrase));
+                    var methodPhrase = methodNames.Count > 0
+                        ? ". Methods: " + string.Join(", ", methodNames.Select(PathTokenizer.MethodNameToPhrase))
+                        : string.Empty;
+                    var embeddingText = $"{pathPhrase}. Files: {filePhrase}{methodPhrase}".Trim();
+
+                    var blob     = SourceMapIndex.EncodeEmbedding(embedder.Embed(embeddingText));
+                    results[i]   = new FolderRow(folderPath, combined, embeddingText, blob, fileHashesJson, filenameSetKey);
 
                     int done = Interlocked.Increment(ref embedded);
                     if (done % 50 == 0 || done == folderEntries.Length - Volatile.Read(ref skipped))

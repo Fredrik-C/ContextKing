@@ -13,6 +13,7 @@ internal record struct StoredFolderState(string FileHashes, string? FilenameSet)
 internal sealed record FolderRow(
     string Path,
     string CombinedTokens,
+    string EmbeddingText,
     byte[] EmbeddingBlob,
     string FileHashes,
     string FilenameSet);
@@ -21,7 +22,8 @@ internal sealed record FolderRow(
 internal sealed record IndexedFolder(
     string Path,
     float[] Embedding,
-    string CombinedTokens);
+    string CombinedTokens,
+    string EmbeddingText);
 
 // ── Index ──────────────────────────────────────────────────────────────────────
 
@@ -95,7 +97,7 @@ internal sealed class SourceMapIndex(string dbPath)
         using var conn = OpenReadOnly();
         using var cmd  = conn.CreateCommand();
         cmd.CommandText =
-            "SELECT path, embedding, combined_tokens FROM folders WHERE embedding IS NOT NULL";
+            "SELECT path, embedding, combined_tokens, embedding_text FROM folders WHERE embedding IS NOT NULL";
 
         var result = new List<IndexedFolder>();
         using var reader = cmd.ExecuteReader();
@@ -104,7 +106,8 @@ internal sealed class SourceMapIndex(string dbPath)
             var path           = reader.GetString(0);
             var embedding      = DecodeEmbedding((byte[])reader.GetValue(1));
             var combinedTokens = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
-            result.Add(new IndexedFolder(path, embedding, combinedTokens));
+            var embeddingText  = reader.IsDBNull(3) ? combinedTokens : reader.GetString(3);
+            result.Add(new IndexedFolder(path, embedding, combinedTokens, embeddingText));
         }
         return result;
     }
@@ -134,16 +137,18 @@ internal sealed class SourceMapIndex(string dbPath)
         using var cmd  = conn.CreateCommand();
         cmd.Transaction = txn;
         cmd.CommandText = """
-            INSERT INTO folders (path, combined_tokens, embedding, file_hashes, filename_set)
-                VALUES ($path, $tokens, $blob, $hashes, $fs)
+            INSERT INTO folders (path, combined_tokens, embedding_text, embedding, file_hashes, filename_set)
+                VALUES ($path, $tokens, $etext, $blob, $hashes, $fs)
             ON CONFLICT(path) DO UPDATE SET
                 combined_tokens = excluded.combined_tokens,
+                embedding_text  = excluded.embedding_text,
                 embedding       = excluded.embedding,
                 file_hashes     = excluded.file_hashes,
                 filename_set    = excluded.filename_set
             """;
         var pPath   = cmd.Parameters.Add("$path",   SqliteType.Text);
         var pTokens = cmd.Parameters.Add("$tokens", SqliteType.Text);
+        var pEText  = cmd.Parameters.Add("$etext",  SqliteType.Text);
         var pBlob   = cmd.Parameters.Add("$blob",   SqliteType.Blob);
         var pHashes = cmd.Parameters.Add("$hashes", SqliteType.Text);
         var pFs     = cmd.Parameters.Add("$fs",     SqliteType.Text);
@@ -152,6 +157,7 @@ internal sealed class SourceMapIndex(string dbPath)
         {
             pPath.Value   = row.Path;
             pTokens.Value = row.CombinedTokens;
+            pEText.Value  = row.EmbeddingText;
             pBlob.Value   = row.EmbeddingBlob;
             pHashes.Value = row.FileHashes;
             pFs.Value     = row.FilenameSet;
@@ -234,6 +240,10 @@ internal sealed class SourceMapIndex(string dbPath)
 
         // Migration: add filename_set to any schema that pre-dates it
         try { NonQuery(conn, "ALTER TABLE folders ADD COLUMN filename_set TEXT"); }
+        catch { /* column already exists */ }
+
+        // Migration: add embedding_text to any schema that pre-dates it
+        try { NonQuery(conn, "ALTER TABLE folders ADD COLUMN embedding_text TEXT"); }
         catch { /* column already exists */ }
     }
 

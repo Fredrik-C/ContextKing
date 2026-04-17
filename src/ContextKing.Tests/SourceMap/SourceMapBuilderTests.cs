@@ -86,14 +86,21 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
         await Builder().BuildAsync(_repo.Root);
 
         var folder = LoadIndexed().Single(f => f.Path == "src/Payment");
-        folder.CombinedTokens.Should().Contain("ProcessPayment");
-        folder.CombinedTokens.Should().Contain("CalculateTotal");
+        // Method names are camelCase-split in combined tokens for exact matching
+        folder.CombinedTokens.Should().Contain("process");
+        folder.CombinedTokens.Should().Contain("calculate");
+        folder.CombinedTokens.Should().Contain("total");
         folder.CombinedTokens.Should().NotContain("InternalHelper",
             "private methods should not be included");
+        folder.CombinedTokens.Should().NotContain("internal");
+
+        // Embedding text should contain readable method phrases
+        folder.EmbeddingText.Should().Contain("Process Payment");
+        folder.EmbeddingText.Should().Contain("Calculate Total");
     }
 
     [Fact]
-    public async Task BuildAsync_MethodNamesNotSplitByCamelCase()
+    public async Task BuildAsync_MethodNamesSplitForMatchButReadableForEmbedding()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs", """
             namespace Payment;
@@ -107,9 +114,15 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
         await Builder().BuildAsync(_repo.Root);
 
         var folder = LoadIndexed().Single(f => f.Path == "src/Payment");
-        // The method name should appear as a single unsplit token
+        // Combined tokens: camelCase-split lowercase for exact matching
         var tokens = folder.CombinedTokens.Split(' ');
-        tokens.Should().Contain("ProcessPayment");
+        tokens.Should().Contain("process");
+        tokens.Should().Contain("payment");
+        tokens.Should().NotContain("ProcessPayment",
+            "method names should be camelCase-split in match tokens");
+
+        // Embedding text: readable phrase preserving word boundaries
+        folder.EmbeddingText.Should().Contain("Process Payment");
     }
 
     [Fact]
@@ -162,9 +175,10 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
         summary.Should().Contain("1 updated");
         summary.Should().Contain("1 unchanged");
 
-        // Verify the new method name appears in tokens
+        // Verify the new method name appears in tokens (camelCase-split)
         var folder = LoadIndexed().Single(f => f.Path == "src/Payment");
-        folder.CombinedTokens.Should().Contain("RefundPayment");
+        folder.CombinedTokens.Should().Contain("refund");
+        folder.EmbeddingText.Should().Contain("Refund Payment");
     }
 
     // ── Exclusions ────────────────────────────────────────────────────────────
