@@ -29,13 +29,13 @@ static void PrintHelp()
 
         Run 'ck <command> --help' for command-specific options.
 
-        Version: 1.0.1
+        Version: 1.0.2
         """);
 }
 
 static int PrintVersion()
 {
-    Console.WriteLine("ck 1.0.1");
+    Console.WriteLine("ck 1.0.2");
     return 0;
 }
 
