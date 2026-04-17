@@ -90,9 +90,28 @@ Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files.`
         return
       }
 
-      // ── bash: grep on source files ────────────────────────────────────────
+      // ── bash: piped ck output or grep on source files ───────────────────
       if (tool === "bash") {
         const cmd = String(args.command ?? "")
+
+        // Detect ck commands piped through head/grep/tail
+        if (/ck\s+(search|find-scope|signatures|get-method-source)\b.*\|/.test(cmd)) {
+          throw new Error(
+            `[ck-guard] Do NOT pipe ck output through head, grep, or tail.
+
+ck output is already structured and scoped. Piping discards folder scores and
+grouping structure you need. Instead:
+
+  • Reduce output with --top <n> or --min-score <f>
+  • Use --type and --name for precise matching:
+    ${CK} search --query "<scope>" --type class --name "ClassName"
+  • Types: class, method, member, file
+
+Remove the pipe and run the ck command directly.`
+          )
+        }
+
+        // Detect raw grep on source files
         const isGrepCmd = cmd.includes("grep")
         const targetsSource =
           SOURCE_EXT_RE.test(cmd) || /grep\s+-[a-zA-Z]*r/.test(cmd)

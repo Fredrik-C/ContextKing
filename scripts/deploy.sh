@@ -136,7 +136,9 @@ if [ "$HAS_CLAUDE" = true ]; then
   cp "$REPO_DIR/hooks/ck-search-guard.ps1"   "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/agent-usage-guard.sh"  "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/agent-usage-guard.ps1" "$DOT_CLAUDE/hooks/"
-  chmod +x "$DOT_CLAUDE/hooks/ck-read-guard.sh" "$DOT_CLAUDE/hooks/ck-search-guard.sh" "$DOT_CLAUDE/hooks/agent-usage-guard.sh"
+  cp "$REPO_DIR/hooks/ck-bash-guard.sh"      "$DOT_CLAUDE/hooks/"
+  cp "$REPO_DIR/hooks/ck-bash-guard.ps1"     "$DOT_CLAUDE/hooks/"
+  chmod +x "$DOT_CLAUDE/hooks/ck-read-guard.sh" "$DOT_CLAUDE/hooks/ck-search-guard.sh" "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh"
 
   # 5. Register hooks in settings.json (idempotent)
   SETTINGS="$DOT_CLAUDE/settings.json"
@@ -189,6 +191,16 @@ if [ "$HAS_CLAUDE" = true ]; then
       echo "  Registered Agent hook in settings.json"
     else
       echo "  Agent hook already registered — skipping."
+    fi
+    if ! jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("ck-bash-guard"))' \
+         "$SETTINGS" >/dev/null 2>&1; then
+      jq '.hooks.PreToolUse += [{"matcher":"Bash","hooks":[
+        {"type":"command","command":".claude/hooks/ck-bash-guard.sh"},
+        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-bash-guard.ps1 || exit 0'\''"}
+      ]}]' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+      echo "  Registered Bash hook in settings.json"
+    else
+      echo "  Bash hook already registered — skipping."
     fi
   else
     echo "  WARNING: jq not found. Add hooks to $SETTINGS manually:"

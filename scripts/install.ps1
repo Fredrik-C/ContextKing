@@ -121,7 +121,8 @@ if ($LocalRepo) {
 
         # Hooks
         foreach ($hook in @('ck-read-guard.sh', 'ck-read-guard.ps1', 'ck-search-guard.sh',
-                             'ck-search-guard.ps1', 'agent-usage-guard.sh', 'agent-usage-guard.ps1')) {
+                             'ck-search-guard.ps1', 'agent-usage-guard.sh', 'agent-usage-guard.ps1',
+                             'ck-bash-guard.sh', 'ck-bash-guard.ps1')) {
             Write-Host "  hooks/$hook..." -NoNewline
             Get-RemoteFile "$GithubRaw/hooks/$hook" (Join-Path $AssetsDir "hooks\$hook")
             Write-Host " done"

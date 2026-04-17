@@ -169,7 +169,7 @@ else
 
   # Hooks
   mkdir -p "$ASSETS_DIR/hooks"
-  for _hook in ck-read-guard.sh ck-read-guard.ps1 ck-search-guard.sh ck-search-guard.ps1 agent-usage-guard.sh agent-usage-guard.ps1; do
+  for _hook in ck-read-guard.sh ck-read-guard.ps1 ck-search-guard.sh ck-search-guard.ps1 agent-usage-guard.sh agent-usage-guard.ps1 ck-bash-guard.sh ck-bash-guard.ps1; do
     progress "hooks/$_hook"
     download "${GITHUB_RAW}/hooks/${_hook}" "$ASSETS_DIR/hooks/$_hook"
     done_
@@ -177,7 +177,8 @@ else
   chmod +x \
     "$ASSETS_DIR/hooks/ck-read-guard.sh" \
     "$ASSETS_DIR/hooks/ck-search-guard.sh" \
-    "$ASSETS_DIR/hooks/agent-usage-guard.sh"
+    "$ASSETS_DIR/hooks/agent-usage-guard.sh" \
+    "$ASSETS_DIR/hooks/ck-bash-guard.sh"
 
   # Models
   mkdir -p "$ASSETS_DIR/models/bge-small-en-v1.5/onnx"
