@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ContextKing.Core.Ast;
+using ContextKing.Core.Ast.TypeScript;
 
 namespace ContextKing.Cli.Commands;
 
@@ -76,7 +77,9 @@ internal static class GetMethodSourceCommand
 
         try
         {
-            var results = MethodSourceExtractor.Extract(filePath, memberName, typeFilter, mode);
+            var results = IsTypeScriptFile(filePath)
+                ? TsMethodSourceExtractor.Extract(filePath, memberName, typeFilter, mode)
+                : MethodSourceExtractor.Extract(filePath, memberName, typeFilter, mode);
 
             if (results.Count == 0)
             {
@@ -113,13 +116,19 @@ internal static class GetMethodSourceCommand
     private static void Error(string msg)
         => Console.Error.WriteLine($"[ck get-method-source] Error: {msg}");
 
+    private static bool IsTypeScriptFile(string path)
+        => path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
+
     private static void PrintHelp()
     {
         Console.WriteLine("""
             ck get-method-source — extract a method/property body with exact span (always live)
 
             Usage:
-              ck get-method-source <file.cs> <member-name> [options]
+              ck get-method-source <file> <member-name> [options]
+
+            Supports C# (.cs), TypeScript (.ts), and TSX (.tsx) files.
 
             Options:
               --type, -t <TypeName>   Filter to a specific containing type (disambiguates overloads)

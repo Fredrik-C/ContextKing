@@ -19,23 +19,23 @@ return args[0] switch
 static void PrintHelp()
 {
     Console.WriteLine("""
-        ck — Context King: semantic code navigation for large C# codebases
+        ck — Context King: semantic code navigation for large C# and TypeScript codebases
 
         Commands:
           ck index              Build or update the semantic source-map index
           ck find-scope         Semantic search to find the most relevant folder(s)
-          ck signatures         Extract method signatures from C# files (always live)
+          ck signatures         Extract method signatures from C#/TypeScript files (always live)
           ck get-method-source  Extract method/property source with exact span (always live)
 
         Run 'ck <command> --help' for command-specific options.
 
-        Version: 1.0.3
+        Version: 1.1.0
         """);
 }
 
 static int PrintVersion()
 {
-    Console.WriteLine("ck 1.0.3");
+    Console.WriteLine("ck 1.1.0");
     return 0;
 }
 

@@ -1,4 +1,5 @@
 using ContextKing.Core.Ast;
+using ContextKing.Core.Ast.TypeScript;
 using System.Text.RegularExpressions;
 
 namespace ContextKing.Cli.Commands;
@@ -43,12 +44,13 @@ internal static class SignaturesCommand
                 if (Directory.Exists(input))
                 {
                     var directoryMatches = Directory
-                        .EnumerateFiles(input, "*.cs", SearchOption.AllDirectories)
+                        .EnumerateFiles(input, "*.*", SearchOption.AllDirectories)
+                        .Where(f => IsSupportedSourceFile(f))
                         .ToList();
 
                     if (directoryMatches.Count == 0)
                     {
-                        Console.Error.WriteLine($"[ck signatures] WARN: no .cs files found in directory: '{input}'");
+                        Console.Error.WriteLine($"[ck signatures] WARN: no supported source files found in directory: '{input}'");
                         continue;
                     }
 
@@ -78,7 +80,14 @@ internal static class SignaturesCommand
         }
 
         // Always live — reads directly from disk, no cache
-        SignatureExtractor.Extract(valid, Console.Out, Console.Error);
+        // Split files by language and dispatch to the appropriate extractor
+        var csFiles = valid.Where(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)).ToList();
+        var tsFiles = valid.Where(f => IsTypeScriptFile(f)).ToList();
+
+        if (csFiles.Count > 0)
+            SignatureExtractor.Extract(csFiles, Console.Out, Console.Error);
+        if (tsFiles.Count > 0)
+            TsSignatureExtractor.Extract(tsFiles, Console.Out, Console.Error);
 
         // Hint: if the folder contains only small files, suggest reading directly next time.
         EmitSmallFolderHint(valid);
@@ -89,20 +98,24 @@ internal static class SignaturesCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck signatures — extract method/property signatures from C# files (live, no cache)
+            ck signatures — extract method/property signatures from C# and TypeScript files (live, no cache)
 
             Usage:
-              ck signatures <folder/>              — all .cs files in the folder (recursive)
-              ck signatures <file.cs> [file2.cs …] — specific files
-              ck signatures <pattern/*.cs>          — glob pattern
+              ck signatures <folder/>              — all supported files in the folder (recursive)
+              ck signatures <file.cs> [file2.ts …]  — specific files (.cs, .ts, .tsx)
+              ck signatures <pattern/*.ts>          — glob pattern
 
             The folder form is the recommended starting point: pipe the folder path returned
-            by 'ck find-scope' directly into 'ck signatures' to get every method in that
+            by 'ck find-scope' directly into 'ck signatures' to get every member in that
             subtree without needing to enumerate files yourself.
 
             Output (stdout):
               <filepath>:<line>\t<containingType>\t<memberName>\t<signature>
-              One line per method, constructor, or property.
+              One line per method, constructor, property, or function.
+
+            Supported languages:
+              - C# (.cs)        — uses Roslyn for full-fidelity parsing
+              - TypeScript (.ts, .tsx) — uses tree-sitter for AST extraction
 
             Notes:
               - Always reads from disk; reflects uncommitted edits immediately.
@@ -114,6 +127,13 @@ internal static class SignaturesCommand
 
     private static bool IsGlob(string value)
         => value.IndexOfAny(['*', '?', '[', ']']) >= 0;
+
+    private static bool IsSupportedSourceFile(string path)
+        => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || IsTypeScriptFile(path);
+
+    private static bool IsTypeScriptFile(string path)
+        => path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// When all processed files are small (≤50 lines avg), emit a stderr hint suggesting
