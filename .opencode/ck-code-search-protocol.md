@@ -1,7 +1,7 @@
 ## Code Search Protocol — mandatory
 
-This codebase has a large number of C# files across many folders. Searching without narrowing scope
-first produces false positives, wastes tokens, and reads the wrong files.
+This codebase has a large number of C# and TypeScript files across many folders. Searching without
+narrowing scope first produces false positives, wastes tokens, and reads the wrong files.
 
 **Before any Glob, Grep, or Read on an unknown file location, run `ck find-scope`:**
 

@@ -1,6 +1,6 @@
 ---
 name: ck-find-scope
-description: Semantic folder search to narrow scope before file/method searches in large C# repos. ALWAYS run this first when the relevant folder area is unknown. Use multiple descriptive keywords for best results.
+description: Semantic folder search to narrow scope before file/method searches in large C# and TypeScript repos. ALWAYS run this first when the relevant folder area is unknown. Use multiple descriptive keywords for best results.
 ---
 
 # ck find-scope — Semantic Scope Search
@@ -203,4 +203,4 @@ lives. It is **not** the right tool for:
 - **Finding a specific class by name** (e.g. "where is `TerminalPaymentComponent` defined?").
   Use `grep -rn 'class TerminalPaymentComponent'` scoped to the relevant module — find-scope
   searches folder/file names semantically, not class declarations.
-- **Non-C# files** (SQL, config, YAML, etc.).
+- **Non-C#/TypeScript files** (SQL, config, YAML, etc.).

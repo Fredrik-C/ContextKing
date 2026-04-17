@@ -1,6 +1,6 @@
 ---
 name: ck-get-method-source
-description: Extract a single C# method/property body or signature with exact source spans after ck signatures identifies the target member.
+description: Extract a single C# or TypeScript method/property body or signature with exact source spans after ck signatures identifies the target member.
 ---
 
 ## ck get-method-source — extract a single method/property with exact span
@@ -70,3 +70,9 @@ ck get-method-source <file.cs> <name>  # 3. read just that member
 Prefer this over a full file `Read` whenever you need a single member.
 Fall back to `Read` only when you need multiple members from the same file
 or the file is short enough that reading it whole is faster.
+
+### Small files — skip this tool
+
+For files under ~50 lines (DTOs, enums, simple interfaces, command/query records),
+read the file directly with `Read`. Running `ck signatures` + `ck get-method-source`
+on a 15-line record class adds two tool calls for no benefit.

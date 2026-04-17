@@ -1,16 +1,18 @@
 ---
 name: ck-signatures
-description: Extract all method/property signatures from C# files using live AST parsing. Use after ck find-scope has identified the relevant folder, when evaluating multiple candidate files to avoid reading full file content.
+description: Extract all method/property signatures from C# and TypeScript files using live AST parsing. Use after ck find-scope has identified the relevant folder, when evaluating multiple candidate files to avoid reading full file content.
 ---
 
 # ck signatures — Live AST Signature Extraction
 
-Use this skill to list all method, constructor, and property signatures from one or more C# files
-**without reading their full content**. Always reads directly from disk — reflects uncommitted edits.
+Use this skill to list all method, constructor, and property signatures from one or more C# or
+TypeScript/TSX files **without reading their full content**. Always reads directly from disk —
+reflects uncommitted edits. Language is auto-detected from the file extension (`.cs` for C#,
+`.ts`/`.tsx` for TypeScript).
 
 ## This is step 2 — run after ck find-scope
 
-The full workflow for finding and reading code in a large C# codebase:
+The full workflow for finding and reading code in a large codebase:
 
 1. **`ck find-scope`** — identify the relevant folder subtree from a semantic query.
 2. **Glob within that folder** — use the Glob tool with `path` set to the returned folder and a
@@ -120,6 +122,45 @@ Layer 3: ck find-scope "order query repository database"   → ck signatures <fo
 Each layer's signatures output tells you exactly which calls to trace in the next layer.
 Do not stop at the first layer — "end-to-end" means tracing all the way to the I/O boundary.
 
+## Filtering signatures with grep
+
+Large files can produce hundreds of signature lines. **Pipe to `grep`** (or `Select-String`
+on PowerShell) to filter to the relevant subset and save context:
+
+**Mac / Linux:**
+```bash
+# Show only refund-related members:
+.claude/skills/ck/ck signatures src/Gateways/StripePaymentGateway.cs | grep -i refund
+
+# Show members matching multiple terms:
+.claude/skills/ck/ck signatures src/Payments/PaymentComponent.cs | grep -iE "terminal|card.?present"
+
+# Include a few lines of context around matches:
+.claude/skills/ck/ck signatures src/Queues/QueueItemComponent.cs | grep -A2 "TerminalPayment"
+```
+
+**Windows (PowerShell):**
+```powershell
+# Show only refund-related members:
+.claude\skills\ck\ck.cmd signatures src\Gateways\StripePaymentGateway.cs | Select-String -Pattern "refund" -CaseSensitive:$false
+
+# Show members matching multiple terms:
+.claude\skills\ck\ck.cmd signatures src\Payments\PaymentComponent.cs | Select-String -Pattern "terminal|card.?present" -CaseSensitive:$false
+
+# Include a few lines of context around matches:
+.claude\skills\ck\ck.cmd signatures src\Queues\QueueItemComponent.cs | Select-String -Pattern "TerminalPayment" -Context 0,2
+```
+
+This is especially useful when scanning a gateway or component with many methods and you only
+care about a specific operation.
+
+## IMPORTANT: always use get-method-source after identifying a target
+
+Once you have identified the target member from signatures output, **always** use
+`ck get-method-source` to read its implementation. **Do not** fall back to a full file `Read`
+when you only need one method — that wastes tokens and context window. The only exception is
+when you need several members from the same file; then a full `Read` is acceptable.
+
 ## When to use
 
 - **Impact analysis**: pass the folder path to map the complete method surface before deciding
@@ -131,7 +172,11 @@ Do not stop at the first layer — "end-to-end" means tracing all the way to the
 ## When NOT to use
 
 - You have not yet run `ck find-scope` — do that first to narrow scope.
-- The file is not a `.cs` file.
+- **The folder contains only small files (DTOs, enums, interfaces, records under ~50 lines).**
+  Running signatures on a folder of tiny files adds a tool call without providing useful
+  filtering — just Read the files directly instead. The CLI will emit a `[ck hint]` on stderr
+  when it detects this situation. If you see the hint, skip signatures for similar folders
+  in the rest of the session and Read the files directly.
 
 ## Key properties
 

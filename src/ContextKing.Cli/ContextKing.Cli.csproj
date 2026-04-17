@@ -12,6 +12,8 @@
     <SelfContained>false</SelfContained>
     <!-- Bundle native libs (ONNX Runtime, SQLite) into the single file -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- TypeScriptParser NuGet ships duplicate native paths (build/../runtimes + runtimes) -->
+    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
 
   <ItemGroup>

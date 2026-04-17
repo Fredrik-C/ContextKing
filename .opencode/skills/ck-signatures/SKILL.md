@@ -1,16 +1,18 @@
 ---
 name: ck-signatures
-description: Extract all method/property signatures from C# files using live AST parsing. Use after ck find-scope has identified the relevant folder, when evaluating multiple candidate files to avoid reading full file content.
+description: Extract all method/property signatures from C# and TypeScript files using live AST parsing. Use after ck find-scope has identified the relevant folder, when evaluating multiple candidate files to avoid reading full file content.
 ---
 
 # ck signatures — Live AST Signature Extraction
 
-Use this skill to list all method, constructor, and property signatures from one or more C# files
-**without reading their full content**. Always reads directly from disk — reflects uncommitted edits.
+Use this skill to list all method, constructor, and property signatures from one or more C# or
+TypeScript/TSX files **without reading their full content**. Always reads directly from disk —
+reflects uncommitted edits. Language is auto-detected from the file extension (`.cs` for C#,
+`.ts`/`.tsx` for TypeScript).
 
 ## This is step 2 — run after ck find-scope
 
-The full workflow for finding and reading code in a large C# codebase:
+The full workflow for finding and reading code in a large codebase:
 
 1. **`ck find-scope`** — identify the relevant folder subtree from a semantic query.
 2. **Glob within that folder** — use the Glob tool with `path` set to the returned folder and a
@@ -122,9 +124,10 @@ Do not stop at the first layer — "end-to-end" means tracing all the way to the
 
 ## Filtering signatures with grep
 
-Large files can produce hundreds of signature lines. **Pipe to `grep`** to filter to the
-relevant subset and save context:
+Large files can produce hundreds of signature lines. **Pipe to `grep`** (or `Select-String`
+on PowerShell) to filter to the relevant subset and save context:
 
+**Mac / Linux:**
 ```bash
 # Show only refund-related members:
 .opencode/skills/ck/ck signatures src/Gateways/StripePaymentGateway.cs | grep -i refund
@@ -134,6 +137,18 @@ relevant subset and save context:
 
 # Include a few lines of context around matches:
 .opencode/skills/ck/ck signatures src/Queues/QueueItemComponent.cs | grep -A2 "TerminalPayment"
+```
+
+**Windows (PowerShell):**
+```powershell
+# Show only refund-related members:
+.opencode\skills\ck\ck.cmd signatures src\Gateways\StripePaymentGateway.cs | Select-String -Pattern "refund" -CaseSensitive:$false
+
+# Show members matching multiple terms:
+.opencode\skills\ck\ck.cmd signatures src\Payments\PaymentComponent.cs | Select-String -Pattern "terminal|card.?present" -CaseSensitive:$false
+
+# Include a few lines of context around matches:
+.opencode\skills\ck\ck.cmd signatures src\Queues\QueueItemComponent.cs | Select-String -Pattern "TerminalPayment" -Context 0,2
 ```
 
 This is especially useful when scanning a gateway or component with many methods and you only
@@ -157,7 +172,6 @@ when you need several members from the same file; then a full `Read` is acceptab
 ## When NOT to use
 
 - You have not yet run `ck find-scope` — do that first to narrow scope.
-- The file is not a `.cs` file.
 - **The folder contains only small files (DTOs, enums, interfaces, records under ~50 lines).**
   Running signatures on a folder of tiny files adds a tool call without providing useful
   filtering — just Read the files directly instead. The CLI will emit a `[ck hint]` on stderr

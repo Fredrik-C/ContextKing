@@ -1,6 +1,6 @@
 ---
 name: ck-get-method-source
-description: Extract a single C# method/property body or signature with exact source spans after ck signatures identifies the target member.
+description: Extract a single C# or TypeScript method/property body or signature with exact source spans after ck signatures identifies the target member.
 ---
 
 ## ck get-method-source — extract a single method/property with exact span
