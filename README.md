@@ -1,6 +1,6 @@
 # Context King
 
-Semantic code navigation toolkit for **Claude Code**, **Codex CLI**, and **OpenCode** on large **C#** codebases.
+Semantic code navigation toolkit for **Claude Code**, **Codex CLI**, and **OpenCode** on large **C#** and **TypeScript** codebases.
 
 Most approaches to reducing token usage focus on *compacting* what the agent reads: tighter
 prompts, summarised context, leaner encoding. Context King addresses a different problem: the
@@ -22,7 +22,7 @@ targeted method extraction.
 
 ## The problem
 
-A large C# solution has tens of thousands of files spread across thousands of folders.
+A large C# solution or TypeScript monorepo has tens of thousands of files spread across thousands of folders.
 When Claude Code needs to find and read a specific piece of logic, the typical path is:
 
 1. Grep or Glob across the whole repo, returning dozens of hits across unrelated modules.
@@ -32,7 +32,7 @@ When Claude Code needs to find and read a specific piece of logic, the typical p
    the context window.
 
 On a 20 000-file codebase this is expensive. Unscoped searches return false positives from
-test projects, generated code, and unrelated modules. Every file that turns out to be wrong
+test projects, generated code, node_modules, and unrelated modules. Every file that turns out to be wrong
 wastes tokens and pushes relevant context out of the window.
 
 ---
@@ -55,8 +55,8 @@ not scale. A 20 000-file codebase would require 20 000 embedding passes at index
 20 000 vectors to score at query time. That means minutes to build, slow queries, and heavy storage.
 
 Context King makes a calculated trade-off: it embeds *leaf folders* (folders that directly
-contain `.cs` files) rather than individual files. A 20 000-file repo has roughly 2 000-3 000
-leaf folders. The index builds in under 15 seconds (Mac/Linux), fits entirely in memory for
+contain source files) rather than individual files. A 20 000-file repo has roughly 2 000-3 000
+leaf folders. The index builds in under 15 seconds (Mac/Linux) for C# repos, fits entirely in memory for
 scoring, and still captures the conceptual structure of the codebase. See
 [How semantic matching works](#how-semantic-matching-works) for details on what goes into each
 folder embedding.
@@ -98,7 +98,7 @@ support", differing only in whether Context King was active.
 
 | | With Context King | Without Context King |
 |---|---|---|
-| `.cs` files read in full | **1** | 43 |
+| `.cs`/`.ts`/`.tsx` files read in full | **1** | 43 |
 | Repo-wide Glob/Grep/Bash searches | 0 | 7 |
 | `ck find-scope` calls | 1 | - |
 | `ck signatures` calls | 2 | - |
@@ -131,7 +131,7 @@ cross-module analysis prompt, differing only in whether Context King was active.
 
 | | With Context King | Without Context King |
 |---|---|---|
-| `.cs` files read in full | **0** | 9 |
+| `.cs`/`.ts`/`.tsx` files read in full | **0** | 9 |
 | Repo-wide Glob/Grep searches | 0 | 2 |
 | `ck find-scope` calls | 2 | - |
 | `ck signatures` calls | 2 | - |
@@ -155,16 +155,16 @@ any file body, completing the task in just 5 tool calls.
 ### Folder-level index
 
 Rather than indexing individual files, Context King indexes *leaf folders*: any folder that
-directly contains `.cs` files. A 20 000-file repo typically has 2 000–3 000 leaf folders.
+directly contains source files (`.cs`, `.ts`, or `.tsx`). A 20 000-file repo typically has 2 000–3 000 leaf folders.
 
 Each folder's embedding is built from the combined tokens of:
 - Its full path from the repo root (e.g. `src modules inventory reservations allocator`)
-- All `.cs` filenames it contains (e.g. `inventory reservation service reservation allocator`)
-- All public method names from the `.cs` files (e.g. `AllocateReservation ReleaseReservation`)
+- All source filenames it contains (e.g. `inventory reservation service reservation allocator`)
+- All exported/public method and function names from the source files (e.g. `AllocateReservation ReleaseReservation`)
 
-PascalCase identifiers in paths and filenames are split at case boundaries
+PascalCase and camelCase identifiers in paths and filenames are split at case boundaries
 (`InventoryReservationService` → `inventory reservation service`). Interface prefixes are
-stripped (`IReservationAllocator` → `reservation allocator`). Public method names are added
+stripped (`IReservationAllocator` → `reservation allocator`). Public method and exported function names are added
 as-is, without splitting. `AllocateReservation` stays as a single token so it can be matched
 exactly by queries that use the method name. The result is a bag-of-words token string fed
 into the embedding model.
@@ -199,7 +199,7 @@ contributes the same as one found in the folder path. This means a query like
 ### Staleness detection
 
 The index is keyed by the SHA-256 fingerprint of the file paths and their content hashes
-in each folder, not by git HEAD. A folder is re-embedded when any `.cs` file in it changes
+in each folder, not by git HEAD. A folder is re-embedded when any source file in it changes
 (add, remove, rename, or content modification). This ensures that changes to public method
 signatures, which are part of the folder's bag of words, are always reflected in the index.
 
@@ -212,7 +212,7 @@ not just committed state.
 
 ### Requirements
 
-- .NET 10 runtime (required for AST analysis)
+- .NET 10 runtime (required for C# AST analysis; TypeScript analysis uses bundled tree-sitter)
 - At least one of: Claude Code, Codex CLI, or OpenCode, already initialized in the target repo
 - Bash (Mac/Linux) or PowerShell 7+ (Windows)
 - Git (used for repo root detection and worktree isolation)
@@ -246,7 +246,7 @@ support for each one found. Deployment is per-CLI-tool:
 │   ├── ck-get-method-source/SKILL.md
 │   └── ck-index/SKILL.md
 ├── hooks/
-│   ├── ck-read-guard.sh/.ps1        ← PreToolUse: prompts for ck signatures before .cs reads
+│   ├── ck-read-guard.sh/.ps1        ← PreToolUse: prompts for ck signatures before source file reads
 │   ├── ck-search-guard.sh/.ps1      ← PreToolUse: prompts for ck find-scope before broad searches
 │   └── agent-usage-guard.sh/.ps1    ← PreToolUse: injects CK protocol into sub-agent prompts
 ├── rules/ck-code-search-protocol.md ← always-apply rule
@@ -343,10 +343,10 @@ Two complementary mechanisms keep the agent on the efficient path:
 **Always-apply rule** (`rules/ck-code-search-protocol.md`), loaded automatically in every
 session. Instructs the agent to run `ck find-scope` before any Glob, Grep, or Read when the
 target folder is unknown; scope all searches to the returned folder(s); run `ck signatures`
-before reading any `.cs` file; and never speculatively open a file.
+before reading any source file; and never speculatively open a file.
 
 **PreToolUse hooks** fire before tool calls, without blocking:
-- **`ck-read-guard`** fires on every `.cs` file read. Reminds the agent to confirm it has
+- **`ck-read-guard`** fires on every `.cs`, `.ts`, or `.tsx` file read. Reminds the agent to confirm it has
   run `ck signatures` and pre-fills the exact command for the file being opened.
 - **`ck-search-guard`** fires on broad Glob or Grep calls. Reminds the agent to run
   `ck find-scope` first.
@@ -371,11 +371,11 @@ A TypeScript plugin (`plugin/ck-guards.ts`) is deployed to `.opencode/plugin/` a
 auto-loaded by OpenCode on session start. It intercepts three patterns before they waste
 tokens scanning the wrong files:
 
-- **broad `glob` on `.cs` files**: fires when a glob pattern targets `.cs` across a
+- **broad `glob` on source files**: fires when a glob pattern targets `.cs`, `.ts`, or `.tsx` across a
   path with 3 or fewer segments; throws with a redirect to `ck find-scope`.
-- **broad `grep` on `.cs` files**: same depth check; throws with a redirect to `ck find-scope`.
-- **`bash` grep on `.cs` files**: fires when a bash command contains `grep` targeting
-  `.cs`; throws with the full three-step protocol.
+- **broad `grep` on source files**: same depth check; throws with a redirect to `ck find-scope`.
+- **`bash` grep on source files**: fires when a bash command contains `grep` targeting
+  `.cs`, `.ts`, or `.tsx`; throws with the full three-step protocol.
 
 A Read guard is not implemented for OpenCode: the plugin API only supports throw-to-block
 with no warn-and-allow equivalent, which would cause the agent to loop on legitimate reads.
@@ -420,17 +420,19 @@ Default `--top 10`. Auto-builds index on first call.
 ### `ck signatures`
 
 ```
-ck signatures <file.cs> [file2.cs ...]
+ck signatures <file> [file2 ...]
 ```
 
-Output: `<filepath>:<line>\t<containingType>\t<memberName>\t<signature>`, one line per member.
+Supports `.cs`, `.ts`, and `.tsx` files. Output: `<filepath>:<line>\t<containingType>\t<memberName>\t<signature>`, one line per member.
 Always live, no index required.
 
 ### `ck get-method-source`
 
 ```
-ck get-method-source <file.cs> <member-name> [--type <TypeName>] [--mode <mode>]
+ck get-method-source <file> <member-name> [--type <TypeName>] [--mode <mode>]
 ```
+
+Supports `.cs`, `.ts`, and `.tsx` files.
 
 Modes: `signature_plus_body` (default), `signature_only`, `body_only`, `body_without_comments`.
 
