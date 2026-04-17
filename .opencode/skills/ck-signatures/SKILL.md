@@ -158,6 +158,11 @@ when you need several members from the same file; then a full `Read` is acceptab
 
 - You have not yet run `ck find-scope` — do that first to narrow scope.
 - The file is not a `.cs` file.
+- **The folder contains only small files (DTOs, enums, interfaces, records under ~50 lines).**
+  Running signatures on a folder of tiny files adds a tool call without providing useful
+  filtering — just Read the files directly instead. The CLI will emit a `[ck hint]` on stderr
+  when it detects this situation. If you see the hint, skip signatures for similar folders
+  in the rest of the session and Read the files directly.
 
 ## Key properties
 

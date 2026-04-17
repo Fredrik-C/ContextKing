@@ -79,6 +79,10 @@ internal static class SignaturesCommand
 
         // Always live — reads directly from disk, no cache
         SignatureExtractor.Extract(valid, Console.Out, Console.Error);
+
+        // Hint: if the folder contains only small files, suggest reading directly next time.
+        EmitSmallFolderHint(valid);
+
         return Task.FromResult(0);
     }
 
@@ -110,6 +114,37 @@ internal static class SignaturesCommand
 
     private static bool IsGlob(string value)
         => value.IndexOfAny(['*', '?', '[', ']']) >= 0;
+
+    /// <summary>
+    /// When all processed files are small (≤50 lines avg), emit a stderr hint suggesting
+    /// the agent read the files directly next time instead of running signatures first.
+    /// </summary>
+    private static void EmitSmallFolderHint(List<string> files)
+    {
+        if (files.Count == 0 || files.Count > 20)
+            return;
+
+        try
+        {
+            var totalLines = 0L;
+            foreach (var f in files)
+            {
+                totalLines += File.ReadLines(f).Count();
+            }
+
+            var avgLines = totalLines / files.Count;
+            if (avgLines <= 50)
+            {
+                Console.Error.WriteLine(
+                    $"[ck hint] This folder has {files.Count} files averaging {avgLines} lines — " +
+                    "consider reading files directly with Read next time instead of running signatures first.");
+            }
+        }
+        catch
+        {
+            // Best-effort hint — don't fail the command.
+        }
+    }
 
     private static List<string> ExpandGlob(string pattern)
     {
