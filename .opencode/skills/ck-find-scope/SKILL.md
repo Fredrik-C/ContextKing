@@ -200,4 +200,7 @@ lives. It is **not** the right tool for:
   an enum value). Use `grep -rn` scoped to the relevant module for these.
 - **Exact symbol lookup** when you already know the file or folder. Go straight to
   `ck signatures` or `ck get-method-source`.
+- **Finding a specific class by name** (e.g. "where is `TerminalPaymentComponent` defined?").
+  Use `grep -rn 'class TerminalPaymentComponent'` scoped to the relevant module — find-scope
+  searches folder/file names semantically, not class declarations.
 - **Non-C# files** (SQL, config, YAML, etc.).
