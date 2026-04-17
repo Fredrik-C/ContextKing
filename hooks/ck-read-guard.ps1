@@ -17,12 +17,12 @@ $filePath = $json.tool_input.file_path `
          ?? $json.toolInput.file_path `
          ?? $json.toolInput.path
 
-if (-not $filePath -or -not $filePath.EndsWith('.cs')) {
+if (-not $filePath -or -not ($filePath -match '\.(cs|tsx?)$')) {
     exit 0
 }
 
 $baseName = Split-Path $filePath -Leaf
-$reason = "[ck-guard] Reading a C# source file: '$baseName'.
+$reason = "[ck-guard] Reading a source file: '$baseName'.
 If you are evaluating multiple candidate files, prefer:
   .claude\skills\ck\ck.cmd signatures <filepath>
 This lists all method signatures via live AST parsing without reading the full file.

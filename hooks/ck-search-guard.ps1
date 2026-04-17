@@ -1,6 +1,6 @@
 # ck-search-guard.ps1: PreToolUse hook for Glob and Grep tools (Windows PowerShell).
-# When searching for .cs files across a wide, unscoped path, reminds the agent
-# to run ck find-scope first. Never blocks the search.
+# When searching for source files (.cs, .ts, .tsx) across a wide, unscoped path,
+# reminds the agent to run ck find-scope first. Never blocks the search.
 # On Mac/Linux the .sh variant handles this — exit silently here.
 if ($IsLinux -or $IsMacOS) { exit 0 }
 
@@ -19,13 +19,13 @@ if ($toolName -eq "Glob") {
     $pattern    = $json.tool_input.pattern    ?? $json.toolInput.pattern
     $searchPath = $json.tool_input.path       ?? $json.toolInput.path
 
-    if (-not $pattern -or $pattern -notlike "*.cs*") { exit 0 }
+    if (-not $pattern -or $pattern -notmatch '\.(cs|tsx?)') { exit 0 }
 
     $depth = if ($searchPath) { ($searchPath -split '[/\\]' | Where-Object { $_ -ne '' }).Count } else { 0 }
     if ($depth -gt 3) { exit 0 }
 
     $displayPath = if ($searchPath) { $searchPath } else { "(repo root)" }
-    $reason = "[ck-guard] Globbing for C# files across a wide path (pattern: '$pattern', path: '$displayPath').
+    $reason = "[ck-guard] Globbing for source files across a wide path (pattern: '$pattern', path: '$displayPath').
 
 Run ck find-scope FIRST to narrow scope:
   .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description — module, concept, operation, type>`"
@@ -49,14 +49,14 @@ if ($toolName -eq "Grep") {
     $type       = $json.tool_input.type ?? $json.toolInput.type
     $searchPath = $json.tool_input.path ?? $json.toolInput.path
 
-    $isCs = ($glob -like "*.cs*") -or ($type -eq "cs")
-    if (-not $isCs) { exit 0 }
+    $isSource = ($glob -match '\.(cs|tsx?)') -or ($type -match '^(cs|tsx?)$')
+    if (-not $isSource) { exit 0 }
 
     $depth = if ($searchPath) { ($searchPath -split '[/\\]' | Where-Object { $_ -ne '' }).Count } else { 0 }
     if ($depth -gt 3) { exit 0 }
 
     $displayPath = if ($searchPath) { $searchPath } else { "(repo root)" }
-    $reason = "[ck-guard] Grepping C# files across a wide path (path: '$displayPath').
+    $reason = "[ck-guard] Grepping source files across a wide path (path: '$displayPath').
 
 Run ck find-scope FIRST to narrow scope:
   .claude\skills\ck\ck.cmd find-scope --query `"<multi-keyword description — module, concept, operation, type>`"

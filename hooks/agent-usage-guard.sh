@@ -14,7 +14,7 @@ PROMPT=$(printf '%s' "$INPUT" | jq -r '.tool_input.prompt // .toolInput.prompt /
 DESC=$(printf '%s' "$INPUT" | jq -r '.tool_input.description // .toolInput.description // empty' 2>/dev/null)
 
 # Only act when the agent appears to be doing code search/navigation
-if ! printf '%s\n%s' "$PROMPT" "$DESC" | grep -qiE '(\.cs\b|find|search|explore|scope|controller|component|service|repository|business|layer|interface|namespace)'; then
+if ! printf '%s\n%s' "$PROMPT" "$DESC" | grep -qiE '(\.(cs|tsx?)\b|find|search|explore|scope|controller|component|service|repository|business|layer|interface|namespace|module|handler|route|routing)'; then
   exit 0
 fi
 

@@ -16,7 +16,7 @@ $desc      = $toolInput.description ?? ""
 $combined  = "$prompt`n$desc"
 
 # Only act when the agent appears to be doing code search/navigation
-if ($combined -notmatch '(?i)(\.cs\b|find|search|explore|scope|controller|component|service|repository|business|layer|interface|namespace)') {
+if ($combined -notmatch '(?i)(\.(cs|tsx?)\b|find|search|explore|scope|controller|component|service|repository|business|layer|interface|namespace|module|handler|route|routing)') {
     exit 0
 }
 

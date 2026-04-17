@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ck-read-guard: PreToolUse hook for the Read tool.
-# When a .cs file is about to be read, asks whether ck signatures was run first.
+# When a .cs, .ts, or .tsx file is about to be read, asks whether ck signatures was run first.
 # Never blocks the read — allows the agent to self-correct.
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -15,10 +15,11 @@ FILE_PATH=$(printf '%s' "$INPUT" | jq -r '
   .toolInput.path //
   empty' 2>/dev/null)
 
-# Only act on .cs files
-if [[ "$FILE_PATH" != *.cs ]]; then
-  exit 0
-fi
+# Only act on supported source files
+case "$FILE_PATH" in
+  *.cs|*.ts|*.tsx) ;;
+  *) exit 0 ;;
+esac
 
 jq -n \
   --arg reason "[ck-guard] About to read '$(basename "$FILE_PATH")' in full.
