@@ -3,7 +3,9 @@
 # Detects two anti-patterns:
 #   1. Piping ck output through head/grep/tail/wc (wastes context, discards structure)
 #   2. Using raw grep/rg on source files instead of ck search
-# Never blocks — allows with a corrective hint.
+#
+# Pattern 1 BLOCKS the call — allow-with-warning was tested and agents ignore it.
+# Pattern 2 allows with a hint (blocking grep entirely is too aggressive).
 
 if ! command -v jq >/dev/null 2>&1; then
   exit 0
@@ -18,9 +20,13 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '
 [ -z "$COMMAND" ] && exit 0
 
 # ── Pattern 1: ck commands piped through head/grep/tail ───────────────────────
-if printf '%s' "$COMMAND" | grep -qE 'ck\s+(search|find-scope|signatures|get-method-source)\b.*\|'; then
+# Must detect real shell pipes (|) but NOT regex alternation (\|) in --pattern.
+# Strategy: strip everything inside quotes after --pattern, then check for |.
+# Simpler approach: check if | is followed by common pipe targets.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+(search|find-scope|signatures|get-method-source)\b' && \
+   printf '%s' "$COMMAND" | grep -qE '\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b'; then
   jq -n \
-    --arg reason "[ck-guard] Do NOT pipe ck output through head, grep, or tail.
+    --arg reason "[ck-guard] BLOCKED — do not pipe ck output through head, grep, or tail.
 
 ck output is already structured and scoped. Piping discards folder scores and
 grouping structure you need. Instead:
@@ -30,11 +36,11 @@ grouping structure you need. Instead:
     ck search --query \"<scope>\" --type class --name \"ClassName\"
   • Types: class, method, member, file
 
-Remove the pipe and run the ck command directly." \
+Remove the pipe and re-run the ck command directly." \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "permissionDecision": "allow",
+        "permissionDecision": "block",
         "permissionDecisionReason": $reason
       }
     }'

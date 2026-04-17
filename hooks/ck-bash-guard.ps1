@@ -1,6 +1,7 @@
 #!/usr/bin/env pwsh
 # ck-bash-guard: PreToolUse hook for the Bash tool (PowerShell version).
-# Detects piping ck output and raw grep on source files.
+# Detects piped ck output and raw grep on source files.
+# Piped ck output is BLOCKED; raw grep is allowed with a hint.
 
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -15,14 +16,17 @@ $command = if ($obj.tool_input.command) { $obj.tool_input.command }
 
 if (-not $command) { exit 0 }
 
-# Pattern 1: ck commands piped
-if ($command -match 'ck\s+(search|find-scope|signatures|get-method-source)\b.*\|') {
+# Pattern 1: ck commands with real shell pipe (not regex \|)
+$hasCk = $command -match 'ck\s+(search|find-scope|signatures|get-method-source)\b'
+$hasPipe = $command -match '\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b'
+
+if ($hasCk -and $hasPipe) {
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'allow'
+            permissionDecision = 'block'
             permissionDecisionReason = @"
-[ck-guard] Do NOT pipe ck output through head, grep, or tail.
+[ck-guard] BLOCKED — do not pipe ck output through head, grep, or tail.
 
 ck output is already structured and scoped. Piping discards folder scores and
 grouping structure you need. Instead:
@@ -32,7 +36,7 @@ grouping structure you need. Instead:
     ck search --query "<scope>" --type class --name "ClassName"
   - Types: class, method, member, file
 
-Remove the pipe and run the ck command directly.
+Remove the pipe and re-run the ck command directly.
 "@
         }
     } | ConvertTo-Json -Depth 3
