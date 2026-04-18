@@ -13,7 +13,65 @@
             "command": "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-bash-grep-guard.ps1 || exit 0'"
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/ck-read-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-read-guard.ps1 || exit 0'"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/ck-search-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/ck-search-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/agent-usage-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/agent-usage-guard.ps1 || exit 0'"
+          }
+        ]
       }
+    ]
+  },
+  "permissions": {
+    "allowedTools": [
+      "Bash(.claude/skills/ck/ck *)",
+      "Bash(.claude\\skills\\ck\\ck.cmd *)"
     ]
   }
 }
