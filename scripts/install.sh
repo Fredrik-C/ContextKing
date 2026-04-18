@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# install.sh — Context King self-extracting installer.
+# install.sh — Context King installer.
 #
-# Downloads Context King and deploys it based on which AI CLI tools
-# (.claude, .codex, .opencode) are already configured in the target repo.
+# Downloads the platform-specific release archive from GitHub Releases,
+# extracts it, and runs deploy.sh to install into the target repo.
+#
+# All assets come from the release archive — nothing is fetched from main.
+# This ensures the installed version matches the release exactly.
 #
 # ── One-liner install (pipe from GitHub) ──────────────────────────────────────
 #   curl -fsSL https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install.sh | bash
@@ -20,15 +23,11 @@ set -euo pipefail
 
 GITHUB_OWNER="Fredrik-C"
 GITHUB_REPO="ContextKing"
-GITHUB_BRANCH="main"
-GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
 GITHUB_RELEASE="https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 die()      { echo "Error: $*" >&2; exit 1; }
 info()     { echo "$*"; }
-progress() { printf "  %s..." "$1"; }
-done_()    { echo " done"; }
 
 download() {
   local url="$1" dest="$2"
@@ -70,9 +69,7 @@ TARGET="${1:-$(pwd)}"
 TARGET="$(cd "$TARGET" && pwd)"
 
 # ── Detect if running from inside the ContextKing repo ──────────────────────
-# Works for both: bash scripts/install.sh  AND  cat install.sh | bash
 LOCAL_REPO=""
-# When invoked as a script (not piped), $BASH_SOURCE[0] points to this file
 _self="${BASH_SOURCE[0]:-}"
 if [ -n "$_self" ] && [ -f "$(dirname "$_self")/deploy.sh" ]; then
   _scripts_dir="$(cd "$(dirname "$_self")" && pwd)"
@@ -81,7 +78,6 @@ if [ -n "$_self" ] && [ -f "$(dirname "$_self")/deploy.sh" ]; then
     LOCAL_REPO="$_repo_dir"
   fi
 fi
-# Also check current directory (useful when running: bash install.sh from the repo root)
 if [ -z "$LOCAL_REPO" ] && [ -f "$(pwd)/scripts/deploy.sh" ] && [ -f "$(pwd)/skills/ck/ck" ]; then
   LOCAL_REPO="$(pwd)"
 fi
@@ -90,12 +86,14 @@ fi
 HAS_CLAUDE=false
 HAS_CODEX=false
 HAS_OPENCODE=false
+HAS_AGENTS=false
 
 [ -d "$TARGET/.claude" ]   && HAS_CLAUDE=true
 [ -d "$TARGET/.codex" ]    && HAS_CODEX=true
 [ -d "$TARGET/.opencode" ] && HAS_OPENCODE=true
+[ -d "$TARGET/.agents" ]   && HAS_AGENTS=true
 
-if [ "$HAS_CLAUDE" = false ] && [ "$HAS_CODEX" = false ] && [ "$HAS_OPENCODE" = false ]; then
+if [ "$HAS_CLAUDE" = false ] && [ "$HAS_CODEX" = false ] && [ "$HAS_OPENCODE" = false ] && [ "$HAS_AGENTS" = false ]; then
   echo ""
   echo "No AI CLI configuration found in: $TARGET"
   echo ""
@@ -103,6 +101,7 @@ if [ "$HAS_CLAUDE" = false ] && [ "$HAS_CODEX" = false ] && [ "$HAS_OPENCODE" = 
   echo "  Claude Code  → run 'claude' in your repo to initialize (.claude/ will be created)"
   echo "  Codex CLI    → run 'codex init' in your repo (.codex/ will be created)"
   echo "  OpenCode     → run 'opencode' in your repo (.opencode/ will be created)"
+  echo "  Agents       → create .agents/ directory manually"
   echo ""
   echo "Initialize at least one CLI tool, then re-run install.sh."
   exit 1
@@ -112,6 +111,7 @@ DETECTED=""
 [ "$HAS_CLAUDE" = true ]   && DETECTED="${DETECTED}Claude Code, "
 [ "$HAS_CODEX" = true ]    && DETECTED="${DETECTED}Codex CLI, "
 [ "$HAS_OPENCODE" = true ] && DETECTED="${DETECTED}OpenCode, "
+[ "$HAS_AGENTS" = true ]   && DETECTED="${DETECTED}Agents, "
 DETECTED="${DETECTED%, }"
 
 echo ""
@@ -121,101 +121,27 @@ echo "  Deploy : $DETECTED"
 echo ""
 
 # ── Acquire assets ────────────────────────────────────────────────────────────
-ASSETS_DIR=""
 if [ -n "$LOCAL_REPO" ]; then
   info "Using local assets from: $LOCAL_REPO"
-  ASSETS_DIR="$LOCAL_REPO"
+  bash "$LOCAL_REPO/scripts/deploy.sh" "$TARGET"
 else
   PLATFORM="$(detect_platform)"
-  info "Downloading Context King assets for $PLATFORM from GitHub..."
+  ARCHIVE="context-king-${PLATFORM}.tar.gz"
+  ARCHIVE_URL="${GITHUB_RELEASE}/${ARCHIVE}"
 
-  ASSETS_DIR="$(mktemp -d)"
+  info "Downloading $ARCHIVE from latest release..."
+
+  TMPDIR_CK="$(mktemp -d)"
   # shellcheck disable=SC2064
-  trap "rm -rf '$ASSETS_DIR'" EXIT
+  trap "rm -rf '$TMPDIR_CK'" EXIT
 
-  # Deploy scripts
-  mkdir -p "$ASSETS_DIR/scripts"
-  for _script in deploy.sh deploy-codex.sh deploy-opencode.sh; do
-    progress "scripts/$_script"
-    download "${GITHUB_RAW}/scripts/${_script}" "$ASSETS_DIR/scripts/$_script"
-    chmod +x "$ASSETS_DIR/scripts/$_script"
-    done_
-  done
+  download "$ARCHIVE_URL" "$TMPDIR_CK/$ARCHIVE"
+  info "Extracting..."
+  tar -xzf "$TMPDIR_CK/$ARCHIVE" -C "$TMPDIR_CK"
 
-  # Skills: SKILL.md files
-  for _skill in ck-find-scope ck-search ck-signatures ck-get-method-source ck-index; do
-    mkdir -p "$ASSETS_DIR/skills/$_skill"
-    progress "skills/$_skill/SKILL.md"
-    download "${GITHUB_RAW}/skills/${_skill}/SKILL.md" "$ASSETS_DIR/skills/$_skill/SKILL.md"
-    done_
-  done
-
-  # Skills: binary wrapper scripts
-  mkdir -p "$ASSETS_DIR/skills/ck"
-  for _wrapper in ck ck.cmd; do
-    progress "skills/ck/$_wrapper"
-    download "${GITHUB_RAW}/skills/ck/${_wrapper}" "$ASSETS_DIR/skills/ck/$_wrapper"
-    done_
-  done
-  chmod +x "$ASSETS_DIR/skills/ck/ck"
-
-  # Platform binary (largest file — downloaded from GitHub Releases)
-  _bin="ck-${PLATFORM}"
-  [ "$PLATFORM" = "win-x64" ] && _bin="ck-win-x64.exe"
-  progress "binary: $_bin (~30–46 MB, from latest release)"
-  download "${GITHUB_RELEASE}/${_bin}" "$ASSETS_DIR/skills/ck/${_bin}"
-  [ "$PLATFORM" != "win-x64" ] && chmod +x "$ASSETS_DIR/skills/ck/${_bin}"
-  done_
-
-  # Hooks
-  mkdir -p "$ASSETS_DIR/hooks"
-  for _hook in ck-read-guard.sh ck-read-guard.ps1 ck-search-guard.sh ck-search-guard.ps1 agent-usage-guard.sh agent-usage-guard.ps1 ck-bash-guard.sh ck-bash-guard.ps1; do
-    progress "hooks/$_hook"
-    download "${GITHUB_RAW}/hooks/${_hook}" "$ASSETS_DIR/hooks/$_hook"
-    done_
-  done
-  chmod +x \
-    "$ASSETS_DIR/hooks/ck-read-guard.sh" \
-    "$ASSETS_DIR/hooks/ck-search-guard.sh" \
-    "$ASSETS_DIR/hooks/agent-usage-guard.sh" \
-    "$ASSETS_DIR/hooks/ck-bash-guard.sh"
-
-  # Models
-  mkdir -p "$ASSETS_DIR/models/bge-small-en-v1.5/onnx"
-  progress "models/bge-small-en-v1.5/vocab.txt"
-  download "${GITHUB_RAW}/models/bge-small-en-v1.5/vocab.txt" \
-    "$ASSETS_DIR/models/bge-small-en-v1.5/vocab.txt"
-  done_
-  progress "models/bge-small-en-v1.5/onnx/model_quantized.onnx (~34 MB)"
-  download "${GITHUB_RAW}/models/bge-small-en-v1.5/onnx/model_quantized.onnx" \
-    "$ASSETS_DIR/models/bge-small-en-v1.5/onnx/model_quantized.onnx"
-  done_
-
-  # Plugins (OpenCode hooks)
-  mkdir -p "$ASSETS_DIR/plugins"
-  progress "plugins/ck-guards.ts"
-  download "${GITHUB_RAW}/plugins/ck-guards.ts" "$ASSETS_DIR/plugins/ck-guards.ts"
-  done_
-
-  # Rules
-  mkdir -p "$ASSETS_DIR/rules"
-  progress "rules/ck-code-search-protocol.md"
-  download "${GITHUB_RAW}/rules/ck-code-search-protocol.md" \
-    "$ASSETS_DIR/rules/ck-code-search-protocol.md"
-  done_
+  ASSETS_DIR="$TMPDIR_CK/context-king"
+  [ -d "$ASSETS_DIR" ] || die "Archive did not contain expected context-king/ directory"
 
   info ""
+  bash "$ASSETS_DIR/scripts/deploy.sh" "$TARGET"
 fi
-
-# ── Run deployment ─────────────────────────────────────────────────────────────
-# Pass --all so deploy.sh doesn't re-detect (we already know what to deploy).
-# We construct the correct flags ourselves.
-_deploy_flags=""
-[ "$HAS_CLAUDE" = false ] && [ "$HAS_CODEX" = false ] && [ "$HAS_OPENCODE" = false ] && exit 1
-
-# Since we already detected, temporarily create the directories so deploy.sh picks them up.
-# (They already exist — this block is just in case install.sh is called with --all logic later.)
-
-# Directly invoke the unified deploy from the assets dir.
-# We pass TARGET as the first argument; detection inside deploy.sh will see the same dirs.
-bash "$ASSETS_DIR/scripts/deploy.sh" "$TARGET"
