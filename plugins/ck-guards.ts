@@ -1,21 +1,18 @@
 /**
  * ck-guards — OpenCode plugin
  *
- * Enforces the Context King code-search protocol by intercepting broad source file
- * searches (.cs, .ts, .tsx) before they waste tokens scanning the wrong files.
+ * Enforces the Context King code-search protocol by intercepting anti-patterns
+ * before they waste tokens. In OpenCode, throw actually blocks the call.
  *
  * Deployed to: .opencode/plugin/ck-guards.ts
  * Auto-loaded by OpenCode from .opencode/plugin/ on session start.
  *
- * Guards implemented (all non-blocking in intent — throw redirects the agent):
+ * Guards implemented:
  *   glob on source files across a wide path   → redirect to ck find-scope
  *   grep on source files across a wide path   → redirect to ck find-scope
+ *   bash cat on source files                  → redirect to ck get-method-source / Read
  *   bash grep targeting source files          → redirect to ck find-scope
- *
- * Read guard is intentionally omitted: OpenCode only supports throw-to-block
- * with no warn-and-allow equivalent. Blocking all source reads would cause infinite
- * retry loops when the agent legitimately needs a full file. The protocol file
- * and AGENTS.md pointer handle read discipline via instructions instead.
+ *   bash pipe on ck find-scope/search         → block (destroys structure)
  */
 
 const CK = ".opencode/skills/ck/ck"
@@ -54,13 +51,14 @@ export default async function ckGuards() {
           throw new Error(
             `[ck-guard] Broad source file glob detected (pattern: "${pattern}", path: "${path || "repo root"}").
 
-Use ck search to find what you need with semantic scoping:
-  ${CK} search --query "<domain description>" --pattern "<keyword>"
-
-If you don't have a keyword yet, use ck find-scope to discover the right area:
+Use ck find-scope to discover the right area first:
   ${CK} find-scope --query "<multi-keyword description>"
 
-Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files.`
+Then explore within those folders:
+  ${CK} signatures <folder>/
+  ${CK} get-method-source <file> <MemberName>
+
+Do NOT use broad glob — it wastes tokens scanning irrelevant files.`
           )
         }
         return
@@ -78,13 +76,14 @@ Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files.`
           throw new Error(
             `[ck-guard] Broad source file grep detected (path: "${path || "repo root"}").
 
-Use ck search to find what you need with semantic scoping:
-  ${CK} search --query "<domain description>" --pattern "<keyword>"
-
-If you don't have a keyword yet, use ck find-scope to discover the right area:
+Use ck find-scope to discover the right area first:
   ${CK} find-scope --query "<multi-keyword description>"
 
-Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files.`
+Then explore within those folders:
+  ${CK} signatures <folder>/
+  ${CK} get-method-source <file> <MemberName>
+
+Do NOT use broad grep — it wastes tokens scanning irrelevant files.`
           )
         }
         return
@@ -105,11 +104,24 @@ ck output is already structured and scoped. Piping discards folder scores and
 grouping structure you need. Instead:
 
   • Reduce output with --top <n> or --min-score <f>
-  • Use --type and --name for precise matching:
-    ${CK} search --query "<scope>" --type class --name "ClassName"
-  • Types: class, method, member, file
 
 Remove the pipe and run the ck command directly.`
+          )
+        }
+
+        // Detect cat on source files (should use Read or ck get-method-source)
+        if (/\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*$/.test(cmd) ||
+            /\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*\|/.test(cmd)) {
+          throw new Error(
+            `[ck-guard] Do not use cat to read source files.
+
+Use ck tools to read exactly what you need:
+
+  ${CK} signatures <file>                    # list all members
+  ${CK} get-method-source <file> <MemberName> # read one method
+
+Or use the Read tool if you need the full file. cat wastes tokens by dumping
+the entire file into the command output without line numbers.`
           )
         }
 
@@ -122,11 +134,7 @@ Remove the pipe and run the ck command directly.`
           throw new Error(
             `[ck-guard] bash grep on source files detected.
 
-Do NOT use bash grep to search this codebase. Use ck search instead:
-
-  ${CK} search --query "<domain description>" --pattern "<keyword>"
-
-Or follow the full protocol:
+Follow the code search protocol:
   1. ${CK} find-scope --query "<module, concept, operation, type>"
   2. ${CK} signatures <folder-or-file>
   3. ${CK} get-method-source <file> <MemberName>
