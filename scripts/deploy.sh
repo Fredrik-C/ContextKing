@@ -132,18 +132,14 @@ if [ "$HAS_CLAUDE" = true ]; then
   mkdir -p "$DOT_CLAUDE/rules"
   cp "$REPO_DIR/rules/ck-code-search-protocol.md" "$DOT_CLAUDE/rules/"
 
-  # 4. Copy hooks
+  # 4. Copy hooks (only deny-mode guards — allow-with-warning guards are proven useless)
   echo "  Copying hooks..."
   mkdir -p "$DOT_CLAUDE/hooks"
-  cp "$REPO_DIR/hooks/ck-read-guard.sh"       "$DOT_CLAUDE/hooks/"
-  cp "$REPO_DIR/hooks/ck-read-guard.ps1"     "$DOT_CLAUDE/hooks/"
-  cp "$REPO_DIR/hooks/ck-search-guard.sh"    "$DOT_CLAUDE/hooks/"
-  cp "$REPO_DIR/hooks/ck-search-guard.ps1"   "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/agent-usage-guard.sh"  "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/agent-usage-guard.ps1" "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.sh"      "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.ps1"     "$DOT_CLAUDE/hooks/"
-  chmod +x "$DOT_CLAUDE/hooks/ck-read-guard.sh" "$DOT_CLAUDE/hooks/ck-search-guard.sh" "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh"
+  chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh"
 
   # 5. Register hooks in settings.json (idempotent)
   SETTINGS="$DOT_CLAUDE/settings.json"
@@ -160,32 +156,6 @@ if [ "$HAS_CLAUDE" = true ]; then
       echo "  Added ck allowedTools permissions to settings.json"
     else
       echo "  ck allowedTools permissions already present — skipping."
-    fi
-    if ! jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("ck-read-guard"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.PreToolUse += [{"matcher":"Read","hooks":[
-        {"type":"command","command":".claude/hooks/ck-read-guard.sh"},
-        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-read-guard.ps1 || exit 0'\''"}
-      ]}]' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Registered Read hook in settings.json"
-    else
-      echo "  Read hook already registered — skipping."
-    fi
-    if ! jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("ck-search-guard"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.PreToolUse += [
-        {"matcher":"Glob","hooks":[
-          {"type":"command","command":".claude/hooks/ck-search-guard.sh"},
-          {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'\''"}
-        ]},
-        {"matcher":"Grep","hooks":[
-          {"type":"command","command":".claude/hooks/ck-search-guard.sh"},
-          {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'\''"}
-        ]}
-      ]' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Registered Glob/Grep hooks in settings.json"
-    else
-      echo "  Glob/Grep hooks already registered — skipping."
     fi
     if ! jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("agent-usage-guard"))' \
          "$SETTINGS" >/dev/null 2>&1; then

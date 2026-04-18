@@ -66,23 +66,4 @@ These return structured output with exact line spans. grep loses context.
     } | ConvertTo-Json -Depth 3
     exit 0
 }
-
-# Pattern 3: raw grep -r on source files (broad search) — warn only
-if ($command -match '(^|\s)(grep|rg)\s+.*\.(cs|ts|tsx)\b') {
-    @{
-        hookSpecificOutput = @{
-            hookEventName = 'PreToolUse'
-            permissionDecision = 'allow'
-            permissionDecisionReason = @"
-[ck-guard] bash grep on source files detected.
-
-Do NOT use bash grep to search this codebase — follow the code search protocol:
-
-  1. .claude/skills/ck/ck find-scope --query "<module, concept, operation, type>"
-  2. .claude/skills/ck/ck signatures <file.cs> [file2.cs ...]
-  3. .claude/skills/ck/ck get-method-source <file.cs> <MemberName>
-"@
-        }
-    } | ConvertTo-Json -Depth 3
-    exit 0
 }
