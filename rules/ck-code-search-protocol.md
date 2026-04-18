@@ -1,54 +1,64 @@
-## CK Code Search Protocol — mandatory
+## Code Navigation Protocol — mandatory
 
-Use CK commands for all code navigation. Never use bare `grep -r`, `Glob **/*.cs`, or `Read` on unknown files.
+This codebase is large. Searching without narrowing scope first wastes tokens and reads wrong files.
 
-### When → Command
+### The workflow
 
-| # | When you need to… | Command |
-|---|---|---|
-| 1 | Find a class/interface by name | `ck search --query "domain area" --type class --name "IPaymentGateway"` |
-| 2 | Find a method by name | `ck search --query "domain area" --type method --name "ChargePayment"` |
-| 3 | Find a file by name | `ck search --query "domain area" --type file --name "AdyenGateway"` |
-| 4 | Find a property/field by name | `ck search --query "domain area" --type member --name "RefundAmount"` |
-| 5 | Search with raw regex (rare) | `ck search --query "domain area" --pattern "Status\.(Active\|Closed)"` |
-| 6 | Discover folders (no symbol yet) | `ck find-scope --query "adyen terminal refund card-present"` |
-| 7 | List all members in a folder/file | `ck signatures <folder-or-file>` |
-| 8 | Read one method body | `ck get-method-source <file> <ExactMemberName>` |
-| 9 | Read a small file (<50 lines) | `Read` tool directly — skip signatures/get-method-source |
-| 10 | Read 3+ members from one file | `Read` tool — cheaper than 3 separate get-method-source calls |
-
-### Sample workflows
-
-**Find and read a specific symbol:**
 ```
-ck search --query "payment terminal" --type class --name "ITerminalGateway"
-ck get-method-source <file-from-result> ChargePaymentAsync
+1. SCOPE    → ck find-scope --query "domain area concept operation"
+2. EXPLORE  → ck signatures <folder>/     (for each relevant folder)
+3. READ     → ck get-method-source <file> <MemberName>
+4. EDIT     → make your changes
 ```
 
-**Explore an unknown area:**
-```
+**Step 1 gives you folders. Steps 2–4 happen within those folders. Do not re-scope.**
+
+### Playbook A — Find and read a specific symbol
+
+```bash
 ck find-scope --query "adyen terminal card-present refund"
-ck signatures <top-folder>/
-ck get-method-source <file> <member-from-signatures>
+# pick the matching folder(s) from results
+ck signatures <folder>/
+# find the member name in output
+ck get-method-source <file> <ExactMemberName>
 ```
 
-**Implement a feature using an existing pattern (e.g. add Adyen support matching Stripe):**
-```
-ck search --query "stripe terminal refund" --type class --name "StripeTerminalGateway"
+### Playbook B — Implement a feature using an existing pattern
+
+```bash
+# 1. Scope both the reference and the target
+ck find-scope --query "stripe terminal card-present refund"         # reference
+ck find-scope --query "adyen terminal payment gateway"              # target
+
+# 2. Explore reference implementation
 ck signatures <stripe-folder>/
-ck get-method-source <file> RefundPaymentAsync        # read the pattern
-ck search --query "adyen terminal" --type class --name "AdyenTerminalGateway"
-ck signatures <adyen-folder>/                          # see what exists
-ck get-method-source <file> <relevant-method>          # read current impl
-# now edit
+ck get-method-source <file> RefundInPersonPaymentAsync
+
+# 3. Explore target (what exists today)
+ck signatures <adyen-folder>/
+ck get-method-source <file> RefundPaymentAsync
+
+# 4. Edit — you now have enough context
+```
+
+### Playbook C — Impact analysis (cross-cutting change)
+
+```bash
+ck find-scope --query "payment gateway refund async" --min-score 0.5 --top 30
+# returns ALL folders above threshold — may be 15-20 folders, that's fine
+ck signatures <folder1>/
+ck signatures <folder2>/
+# ... for each relevant folder
+# use grep/rg WITHIN these folders for cross-references
+grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
 ```
 
 ### Rules
 
-1. **`--type` + `--name` is the fast path** — skips index loading, searches repo-wide instantly. Always prefer over `--pattern`.
-2. **Don't guess symbol names** for `--name`. If you don't know the exact name, run `ck signatures` on the folder first to discover members.
-3. **Don't re-search the same concept.** Rephrasing `--query` with synonyms returns the same folders. Change `--name`/`--type` instead, or move to signatures.
-4. **Don't pipe CK output** through `grep`, `head`, or `tail`. Use `--top` or `--min-score` instead. Piped commands will be blocked.
-5. **Budget: 6 searches per task.** One search per distinct concept. Past 8 you are wasting context — switch to `ck signatures`.
-6. **`get-method-source` needs the exact name** from `ck signatures` output. `Refund` won't match `RefundPaymentAsync`.
-7. Use **multi-keyword** `--query`: `"adyen terminal card-present refund"` not `"adyen"`.
+1. **Always start with `ck find-scope`** when the relevant folder is unknown. Use `--top 15` or `--top 20` for broad tasks — don't cap too tight.
+2. **Commit to your folders.** Once find-scope returns results, work within them. Don't re-run find-scope with rephrased queries — synonyms return the same ranking.
+3. **Use `ck signatures` before reading files.** It shows every member without reading full content. Pass the folder path directly.
+4. **Use `ck get-method-source` for single methods.** Use exact member names from signatures output — `Refund` won't match `RefundPaymentAsync`. Fall back to `Read` only when you need 3+ members from one file.
+5. **Any search tool works within scoped folders.** After scoping, use grep, rg, Glob, Grep, or Read freely — but always scoped to the folders find-scope returned. Never `grep -r` from repo root.
+6. **Don't guess symbol names.** If you don't know the name, run signatures first. Don't invent class names for searches.
+7. **Budget: 2 find-scope calls per task.** One for the reference area, one for the target. If you need a third, you're re-scoping — stop and use the folders you have.

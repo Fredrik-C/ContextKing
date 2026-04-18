@@ -1,9 +1,11 @@
 ---
 name: ck-find-scope
-description: Semantic folder search for pure discovery when you don't have a keyword yet. If you have a keyword to search for, use ck-search instead — it combines scope + grep in one call.
+description: Semantic folder search — always the first step. Returns the folders you'll work in for the rest of the task.
 ---
 
 # ck find-scope — Reference
+
+The entry point for all code navigation. Returns ranked folders that become your working scope.
 
 ## Syntax
 
@@ -15,9 +17,9 @@ ck find-scope --query "<multi-keyword description>" [--top <n>] [--min-score <f>
 
 | Option | Default | Description |
 |---|---|---|
-| `--query <text>` | required | Multi-keyword description — include domain, concept, operation, structural layer |
-| `--top <n>` | 10 | Max folders returned. Removed when `--min-score` is set alone. |
-| `--min-score <f>` | off | Score threshold — returns all folders above it. Check your score range first (typically 0.69–0.82). |
+| `--query <text>` | required | Multi-keyword description — domain, concept, operation, structural layer |
+| `--top <n>` | 10 | Max folders. Use 15–20 for broad tasks, 30 for impact analysis. |
+| `--min-score <f>` | off | Score threshold — returns all above it. Check your range first (typically 0.69–0.82). |
 | `--repo <path>` | auto | Repo root |
 
 ## Output
@@ -26,19 +28,20 @@ ck find-scope --query "<multi-keyword description>" [--top <n>] [--min-score <f>
 <score>\t<relative-folder-path>
 ```
 
-One line per folder. Scores are relative — use for ranking, not absolute confidence.
-
 ## Query tips
 
 - Use 3–5 keywords: `"adyen terminal card-present refund"` not `"adyen"`
 - Include structural terms: `"Catalog API controllers endpoints"` not just `"Catalog"`
-- Synonyms produce the same ranking — don't rephrase, change vocabulary instead
+- Synonyms produce the same ranking — never rephrase, change vocabulary instead
 
 ## After this step
 
-Pass the top folder to `ck signatures <folder>/` to list all members.
+**Commit to these folders.** Pass them to `ck signatures <folder>/` to list all members, then use `ck get-method-source` or `Read` within them. Use grep/rg within these folders freely.
+
+Do not re-run find-scope with rephrased queries. Do not search outside these folders.
 
 ## Behaviour
 
 - Auto-builds index on first call (~30s for large repos).
 - Reflects live working tree (untracked files included).
+- Large `--top` values are fine — the output is one line per folder.
