@@ -427,4 +427,9 @@ skills/ck/ck-win-x64.exe
 .opencode/skills/ck/ck-osx-x64
 .opencode/skills/ck/ck-linux-x64
 .opencode/skills/ck/ck-win-x64.exe
+
+# Local deployment artifacts (created by deploy.sh when targeting this repo)
+.claude/
+.agents/
+
 .DS_Store

@@ -247,17 +247,16 @@ support for each one found. Deployment is per-CLI-tool:
 │   ├── ck-get-method-source/SKILL.md
 │   └── ck-index/SKILL.md
 ├── hooks/
-│   ├── ck-read-guard.sh/.ps1        ← PreToolUse: prompts for ck signatures before source file reads
-│   ├── ck-search-guard.sh/.ps1      ← PreToolUse: prompts for ck find-scope before broad searches
-│   └── agent-usage-guard.sh/.ps1    ← PreToolUse: injects CK protocol into sub-agent prompts
+│   ├── ck-bash-guard.sh/.ps1        ← PreToolUse: blocks piping ck output and grep on known files
+│   └── agent-usage-guard.sh/.ps1    ← SubagentStart: injects CK protocol into sub-agent context
 ├── rules/ck-code-search-protocol.md ← always-apply rule
 └── settings.json                    ← hook registration + tool allowlist
 ```
 
-**Codex CLI** (detected by `.codex/` directory):
-- Installs binaries, models, and skills to `~/.codex/` (global)
-- Writes full protocol to `.codex/ck-code-search-protocol.md`
-- Adds a short pointer entry to `AGENTS.md` at the repo root (Codex reads `AGENTS.md` for project-level instructions)
+**Codex CLI / Agents** (detected by `.codex/` or `.agents/` directory):
+- `.codex/`: Installs binaries, models, and skills to `~/.codex/` (global). Writes full protocol to `.codex/ck-code-search-protocol.md`.
+- `.agents/`: Installs binaries, models, skills, and rules to `.agents/` (project-local). Binary paths are rewritten to `.agents/skills/ck/ck`.
+- Both: Adds a short pointer entry to `AGENTS.md` at the repo root directing the agent to read the protocol.
 
 **OpenCode** (detected by `.opencode/` directory):
 ```
@@ -291,7 +290,7 @@ bash scripts/deploy.sh /path/to/your-repo
 pwsh scripts/deploy.ps1 -TargetRepo C:\path\to\your-repo
 ```
 
-Both scripts detect `.claude/`, `.codex/`, and `.opencode/` in the target and deploy only
+Both scripts detect `.claude/`, `.codex/`, `.agents/`, and `.opencode/` in the target and deploy only
 for the tools that are present. They are safe to re-run since all steps are idempotent.
 
 To deploy for all supported tools regardless of detection:
@@ -342,24 +341,25 @@ instructions. The mechanism varies by CLI tool.
 Two complementary mechanisms keep the agent on the efficient path:
 
 **Always-apply rule** (`rules/ck-code-search-protocol.md`), loaded automatically in every
-session. Instructs the agent to run `ck find-scope` before any Glob, Grep, or Read when the
-target folder is unknown; scope all searches to the returned folder(s); run `ck signatures`
+session. Contains the four-step workflow (SCOPE → EXPLORE → READ → EDIT) and three playbooks
+for common tasks. Instructs the agent to run `ck find-scope` before any search when the
+target folder is unknown; scope all work to the returned folder(s); run `ck signatures`
 before reading any source file; and never speculatively open a file.
 
-**PreToolUse hooks** fire before tool calls, without blocking:
-- **`ck-read-guard`** fires on every `.cs`, `.ts`, or `.tsx` file read. Reminds the agent to confirm it has
-  run `ck signatures` and pre-fills the exact command for the file being opened.
-- **`ck-search-guard`** fires on broad Glob or Grep calls. Reminds the agent to run
-  `ck find-scope` first.
-- **`agent-usage-guard`** fires when a sub-agent is launched for navigation. Injects the
-  full CK code search protocol into the sub-agent's prompt so it uses CK tools natively.
+**PreToolUse hooks** fire before tool calls:
+- **`ck-bash-guard`** (deny): blocks piping `ck find-scope` output through head/grep/tail
+  (destroys folder scores), and blocks `grep` on known source files (should use
+  `ck get-method-source` instead).
+- **`agent-usage-guard`** (SubagentStart): injects the full CK code search protocol into
+  every sub-agent's context via `additionalContext`, so sub-agents use CK tools natively
+  instead of broad searches.
 
-### Codex CLI
+### Codex CLI / Agents
 
-The full code search protocol is written to `.codex/ck-code-search-protocol.md`. A short
-pointer entry is appended to `AGENTS.md` at the repo root directing Codex to read it,
-keeping the repo's own `AGENTS.md` uncluttered. Skills and the binary are installed to
-`~/.codex/` globally.
+The full code search protocol is deployed to `.codex/ck-code-search-protocol.md` or
+`.agents/rules/ck-code-search-protocol.md`. A short pointer entry is appended to `AGENTS.md`
+at the repo root directing the agent to read it and use the CK binary. Skills and the binary
+are installed to `~/.codex/` globally (Codex) or `.agents/skills/` locally (Agents).
 
 ### OpenCode
 
@@ -369,18 +369,18 @@ the file uncluttered for user-owned content. The `ck` binary is allowed via the
 `tools.bash.allow` list in `.opencode/config.json`.
 
 A TypeScript plugin (`plugin/ck-guards.ts`) is deployed to `.opencode/plugin/` and
-auto-loaded by OpenCode on session start. It intercepts three patterns before they waste
+auto-loaded by OpenCode on session start. It intercepts four patterns before they waste
 tokens scanning the wrong files:
 
 - **broad `glob` on source files**: fires when a glob pattern targets `.cs`, `.ts`, or `.tsx` across a
   path with 3 or fewer segments; throws with a redirect to `ck find-scope`.
 - **broad `grep` on source files**: same depth check; throws with a redirect to `ck find-scope`.
+- **`bash` cat on source files**: fires when a bash command uses `cat` on a `.cs`, `.ts`, or `.tsx`
+  file; throws with a redirect to `ck get-method-source` or the `Read` tool.
 - **`bash` grep on source files**: fires when a bash command contains `grep` targeting
-  `.cs`, `.ts`, or `.tsx`; throws with the full three-step protocol.
-
-A Read guard is not implemented for OpenCode: the plugin API only supports throw-to-block
-with no warn-and-allow equivalent, which would cause the agent to loop on legitimate reads.
-Protocol instructions in `AGENTS.md` handle read discipline instead.
+  source files; throws with the full three-step protocol.
+- **`bash` pipe on ck output**: fires when `ck find-scope` output is piped through
+  head/grep/tail; throws to preserve folder scores and structure.
 
 ---
 
