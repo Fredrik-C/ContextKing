@@ -16,8 +16,9 @@ $command = if ($obj.tool_input.command) { $obj.tool_input.command }
 
 if (-not $command) { exit 0 }
 
-# Pattern 1: ck commands with real shell pipe (not regex \|)
-$hasCk = $command -match 'ck\s+(search|find-scope|signatures|get-method-source)\b'
+# Pattern 1: ck search/find-scope with real shell pipe (not regex \|)
+# Allow pipes on signatures and get-method-source (filtering large output is fine).
+$hasCk = $command -match 'ck\s+(search|find-scope)\b'
 $hasPipe = $command -match '\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b'
 
 if ($hasCk -and $hasPipe) {

@@ -19,11 +19,10 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '
 
 [ -z "$COMMAND" ] && exit 0
 
-# ── Pattern 1: ck commands piped through head/grep/tail ───────────────────────
-# Must detect real shell pipes (|) but NOT regex alternation (\|) in --pattern.
-# Strategy: strip everything inside quotes after --pattern, then check for |.
-# Simpler approach: check if | is followed by common pipe targets.
-if printf '%s' "$COMMAND" | grep -qE 'ck\s+(search|find-scope|signatures|get-method-source)\b' && \
+# ── Pattern 1: ck search/find-scope piped through head/grep/tail ──────────────
+# Block pipes on search and find-scope (destroys folder scores and grouping).
+# Allow pipes on signatures and get-method-source (filtering large output is fine).
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+(search|find-scope)\b' && \
    printf '%s' "$COMMAND" | grep -qE '\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b'; then
   jq -n \
     --arg reason "[ck-guard] BLOCKED — do not pipe ck output through head, grep, or tail.

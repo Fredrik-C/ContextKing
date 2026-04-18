@@ -94,8 +94,9 @@ Do NOT use broad glob/grep — it wastes tokens scanning irrelevant files.`
       if (tool === "bash") {
         const cmd = String(args.command ?? "")
 
-        // Detect ck commands piped through head/grep/tail (real shell pipe, not regex \|)
-        if (/ck\s+(search|find-scope|signatures|get-method-source)\b/.test(cmd) &&
+        // Detect ck search/find-scope piped through head/grep/tail (real shell pipe, not regex \|)
+        // Allow pipes on signatures and get-method-source (filtering large output is fine).
+        if (/ck\s+(search|find-scope)\b/.test(cmd) &&
             /\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b/.test(cmd)) {
           throw new Error(
             `[ck-guard] Do NOT pipe ck output through head, grep, or tail.
