@@ -5,9 +5,9 @@ This codebase is large. Searching without narrowing scope first wastes tokens an
 ### The workflow
 
 ```
-1. SCOPE    → ck find-scope --query "domain area concept operation"
-2. EXPLORE  → ck signatures <folder>/     (for each relevant folder)
-3. READ     → ck get-method-source <file> <MemberName>
+1. SCOPE    → .claude/skills/ck/ck find-scope --query "domain area concept operation"
+2. EXPLORE  → .claude/skills/ck/ck signatures <folder>/     (for each relevant folder)
+3. READ     → .claude/skills/ck/ck get-method-source <file> <MemberName>
 4. EDIT     → make your changes
 ```
 
@@ -16,27 +16,27 @@ This codebase is large. Searching without narrowing scope first wastes tokens an
 ### Playbook A — Find and read a specific symbol
 
 ```bash
-ck find-scope --query "adyen terminal card-present refund"
+.claude/skills/ck/ck find-scope --query "adyen terminal card-present refund"
 # pick the matching folder(s) from results
-ck signatures <folder>/
+.claude/skills/ck/ck signatures <folder>/
 # find the member name in output
-ck get-method-source <file> <ExactMemberName>
+.claude/skills/ck/ck get-method-source <file> <ExactMemberName>
 ```
 
 ### Playbook B — Implement a feature using an existing pattern
 
 ```bash
 # 1. Scope both the reference and the target
-ck find-scope --query "stripe terminal card-present refund"         # reference
-ck find-scope --query "adyen terminal payment gateway"              # target
+.claude/skills/ck/ck find-scope --query "stripe terminal card-present refund"         # reference
+.claude/skills/ck/ck find-scope --query "adyen terminal payment gateway"              # target
 
 # 2. Explore reference implementation
-ck signatures <stripe-folder>/
-ck get-method-source <file> RefundInPersonPaymentAsync
+.claude/skills/ck/ck signatures <stripe-folder>/
+.claude/skills/ck/ck get-method-source <file> RefundInPersonPaymentAsync
 
 # 3. Explore target (what exists today)
-ck signatures <adyen-folder>/
-ck get-method-source <file> RefundPaymentAsync
+.claude/skills/ck/ck signatures <adyen-folder>/
+.claude/skills/ck/ck get-method-source <file> RefundPaymentAsync
 
 # 4. Edit — you now have enough context
 ```
@@ -44,10 +44,10 @@ ck get-method-source <file> RefundPaymentAsync
 ### Playbook C — Impact analysis (cross-cutting change)
 
 ```bash
-ck find-scope --query "payment gateway refund async" --min-score 0.5 --top 30
+.claude/skills/ck/ck find-scope --query "payment gateway refund async" --min-score 0.5 --top 30
 # returns ALL folders above threshold — may be 15-20 folders, that's fine
-ck signatures <folder1>/
-ck signatures <folder2>/
+.claude/skills/ck/ck signatures <folder1>/
+.claude/skills/ck/ck signatures <folder2>/
 # ... for each relevant folder
 # use grep/rg WITHIN these folders for cross-references
 grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/

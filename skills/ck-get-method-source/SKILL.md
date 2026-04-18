@@ -8,7 +8,7 @@ description: Extract a single C# or TypeScript method/property body with exact s
 ## Syntax
 
 ```bash
-ck get-method-source <file> <ExactMemberName> [--type <TypeName>] [--mode <mode>]
+.claude/skills/ck/ck get-method-source <file> <ExactMemberName> [--type <TypeName>] [--mode <mode>]
 ```
 
 **`<ExactMemberName>` must match exactly** — copy it from `ck signatures` output.

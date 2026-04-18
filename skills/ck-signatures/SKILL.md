@@ -9,10 +9,10 @@ description: Extract all method/property signatures from C# and TypeScript files
 
 ```bash
 # Folder (recursive — preferred after find-scope)
-ck signatures <folder-path>/
+.claude/skills/ck/ck signatures <folder-path>/
 
 # Specific files
-ck signatures <file1.cs> [file2.cs ...]
+.claude/skills/ck/ck signatures <file1.cs> [file2.cs ...]
 ```
 
 ## Output
@@ -27,7 +27,7 @@ Tab-separated. One line per method, constructor, or property.
 
 ```
 signatures output:  src/Payment/Service.cs:42  Service  ProcessPayment  public async Task<Result> ProcessPayment(...)
-get-method-source:  ck get-method-source src/Payment/Service.cs ProcessPayment
+get-method-source:  .claude/skills/ck/ck get-method-source src/Payment/Service.cs ProcessPayment
 ```
 
 Use the exact `memberName` column — it's the argument for `get-method-source`.

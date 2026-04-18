@@ -10,7 +10,7 @@ The entry point for all code navigation. Returns ranked folders that become your
 ## Syntax
 
 ```bash
-ck find-scope --query "<multi-keyword description>" [--top <n>] [--min-score <f>]
+.claude/skills/ck/ck find-scope --query "<multi-keyword description>" [--top <n>] [--min-score <f>]
 ```
 
 ## Options
@@ -36,7 +36,7 @@ ck find-scope --query "<multi-keyword description>" [--top <n>] [--min-score <f>
 
 ## After this step
 
-**Commit to these folders.** Pass them to `ck signatures <folder>/` to list all members, then use `ck get-method-source` or `Read` within them. Use grep/rg within these folders freely.
+**Commit to these folders.** Pass them to `.claude/skills/ck/ck signatures <folder>/` to list all members, then use `.claude/skills/ck/ck get-method-source` or `Read` within them. Use grep/rg within these folders freely.
 
 Do not re-run find-scope with rephrased queries. Do not search outside these folders.
 
