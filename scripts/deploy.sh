@@ -288,6 +288,22 @@ if [ "$HAS_AGENTS" = true ]; then
     fi
   fi
 
+  # 6. Add CK reference to AGENTS.md (idempotent)
+  AGENTS_MD="$TARGET/AGENTS.md"
+  if [ -f "$AGENTS_MD" ]; then
+    if ! grep -qF 'ck-code-search-protocol' "$AGENTS_MD"; then
+      cat >> "$AGENTS_MD" <<'AGENTS_EOF'
+
+## Code Navigation
+
+This repository uses Context King (CK) for semantic code search. **You must follow the protocol in `.agents/rules/ck-code-search-protocol.md` before searching or reading source files.** The CK binary is at `.agents/skills/ck/ck`.
+AGENTS_EOF
+      echo "  Added CK reference to AGENTS.md"
+    else
+      echo "  AGENTS.md already references CK — skipping."
+    fi
+  fi
+
   echo ""
 fi
 
