@@ -44,7 +44,30 @@ Remove the pipe and re-run the ck command directly.
     exit 0
 }
 
-# Pattern 2: raw grep on source files
+# Pattern 2: raw grep on a specific source file (not -r) — block, use AST tools
+$isGrepSpecificFile = $command -match '(^|\s)(grep|rg)\s+.*[^/]\.(cs|ts|tsx)\b' -and $command -notmatch '(grep|rg)\s+-[a-zA-Z]*r'
+
+if ($isGrepSpecificFile) {
+    @{
+        hookSpecificOutput = @{
+            hookEventName = 'PreToolUse'
+            permissionDecision = 'deny'
+            permissionDecisionReason = @"
+[ck-guard] BLOCKED — use CK AST tools instead of grep on a known file.
+
+You already know the file. Use:
+
+  .claude/skills/ck/ck signatures <file.cs>              # list all members
+  .claude/skills/ck/ck get-method-source <file.cs> <Name> # read one method
+
+These return structured output with exact line spans. grep loses context.
+"@
+        }
+    } | ConvertTo-Json -Depth 3
+    exit 0
+}
+
+# Pattern 3: raw grep -r on source files (broad search) — warn only
 if ($command -match '(^|\s)(grep|rg)\s+.*\.(cs|ts|tsx)\b') {
     @{
         hookSpecificOutput = @{

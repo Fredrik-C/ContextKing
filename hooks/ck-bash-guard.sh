@@ -46,10 +46,34 @@ Remove the pipe and re-run the ck command directly." \
   exit 0
 fi
 
-# ── Pattern 2: raw grep/rg on source files ────────────────────────────────────
+# ── Pattern 2: raw grep/rg on a specific source file ──────────────────────────
+# When grepping a known file, the agent should use get-method-source instead.
+# This is blocked (deny) because it always has a better CK alternative.
+if printf '%s' "$COMMAND" | grep -qE '(^|\s)(grep|rg)\s+.*[^/]\.(cs|ts|tsx)\b' && \
+   ! printf '%s' "$COMMAND" | grep -qE '(grep|rg)\s+-[a-zA-Z]*r'; then
+  jq -n \
+    --arg reason "[ck-guard] BLOCKED — use CK AST tools instead of grep on a known file.
+
+You already know the file. Use:
+
+  .claude/skills/ck/ck signatures <file.cs>              # list all members
+  .claude/skills/ck/ck get-method-source <file.cs> <Name> # read one method
+
+These return structured output with exact line spans. grep loses context." \
+    '{
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": $reason
+      }
+    }'
+  exit 0
+fi
+
+# ── Pattern 3: raw grep -r on source files (broad search) ─────────────────────
 if printf '%s' "$COMMAND" | grep -qE '(^|\s)(grep|rg)\s+.*\.(cs|ts|tsx)\b'; then
   jq -n \
-    --arg reason "[ck-guard] bash grep on C# files detected.
+    --arg reason "[ck-guard] bash grep on source files detected.
 
 Do NOT use bash grep to search this codebase — follow the code search protocol:
 
