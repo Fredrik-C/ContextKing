@@ -135,6 +135,15 @@ if [ "$HAS_CLAUDE" = true ]; then
   # 4. Copy hooks (only deny-mode guards — allow-with-warning guards are proven useless)
   echo "  Copying hooks..."
   mkdir -p "$DOT_CLAUDE/hooks"
+
+  # Remove old guards that no longer exist (allow-only guards removed in v1.2.9)
+  for old_guard in ck-read-guard.sh ck-read-guard.ps1 ck-search-guard.sh ck-search-guard.ps1; do
+    if [ -f "$DOT_CLAUDE/hooks/$old_guard" ]; then
+      rm "$DOT_CLAUDE/hooks/$old_guard"
+      echo "  Removed obsolete hook: $old_guard"
+    fi
+  done
+
   cp "$REPO_DIR/hooks/agent-usage-guard.sh"  "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/agent-usage-guard.ps1" "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.sh"      "$DOT_CLAUDE/hooks/"
@@ -148,6 +157,14 @@ if [ "$HAS_CLAUDE" = true ]; then
   fi
 
   if command -v jq >/dev/null 2>&1; then
+    # Remove stale hook registrations for deleted guards (Read, Glob, Grep)
+    if jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("ck-read-guard|ck-search-guard"))' \
+         "$SETTINGS" >/dev/null 2>&1; then
+      jq '.hooks.PreToolUse = [.hooks.PreToolUse[]? | select(.hooks | all(.command | test("ck-read-guard|ck-search-guard") | not))]' \
+        "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+      echo "  Removed obsolete hook registrations (Read/Glob/Grep guards) from settings.json"
+    fi
+
     if ! jq -e '.permissions.allowedTools // [] | any(test("ck/ck"))' "$SETTINGS" >/dev/null 2>&1; then
       jq '.permissions.allowedTools = ((.permissions.allowedTools // []) + [
         "Bash(.claude/skills/ck/ck *)",
@@ -157,15 +174,23 @@ if [ "$HAS_CLAUDE" = true ]; then
     else
       echo "  ck allowedTools permissions already present — skipping."
     fi
-    if ! jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("agent-usage-guard"))' \
+    # Migrate: remove old PreToolUse Agent hook if present
+    if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Agent") | .hooks[]?.command // empty] | any(test("agent-usage-guard"))' \
          "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.PreToolUse += [{"matcher":"Agent","hooks":[
+      jq '.hooks.PreToolUse = [.hooks.PreToolUse[]? | select(.matcher != "Agent" or (.hooks | all(.command | test("agent-usage-guard") | not)))]' \
+        "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+      echo "  Migrated: removed old PreToolUse Agent hook"
+    fi
+    # Register SubagentStart hook (injects CK protocol into sub-agent context)
+    if ! jq -e '[.hooks.SubagentStart[]?.hooks[]?.command // empty] | any(test("agent-usage-guard"))' \
+         "$SETTINGS" >/dev/null 2>&1; then
+      jq '.hooks.SubagentStart = ((.hooks.SubagentStart // []) + [{"matcher":"*","hooks":[
         {"type":"command","command":".claude/hooks/agent-usage-guard.sh"},
         {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/agent-usage-guard.ps1 || exit 0'\''"}
-      ]}]' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Registered Agent hook in settings.json"
+      ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+      echo "  Registered SubagentStart hook in settings.json"
     else
-      echo "  Agent hook already registered — skipping."
+      echo "  SubagentStart hook already registered — skipping."
     fi
     if ! jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("ck-bash-guard"))' \
          "$SETTINGS" >/dev/null 2>&1; then
@@ -178,8 +203,8 @@ if [ "$HAS_CLAUDE" = true ]; then
       echo "  Bash hook already registered — skipping."
     fi
   else
-    echo "  WARNING: jq not found. Add hooks to $SETTINGS manually:"
-    echo '  {"hooks":{"PreToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":".claude/hooks/ck-read-guard.sh"}]}]}}'
+    echo "  WARNING: jq not found. Add hooks to $SETTINGS manually."
+    echo "  See hooks/ directory for Agent and Bash guards to register."
   fi
 
   # 6. Add .ck-index/ to .gitignore

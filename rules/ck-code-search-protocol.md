@@ -1,6 +1,7 @@
-## Code Navigation Protocol — mandatory
+## Code Navigation Protocol — mandatory for all source files (.cs, .ts, .tsx)
 
 This codebase is large. Searching without narrowing scope first wastes tokens and reads wrong files.
+CK tools work on both C# and TypeScript/TSX files.
 
 ### The workflow
 
@@ -16,11 +17,15 @@ This codebase is large. Searching without narrowing scope first wastes tokens an
 ### Playbook A — Find and read a specific symbol
 
 ```bash
+# C# example:
 .claude/skills/ck/ck find-scope --query "adyen terminal card-present refund"
-# pick the matching folder(s) from results
 .claude/skills/ck/ck signatures <folder>/
-# find the member name in output
-.claude/skills/ck/ck get-method-source <file> <ExactMemberName>
+.claude/skills/ck/ck get-method-source <file.cs> <ExactMemberName>
+
+# TypeScript example:
+.claude/skills/ck/ck find-scope --query "backend rendering template fetcher"
+.claude/skills/ck/ck signatures <folder>/
+.claude/skills/ck/ck get-method-source <file.ts> <functionOrMethodName>
 ```
 
 ### Playbook B — Implement a feature using an existing pattern
