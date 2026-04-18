@@ -110,8 +110,11 @@ jobs:
             cp hooks/agent-usage-guard.ps1     "$stage/hooks/"
             cp hooks/ck-bash-guard.sh          "$stage/hooks/"
             cp hooks/ck-bash-guard.ps1         "$stage/hooks/"
+            cp hooks/ck-update-check.sh        "$stage/hooks/"
+            cp hooks/ck-update-check.ps1       "$stage/hooks/"
             chmod +x "$stage/hooks/agent-usage-guard.sh" \
-                     "$stage/hooks/ck-bash-guard.sh"
+                     "$stage/hooks/ck-bash-guard.sh" \
+                     "$stage/hooks/ck-update-check.sh"
             cp -r models/bge-small-en-v1.5/.  "$stage/models/bge-small-en-v1.5/"
             cp rules/ck-code-search-protocol.md "$stage/rules/"
             cp plugins/ck-guards.ts            "$stage/plugins/"
@@ -153,6 +156,8 @@ jobs:
           cp hooks/agent-usage-guard.ps1     "$win_stage/hooks/"
           cp hooks/ck-bash-guard.sh          "$win_stage/hooks/"
           cp hooks/ck-bash-guard.ps1         "$win_stage/hooks/"
+          cp hooks/ck-update-check.sh        "$win_stage/hooks/"
+          cp hooks/ck-update-check.ps1       "$win_stage/hooks/"
           cp -r models/bge-small-en-v1.5/.  "$win_stage/models/bge-small-en-v1.5/"
           cp rules/ck-code-search-protocol.md "$win_stage/rules/"
           cp plugins/ck-guards.ts            "$win_stage/plugins/"

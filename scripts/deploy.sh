@@ -148,7 +148,9 @@ if [ "$HAS_CLAUDE" = true ]; then
   cp "$REPO_DIR/hooks/agent-usage-guard.ps1" "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.sh"      "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.ps1"     "$DOT_CLAUDE/hooks/"
-  chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh"
+  cp "$REPO_DIR/hooks/ck-update-check.sh"    "$DOT_CLAUDE/hooks/"
+  cp "$REPO_DIR/hooks/ck-update-check.ps1"   "$DOT_CLAUDE/hooks/"
+  chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh" "$DOT_CLAUDE/hooks/ck-update-check.sh"
 
   # 5. Register hooks in settings.json (idempotent)
   SETTINGS="$DOT_CLAUDE/settings.json"
@@ -201,6 +203,17 @@ if [ "$HAS_CLAUDE" = true ]; then
       echo "  Registered Bash hook in settings.json"
     else
       echo "  Bash hook already registered — skipping."
+    fi
+    # Register SessionStart hook (update check)
+    if ! jq -e '[.hooks.SessionStart[]?.hooks[]?.command // empty] | any(test("ck-update-check"))' \
+         "$SETTINGS" >/dev/null 2>&1; then
+      jq '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"startup","hooks":[
+        {"type":"command","command":".claude/hooks/ck-update-check.sh","timeout":15},
+        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-update-check.ps1 || exit 0'\''","timeout":15}
+      ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+      echo "  Registered SessionStart hook (update check) in settings.json"
+    else
+      echo "  SessionStart hook already registered — skipping."
     fi
   else
     echo "  WARNING: jq not found. Add hooks to $SETTINGS manually."
