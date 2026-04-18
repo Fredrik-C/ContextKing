@@ -65,18 +65,21 @@ fi
 HAS_CLAUDE=false
 HAS_CODEX=false
 HAS_OPENCODE=false
+HAS_AGENTS=false
 
 if [ "$DEPLOY_ALL" = true ]; then
   HAS_CLAUDE=true
   HAS_CODEX=true
   HAS_OPENCODE=true
+  HAS_AGENTS=true
 else
   [ -d "$TARGET/.claude" ]   && HAS_CLAUDE=true
   [ -d "$TARGET/.codex" ]    && HAS_CODEX=true
   [ -d "$TARGET/.opencode" ] && HAS_OPENCODE=true
+  [ -d "$TARGET/.agents" ]   && HAS_AGENTS=true
 fi
 
-if [ "$HAS_CLAUDE" = false ] && [ "$HAS_CODEX" = false ] && [ "$HAS_OPENCODE" = false ]; then
+if [ "$HAS_CLAUDE" = false ] && [ "$HAS_CODEX" = false ] && [ "$HAS_OPENCODE" = false ] && [ "$HAS_AGENTS" = false ]; then
   echo ""
   echo "No AI CLI configuration found in: $TARGET"
   echo ""
@@ -84,6 +87,7 @@ if [ "$HAS_CLAUDE" = false ] && [ "$HAS_CODEX" = false ] && [ "$HAS_OPENCODE" = 
   echo "  Claude Code  → initialize by running 'claude' in your repo  (.claude/ will be created)"
   echo "  Codex CLI    → initialize by running 'codex init' in your repo  (.codex/ will be created)"
   echo "  OpenCode     → initialize by running 'opencode' in your repo  (.opencode/ will be created)"
+  echo "  Agents       → create .agents/ directory manually"
   echo ""
   echo "Create at least one of these directories, then re-run deploy.sh."
   echo "Or use --all to deploy for all supported CLI tools regardless of detection."
@@ -95,6 +99,7 @@ DETECTED_LABELS=""
 [ "$HAS_CLAUDE" = true ]   && DETECTED_LABELS="${DETECTED_LABELS}Claude Code, "
 [ "$HAS_CODEX" = true ]    && DETECTED_LABELS="${DETECTED_LABELS}Codex CLI, "
 [ "$HAS_OPENCODE" = true ] && DETECTED_LABELS="${DETECTED_LABELS}OpenCode, "
+[ "$HAS_AGENTS" = true ]   && DETECTED_LABELS="${DETECTED_LABELS}Agents, "
 DETECTED_LABELS="${DETECTED_LABELS%, }"
 
 echo "Deploying Context King to: $TARGET"
@@ -235,6 +240,59 @@ fi
 if [ "$HAS_OPENCODE" = true ]; then
   echo "── OpenCode (.opencode/) ─────────────────────────────────────────────────"
   bash "$SCRIPT_DIR/deploy-opencode.sh" "$TARGET"
+  echo ""
+fi
+
+# ── Deploy: Agents (.agents/) ──────────────────────────────────────────────────
+if [ "$HAS_AGENTS" = true ]; then
+  echo "── Agents (.agents/) ─────────────────────────────────────────────────────"
+  DOT_AGENTS="$TARGET/.agents"
+
+  # 1. Copy models
+  echo "  Copying models..."
+  mkdir -p "$DOT_AGENTS/models"
+  cp -r "$REPO_DIR/models/." "$DOT_AGENTS/models/"
+
+  # 2. Copy skills
+  echo "  Copying skills..."
+  mkdir -p "$DOT_AGENTS/skills"
+  cp -r "$REPO_DIR/skills/." "$DOT_AGENTS/skills/"
+
+  chmod +x "$DOT_AGENTS/skills/ck/ck" 2>/dev/null || true
+
+  # 3. Rewrite .claude/ paths to .agents/ in SKILL.md files
+  echo "  Rewriting skill paths for .agents/..."
+  while IFS= read -r -d '' skill_file; do
+    tmp_file="$(mktemp)"
+    sed \
+      -e 's|\.claude/skills/ck/|.agents/skills/ck/|g' \
+      -e 's|\.claude\\skills\\ck\\|.agents\\skills\\ck\\|g' \
+      "$skill_file" > "$tmp_file"
+    mv "$tmp_file" "$skill_file"
+  done < <(find "$DOT_AGENTS/skills" -type f -name 'SKILL.md' -print0)
+
+  # 4. Copy rules (protocol)
+  echo "  Copying rules..."
+  mkdir -p "$DOT_AGENTS/rules"
+  PROTOCOL_FILE="$DOT_AGENTS/rules/ck-code-search-protocol.md"
+  cp "$REPO_DIR/rules/ck-code-search-protocol.md" "$PROTOCOL_FILE"
+  # Rewrite binary paths
+  sed -i.bak \
+    -e 's|\.claude/skills/ck/|.agents/skills/ck/|g' \
+    -e 's|\.claude\\skills\\ck\\|.agents\\skills\\ck\\|g' \
+    "$PROTOCOL_FILE" && rm -f "$PROTOCOL_FILE.bak"
+
+  # 5. Add .ck-index/ to .gitignore
+  GITIGNORE="$TARGET/.gitignore"
+  if [ -f "$GITIGNORE" ]; then
+    if ! grep -qF '.ck-index' "$GITIGNORE"; then
+      echo '' >> "$GITIGNORE"
+      echo '# Context King index' >> "$GITIGNORE"
+      echo '.ck-index/' >> "$GITIGNORE"
+      echo "  Added .ck-index/ to .gitignore"
+    fi
+  fi
+
   echo ""
 fi
 
