@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ContextKing.Core;
 using ContextKing.Core.Ast;
 using ContextKing.Core.Ast.TypeScript;
 
@@ -16,49 +17,23 @@ internal static class GetMethodSourceCommand
 
     internal static Task<int> RunAsync(string[] args)
     {
-        if (args.Length == 0 || args[0] is "--help" or "-h")
+        var reader = new ArgReader(args);
+        if (reader.IsEmpty || reader.IsHelp)
         {
             PrintHelp();
-            return Task.FromResult(args.Length == 0 ? 1 : 0);
+            return Task.FromResult(reader.IsEmpty ? 1 : 0);
         }
 
-        var positional = new List<string>();
-        string? typeFilter = null;
-        var mode = SourceMode.SignaturePlusBody;
-
-        for (int i = 0; i < args.Length; i++)
+        var typeFilter = reader.GetString("--type", "-t");
+        var modeRaw    = reader.GetString("--mode", "-m");
+        var mode       = SourceMode.SignaturePlusBody;
+        if (modeRaw is not null && !TryParseMode(modeRaw, out mode))
         {
-            switch (args[i])
-            {
-                case "--type" or "-t":
-                    if (i + 1 >= args.Length)
-                    {
-                        Error("--type requires a value.");
-                        return Task.FromResult(1);
-                    }
-                    typeFilter = args[++i];
-                    break;
-
-                case "--mode" or "-m":
-                    if (i + 1 >= args.Length)
-                    {
-                        Error("--mode requires a value.");
-                        return Task.FromResult(1);
-                    }
-                    if (!TryParseMode(args[++i], out mode))
-                    {
-                        Error($"Unknown mode '{args[i]}'. Valid: signature_only, signature_plus_body, body_only, body_without_comments");
-                        return Task.FromResult(1);
-                    }
-                    break;
-
-                default:
-                    if (!args[i].StartsWith('-'))
-                        positional.Add(args[i]);
-                    break;
-            }
+            Error($"Unknown mode '{modeRaw}'. Valid: signature_only, signature_plus_body, body_only, body_without_comments");
+            return Task.FromResult(1);
         }
 
+        var positional = reader.RemainingPositionals();
         if (positional.Count < 2)
         {
             Error("file path and member name are required.");
@@ -77,7 +52,7 @@ internal static class GetMethodSourceCommand
 
         try
         {
-            var results = IsTypeScriptFile(filePath)
+            var results = SupportedLanguages.IsTypeScript(filePath)
                 ? TsMethodSourceExtractor.Extract(filePath, memberName, typeFilter, mode)
                 : MethodSourceExtractor.Extract(filePath, memberName, typeFilter, mode);
 
@@ -88,7 +63,7 @@ internal static class GetMethodSourceCommand
                     $"[ck get-method-source] No member '{memberName}' found{typeHint} in '{filePath}'.");
 
                 // Suggest closest member names as a guard against guessing
-                var allNames = IsTypeScriptFile(filePath)
+                var allNames = SupportedLanguages.IsTypeScript(filePath)
                     ? TsMethodSourceExtractor.GetAllMemberNames(filePath)
                     : MethodSourceExtractor.GetAllMemberNames(filePath);
 
@@ -138,10 +113,6 @@ internal static class GetMethodSourceCommand
 
     private static void Error(string msg)
         => Console.Error.WriteLine($"[ck get-method-source] Error: {msg}");
-
-    private static bool IsTypeScriptFile(string path)
-        => path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
-        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
 
     private static void PrintHelp()
     {

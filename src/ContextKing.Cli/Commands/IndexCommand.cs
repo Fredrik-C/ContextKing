@@ -7,22 +7,16 @@ internal static class IndexCommand
 {
     internal static async Task<int> RunAsync(string[] args)
     {
-        string? repo    = null;
-        bool force      = false;
-        bool statusOnly = false;
-
-        for (int i = 0; i < args.Length; i++)
+        var reader = new ArgReader(args);
+        if (reader.IsHelp)
         {
-            switch (args[i])
-            {
-                case "--repo"   when i + 1 < args.Length: repo       = args[++i]; break;
-                case "--force":                            force      = true;      break;
-                case "--status":                           statusOnly = true;      break;
-                case "--help": case "-h":
-                    PrintHelp();
-                    return 0;
-            }
+            PrintHelp();
+            return 0;
         }
+
+        var repo       = reader.GetString("--repo");
+        var force      = reader.HasFlag("--force");
+        var statusOnly = reader.HasFlag("--status");
 
         string repoRoot;
         try

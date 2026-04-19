@@ -1,67 +1,47 @@
-using System.Diagnostics;
-using System.Security.Cryptography;
-using System.Text;
+using ContextKing.Core.SourceMap;
 
 namespace ContextKing.Core.Git;
 
 /// <summary>
-/// Wraps git CLI calls to discover worktree structure and enumerate tracked source files (.cs, .ts, .tsx).
+/// Enumerates source files visible to the index and derives staleness fingerprints.
+/// Single responsibility: translate git CLI output into the folder → file → hash shape
+/// the indexer consumes. All raw git invocations are delegated to <see cref="GitProcess"/>;
+/// all fingerprint hashing is delegated to <see cref="StateKey"/>.
 /// </summary>
 public static class GitTracker
 {
-    /// <summary>
-    /// Returns the absolute path of the worktree root (git rev-parse --show-toplevel).
-    /// </summary>
+    /// <summary>Returns the absolute path of the worktree root.</summary>
     public static string GetWorktreeRoot(string? startDir = null)
-    {
-        var dir = startDir ?? Directory.GetCurrentDirectory();
-        return RunGit("rev-parse --show-toplevel", dir).Trim();
-    }
+        => GitProcess.GetWorktreeRoot(startDir);
 
-    /// <summary>
-    /// Returns the abbreviated HEAD commit hash, or "unknown" if unavailable.
-    /// </summary>
+    /// <summary>Returns the abbreviated HEAD commit hash, or "unknown" if unavailable.</summary>
     public static string GetHead(string repoRoot)
-    {
-        try { return RunGit("rev-parse --short HEAD", repoRoot).Trim(); }
-        catch { return "unknown"; }
-    }
+        => GitProcess.GetHead(repoRoot);
 
     /// <summary>
     /// Returns the current branch name (e.g. "main", "feature/foo"),
     /// or "HEAD" when in detached-HEAD state, or "unknown" if git fails.
     /// </summary>
     public static string GetBranch(string repoRoot)
-    {
-        try { return RunGit("rev-parse --abbrev-ref HEAD", repoRoot).Trim(); }
-        catch { return "unknown"; }
-    }
+        => GitProcess.GetBranch(repoRoot);
 
-    private static readonly string SourceFilePathspec = "-- *.cs *.ts *.tsx";
-
-    /// <summary>
-    /// File extensions considered as source files for indexing.
-    /// </summary>
-    private static bool IsSourceFile(string path) =>
-        path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
-        || path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
-        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
+    private static readonly string SourceFilePathspec = SupportedLanguages.GitPathspec;
 
     /// <summary>
     /// Computes a short fingerprint (16 hex chars) covering the current branch name,
     /// the set of source filenames, and their content hashes.
     /// The fingerprint changes when a file is added, removed, renamed, OR modified.
-    /// Used by <see cref="SourceMap.SourceMapBuilder.GetStatus"/> to detect staleness.
+    /// Used by <see cref="SourceMapBuilder.GetStatus"/> to detect staleness.
     /// </summary>
     public static string ComputeStateKey(string repoRoot, IReadOnlyList<string>? excludeSegments = null)
     {
-        excludeSegments ??= ["Test", "Tests", "Specs"];
+        excludeSegments ??= DefaultExclusions;
+
+        var entries = new SortedSet<string>(StringComparer.Ordinal);
 
         // Staged/committed source files with blob hashes
         // git ls-files -s outputs: "<mode> <hash> <stage>\t<relpath>"
-        var stagedOutput = RunGit($"ls-files -s --abbrev=8 {SourceFilePathspec}", repoRoot);
-        var entries = new SortedSet<string>(StringComparer.Ordinal);
-
+        var stagedOutput = GitProcess.Run($"ls-files -s --abbrev=8 {SourceFilePathspec}", repoRoot);
         foreach (var line in stagedOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var tabIdx = line.IndexOf('\t');
@@ -76,7 +56,7 @@ public static class GitTracker
         // Remove tracked files deleted in the working tree
         try
         {
-            var deleted = RunGit($"ls-files --deleted {SourceFilePathspec}", repoRoot);
+            var deleted = GitProcess.Run($"ls-files --deleted {SourceFilePathspec}", repoRoot);
             foreach (var line in deleted.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var path = line.TrimEnd('\r').Replace('\\', '/');
@@ -88,11 +68,11 @@ public static class GitTracker
         // Add untracked source files with pseudo-hashes
         try
         {
-            var others = RunGit($"ls-files --others --exclude-standard {SourceFilePathspec}", repoRoot);
+            var others = GitProcess.Run($"ls-files --others --exclude-standard {SourceFilePathspec}", repoRoot);
             foreach (var line in others.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var path = line.TrimEnd('\r').Replace('\\', '/');
-                if (!IsSourceFile(path)) continue;
+                if (!SupportedLanguages.IsSupported(path)) continue;
                 if (IsExcluded(path, excludeSegments)) continue;
 
                 var absPath = Path.Combine(repoRoot, path.Replace('/', Path.DirectorySeparatorChar));
@@ -103,9 +83,7 @@ public static class GitTracker
         }
         catch { /* git error — skip */ }
 
-        var branch = GetBranch(repoRoot);
-        var text   = $"{branch}\n{string.Join('\n', entries)}";
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
+        return StateKey.Compute(GetBranch(repoRoot), entries);
     }
 
     /// <summary>
@@ -120,11 +98,11 @@ public static class GitTracker
         string repoRoot,
         IReadOnlyList<string>? excludeSegments = null)
     {
-        excludeSegments ??= ["Test", "Tests", "Specs"];
+        excludeSegments ??= DefaultExclusions;
 
         // 1. Staged/committed files with blob hashes
         // git ls-files -s outputs: "<mode> <hash> <stage>\t<relpath>"
-        var stagedOutput = RunGit($"ls-files -s --abbrev=8 {SourceFilePathspec}", repoRoot);
+        var stagedOutput = GitProcess.Run($"ls-files -s --abbrev=8 {SourceFilePathspec}", repoRoot);
         var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
 
         foreach (var line in stagedOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -142,7 +120,7 @@ public static class GitTracker
         //    These still appear in git ls-files -s but the file is gone from disk.
         try
         {
-            var deleted = RunGit($"ls-files --deleted {SourceFilePathspec}", repoRoot);
+            var deleted = GitProcess.Run($"ls-files --deleted {SourceFilePathspec}", repoRoot);
             foreach (var line in deleted.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var relPath  = line.TrimEnd('\r').Replace('\\', '/');
@@ -163,11 +141,11 @@ public static class GitTracker
         //    Use wt:{mtime_ticks}:{size} as a pseudo-hash so content/filename changes are detected.
         try
         {
-            var others = RunGit($"ls-files --others --exclude-standard {SourceFilePathspec}", repoRoot);
+            var others = GitProcess.Run($"ls-files --others --exclude-standard {SourceFilePathspec}", repoRoot);
             foreach (var line in others.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 var relPath = line.TrimEnd('\r').Replace('\\', '/');
-                if (!IsSourceFile(relPath)) continue;
+                if (!SupportedLanguages.IsSupported(relPath)) continue;
                 if (IsExcluded(relPath, excludeSegments)) continue;
 
                 var absPath = Path.Combine(repoRoot, relPath.Replace('/', Path.DirectorySeparatorChar));
@@ -182,6 +160,8 @@ public static class GitTracker
 
         return result;
     }
+
+    private static readonly string[] DefaultExclusions = ["Test", "Tests", "Specs"];
 
     private static void AddFile(
         Dictionary<string, Dictionary<string, string>> result,
@@ -208,30 +188,5 @@ public static class GitTracker
                 if (string.Equals(seg, excl, StringComparison.OrdinalIgnoreCase))
                     return true;
         return false;
-    }
-
-    private static string RunGit(string arguments, string workDir)
-    {
-        var psi = new ProcessStartInfo("git", arguments)
-        {
-            WorkingDirectory       = workDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            UseShellExecute        = false,
-            CreateNoWindow         = true,
-        };
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start git process.");
-
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"git {arguments} exited with code {process.ExitCode}: {stderr.Trim()}");
-
-        return stdout;
     }
 }

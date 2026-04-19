@@ -1,6 +1,6 @@
+using ContextKing.Core;
 using ContextKing.Core.Ast;
 using ContextKing.Core.Ast.TypeScript;
-using System.Text.RegularExpressions;
 
 namespace ContextKing.Cli.Commands;
 
@@ -8,16 +8,17 @@ internal static class SignaturesCommand
 {
     internal static Task<int> RunAsync(string[] args)
     {
-        if (args.Length == 0 || args[0] is "--help" or "-h")
+        var reader = new ArgReader(args);
+        if (reader.IsEmpty || reader.IsHelp)
         {
             PrintHelp();
-            return Task.FromResult(args.Length == 0 ? 1 : 0);
+            return Task.FromResult(reader.IsEmpty ? 1 : 0);
         }
 
         // All non-flag arguments are treated as file paths or glob patterns.
-        // We expand globs here so behavior is consistent across shells
+        // Globs are expanded here so behavior is consistent across shells
         // (PowerShell does not always expand globs for native executables).
-        var inputs = args.Where(a => !a.StartsWith('-')).ToList();
+        var inputs = reader.RemainingPositionals();
 
         if (inputs.Count == 0)
         {
@@ -28,9 +29,9 @@ internal static class SignaturesCommand
         var expanded = new List<string>();
         foreach (var input in inputs)
         {
-            if (IsGlob(input))
+            if (GlobMatcher.IsGlob(input))
             {
-                var matches = ExpandGlob(input);
+                var matches = GlobMatcher.Expand(input);
                 if (matches.Count == 0)
                 {
                     Console.Error.WriteLine($"[ck signatures] WARN: no files matched pattern: '{input}'");
@@ -39,27 +40,24 @@ internal static class SignaturesCommand
 
                 expanded.AddRange(matches);
             }
+            else if (Directory.Exists(input))
+            {
+                var directoryMatches = Directory
+                    .EnumerateFiles(input, "*.*", SearchOption.AllDirectories)
+                    .Where(SupportedLanguages.IsSupported)
+                    .ToList();
+
+                if (directoryMatches.Count == 0)
+                {
+                    Console.Error.WriteLine($"[ck signatures] WARN: no supported source files found in directory: '{input}'");
+                    continue;
+                }
+
+                expanded.AddRange(directoryMatches);
+            }
             else
             {
-                if (Directory.Exists(input))
-                {
-                    var directoryMatches = Directory
-                        .EnumerateFiles(input, "*.*", SearchOption.AllDirectories)
-                        .Where(f => IsSupportedSourceFile(f))
-                        .ToList();
-
-                    if (directoryMatches.Count == 0)
-                    {
-                        Console.Error.WriteLine($"[ck signatures] WARN: no supported source files found in directory: '{input}'");
-                        continue;
-                    }
-
-                    expanded.AddRange(directoryMatches);
-                }
-                else
-                {
-                    expanded.Add(input);
-                }
+                expanded.Add(input);
             }
         }
 
@@ -79,17 +77,17 @@ internal static class SignaturesCommand
             return Task.FromResult(1);
         }
 
-        // Always live — reads directly from disk, no cache
-        // Split files by language and dispatch to the appropriate extractor
-        var csFiles = valid.Where(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)).ToList();
-        var tsFiles = valid.Where(f => IsTypeScriptFile(f)).ToList();
+        // Always live — reads directly from disk, no cache.
+        // Split files by language and dispatch to the appropriate extractor.
+        var csFiles = valid.Where(SupportedLanguages.IsCSharp).ToList();
+        var tsFiles = valid.Where(SupportedLanguages.IsTypeScript).ToList();
 
         if (csFiles.Count > 0)
             SignatureExtractor.Extract(csFiles, Console.Out, Console.Error);
         if (tsFiles.Count > 0)
             TsSignatureExtractor.Extract(tsFiles, Console.Out, Console.Error);
 
-        // Guard: warn when too many files were processed (broad folder passed)
+        // Guard: warn when too many files were processed (broad folder passed).
         if (valid.Count > 30)
         {
             Console.Error.WriteLine(
@@ -133,16 +131,6 @@ internal static class SignaturesCommand
             """);
     }
 
-    private static bool IsGlob(string value)
-        => value.IndexOfAny(['*', '?', '[', ']']) >= 0;
-
-    private static bool IsSupportedSourceFile(string path)
-        => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || IsTypeScriptFile(path);
-
-    private static bool IsTypeScriptFile(string path)
-        => path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
-        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
-
     /// <summary>
     /// When all processed files are small (≤50 lines avg), emit a stderr hint suggesting
     /// the agent read the files directly next time instead of running signatures first.
@@ -156,9 +144,7 @@ internal static class SignaturesCommand
         {
             var totalLines = 0L;
             foreach (var f in files)
-            {
                 totalLines += File.ReadLines(f).Count();
-            }
 
             var avgLines = totalLines / files.Count;
             if (avgLines <= 50)
@@ -172,51 +158,5 @@ internal static class SignaturesCommand
         {
             // Best-effort hint — don't fail the command.
         }
-    }
-
-    private static List<string> ExpandGlob(string pattern)
-    {
-        var fullPattern = Path.GetFullPath(pattern);
-        var fullPatternNorm = fullPattern.Replace('\\', '/');
-
-        var firstWildcardIndex = fullPatternNorm.IndexOfAny(['*', '?', '[', ']']);
-        if (firstWildcardIndex < 0)
-            return [pattern];
-
-        var slashBeforeWildcard = fullPatternNorm.LastIndexOf('/', firstWildcardIndex);
-        var root = slashBeforeWildcard <= 0
-            ? Path.GetPathRoot(fullPattern) ?? Directory.GetCurrentDirectory()
-            : fullPatternNorm[..slashBeforeWildcard];
-
-        root = root.Replace('/', Path.DirectorySeparatorChar);
-        if (!Directory.Exists(root))
-            return [];
-
-        var regex = GlobToRegex(fullPatternNorm);
-        var matches = Directory
-            .EnumerateFiles(root, "*", SearchOption.AllDirectories)
-            .Where(path => regex.IsMatch(path.Replace('\\', '/')))
-            .Select(path =>
-            {
-                var rel = Path.GetRelativePath(Directory.GetCurrentDirectory(), path);
-                return rel.StartsWith("..") ? path : rel;
-            })
-            .ToList();
-
-        return matches;
-    }
-
-    private static Regex GlobToRegex(string pattern)
-    {
-        // Convert a normalized glob pattern to regex:
-        // ** -> any depth, * -> any non-separator chars, ? -> single non-separator char.
-        const string DoubleStarToken = "__CK_DOUBLESTAR__";
-        var rx = Regex.Escape(pattern)
-            .Replace(@"\*\*", DoubleStarToken)
-            .Replace(@"\*", @"[^/]*")
-            .Replace(@"\?", @"[^/]")
-            .Replace(DoubleStarToken, ".*");
-
-        return new Regex($"^{rx}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     }
 }

@@ -19,6 +19,19 @@ scoped folder exploration →
 live AST signature extraction →
 targeted method extraction.
 
+### Where the savings come from
+
+The big wins are in **code exploration and investigation** — answering "where does X
+live?", "how does Y work?", tracing cross-module behaviour, scoping a refactor. These are
+the phases where unguided agents burn the most tokens pulling in wrong files, and the
+phases where the benchmarks below show 4–10× reductions.
+
+Savings **diminish during code generation**: once the target file is open and the agent is
+writing, editing, or running tests, Context King is no longer on the hot path and the token
+cost is dominated by the generated code and test output. A typical **end-to-end task that
+mixes investigation and implementation sees around 30% in saved tokens overall** — large
+during the navigation phase, negligible during the writing phase.
+
 ---
 
 ## The problem

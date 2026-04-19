@@ -1,3 +1,4 @@
+using ContextKing.Core;
 using ContextKing.Core.Ast;
 using ContextKing.Core.Ast.TypeScript;
 using System.Text.RegularExpressions;
@@ -13,26 +14,16 @@ internal static class ExpandFolderCommand
 {
     internal static Task<int> RunAsync(string[] args)
     {
-        string? pattern    = null;
-        string? folderPath = null;
-
-        for (int i = 0; i < args.Length; i++)
+        var reader = new ArgReader(args);
+        if (reader.IsHelp)
         {
-            switch (args[i])
-            {
-                case "--pattern" when i + 1 < args.Length:
-                    pattern = args[++i];
-                    break;
-                case "--help":
-                case "-h":
-                    PrintHelp();
-                    return Task.FromResult(0);
-                default:
-                    if (!args[i].StartsWith('-'))
-                        folderPath = args[i];
-                    break;
-            }
+            PrintHelp();
+            return Task.FromResult(0);
         }
+
+        var pattern     = reader.GetString("--pattern");
+        var positionals = reader.RemainingPositionals();
+        var folderPath  = positionals.Count > 0 ? positionals[0] : null;
 
         if (folderPath is null)
         {
@@ -70,7 +61,7 @@ internal static class ExpandFolderCommand
 
         var allFiles = Directory
             .EnumerateFiles(folderPath, "*.*", SearchOption.AllDirectories)
-            .Where(IsSupportedSourceFile)
+            .Where(SupportedLanguages.IsSupported)
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -81,8 +72,8 @@ internal static class ExpandFolderCommand
         }
 
         // Capture all signature output into a string buffer
-        var csFiles = allFiles.Where(f => f.EndsWith(".cs",  StringComparison.OrdinalIgnoreCase)).ToList();
-        var tsFiles = allFiles.Where(IsTypeScriptFile).ToList();
+        var csFiles = allFiles.Where(SupportedLanguages.IsCSharp).ToList();
+        var tsFiles = allFiles.Where(SupportedLanguages.IsTypeScript).ToList();
 
         var captured = new StringWriter();
         if (csFiles.Count > 0)
@@ -154,13 +145,6 @@ internal static class ExpandFolderCommand
 
         return Task.FromResult(0);
     }
-
-    private static bool IsSupportedSourceFile(string path)
-        => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || IsTypeScriptFile(path);
-
-    private static bool IsTypeScriptFile(string path)
-        => path.EndsWith(".ts",  StringComparison.OrdinalIgnoreCase)
-        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
 
     private static void PrintHelp()
     {

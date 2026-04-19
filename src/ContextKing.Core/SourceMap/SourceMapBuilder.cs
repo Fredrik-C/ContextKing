@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using ContextKing.Core.Ast;
 using ContextKing.Core.Ast.TypeScript;
@@ -147,7 +145,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
         index.UpsertFolders(rows!);
         index.DeleteFolders(gitFolders.Keys.ToHashSet(StringComparer.Ordinal));
 
-        var stateKey = ComputeStateKeyFromFolders(gitFolders, repoRoot);
+        var stateKey = StateKey.Compute(GitTracker.GetBranch(repoRoot), gitFolders);
         index.WriteMeta("index_state_key", stateKey);
         index.WriteMeta("git_head",        GitTracker.GetHead(repoRoot));
         index.WriteMeta("indexed_at",      DateTime.UtcNow.ToString("O"));
@@ -215,7 +213,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
                 repoRoot,
                 relPath.Replace('/', Path.DirectorySeparatorChar));
 
-            var extracted = IsTypeScriptFile(fileName)
+            var extracted = SupportedLanguages.IsTypeScript(fileName)
                 ? TsPublicMethodNameExtractor.ExtractFromFile(absPath)
                 : PublicMethodNameExtractor.ExtractFromFile(absPath);
 
@@ -229,10 +227,6 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
         return names;
     }
 
-    private static bool IsTypeScriptFile(string path) =>
-        path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
-        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase);
-
     private static string SerialiseHashes(Dictionary<string, string> files)
         => JsonSerializer.Serialize(
             files.OrderBy(f => f.Key, StringComparer.Ordinal)
@@ -241,25 +235,4 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     /// <summary>Sorted pipe-delimited list of filenames — the re-embed trigger key.</summary>
     private static string FilenameSetKey(Dictionary<string, string> files)
         => string.Join('|', files.Keys.Order(StringComparer.OrdinalIgnoreCase));
-
-    /// <summary>
-    /// Derives a fingerprint covering branch name, file paths, and content hashes.
-    /// Changes when files are added/removed/renamed OR when file content is modified.
-    /// </summary>
-    private static string ComputeStateKeyFromFolders(
-        Dictionary<string, Dictionary<string, string>> folders,
-        string repoRoot)
-    {
-        var entries = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var (folder, files) in folders)
-            foreach (var (fileName, hash) in files)
-            {
-                var path = folder == "." ? fileName : $"{folder}/{fileName}";
-                entries.Add($"{path}:{hash}");
-            }
-
-        var branch = GitTracker.GetBranch(repoRoot);
-        var text   = $"{branch}\n{string.Join('\n', entries)}";
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
-    }
 }

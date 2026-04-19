@@ -1,6 +1,5 @@
 using ContextKing.Core.Git;
 using ContextKing.Core.SourceMap;
-using ContextKing.Cli;
 
 namespace ContextKing.Cli.Commands;
 
@@ -8,38 +7,28 @@ internal static class FindScopeCommand
 {
     internal static async Task<int> RunAsync(string[] args)
     {
-        string? query    = null;
-        string? repo     = null;
-        int     topK     = 10;
-        float   minScore = 0f;
-        bool    topKSet  = false;
-        var     mustTexts = new List<string>();
-
-        for (int i = 0; i < args.Length; i++)
+        var reader = new ArgReader(args);
+        if (reader.IsHelp)
         {
-            switch (args[i])
-            {
-                case "--query"     when i + 1 < args.Length: query = args[++i]; break;
-                case "--repo"      when i + 1 < args.Length: repo  = args[++i]; break;
-                case "--must"      when i + 1 < args.Length: mustTexts.Add(args[++i]); break;
-                case "--top"       when i + 1 < args.Length:
-                    if (int.TryParse(args[++i], out int k) && k > 0) { topK = k; topKSet = true; }
-                    break;
-                case "--min-score" when i + 1 < args.Length:
-                    if (float.TryParse(args[++i], System.Globalization.NumberStyles.Float,
-                            System.Globalization.CultureInfo.InvariantCulture, out float s) && s >= 0f)
-                        minScore = s;
-                    break;
-                case "--help": case "-h":
-                    PrintHelp();
-                    return 0;
-            }
+            PrintHelp();
+            return 0;
         }
 
-        // When --min-score is the primary filter and --top was not explicitly set,
-        // remove the count cap so the threshold alone controls how many results come back.
-        if (minScore > 0f && !topKSet)
-            topK = int.MaxValue;
+        var query     = reader.GetString("--query");
+        var repo      = reader.GetString("--repo");
+        var mustTexts = reader.GetStringList("--must");
+        var topKSet   = reader.TryGetInt("--top", out var topK) && topK > 0;
+        if (!topKSet) topK = 10;
+
+        var minScore = 0f;
+        if (reader.TryGetFloat("--min-score", out var parsedMin) && parsedMin >= 0f)
+        {
+            minScore = parsedMin;
+            // When --min-score is the primary filter and --top was not explicitly set,
+            // remove the count cap so the threshold alone controls how many results come back.
+            if (!topKSet && minScore > 0f)
+                topK = int.MaxValue;
+        }
 
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -61,7 +50,7 @@ internal static class FindScopeCommand
 
         var dbPath = SourceMapBuilder.GetDbPath(repoRoot);
 
-        // Auto-build index on first use if missing or stale
+        // Auto-build index on first use if missing or stale.
         var status = SourceMapBuilder.GetStatus(repoRoot);
         if (status != IndexStatus.Fresh)
         {
