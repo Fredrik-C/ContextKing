@@ -13,9 +13,10 @@ on what is relevant while preventing over-reading at each step along the way. Th
 principle applies to indexing: rather than embedding every file or symbol, Context King indexes
 only at the folder level, where the signal-to-cost ratio is highest.
 
-Replaces broad file searches with a three-tier navigation system:
+Replaces broad file searches with a four-step navigation system:
 semantic folder search →
-live AST signature listing → 
+scoped folder exploration →
+live AST signature extraction →
 targeted method extraction.
 
 ---
@@ -44,7 +45,7 @@ Context King installs four commands into your AI CLI tool:
 | Command | What it does |
 |---|---|
 | `ck find-scope` | Semantic search over the folder tree. Returns the X most relevant folders |
-| `ck search` | Scoped keyword search: semantic folder ranking + git grep in one call |
+| `ck expand-folder` | Scoped folder browser: enumerates `.cs`/`.ts`/`.tsx` files in a folder, extracts signatures, filters by optional `--pattern` regex |
 | `ck signatures` | Live AST extraction. Lists every method/property signature in a set of files |
 | `ck get-method-source` | Reads one named member using AST (method/constructor/property) and returns exact line+char spans |
 | `ck index` | Builds or refreshes the semantic index (runs automatically on first use) |
@@ -62,11 +63,12 @@ scoring, and still captures the conceptual structure of the codebase. See
 [How semantic matching works](#how-semantic-matching-works) for details on what goes into each
 folder embedding.
 
-The remaining precision comes from `ck signatures` (live AST, no index) and
+The remaining precision comes from `ck expand-folder` (scoped signature extraction with
+optional regex filter), `ck signatures` (full member list, no filter), and
 `ck get-method-source` (targeted single-member extraction using AST), which operate at the file and
 member level after the folder-level search has already narrowed the scope.
 
-Together they form a five-step workflow that reaches the target method with far fewer tokens
+Together they form a four-step workflow that reaches the target method with far fewer tokens
 than an unguided search:
 
 ```
@@ -74,20 +76,23 @@ than an unguided search:
       → 0.91  src/Modules/Inventory/Reservations/
          0.84  src/Modules/Inventory/Allocations/
          0.79  src/Modules/Orders/Fulfilment/
-         0.71  src/Modules/Inventory/Reservations/Tests/
          ...   (up to --top N results, ranked by score)
 
-2. Glob / Grep scoped to the top folder(s)
-      → InventoryReservationService.cs, ReservationAllocator.cs, ...
+2. ck expand-folder  --pattern "Reserv"  src/Modules/Inventory/Reservations/
+      → InventoryReservationService.cs
+          AllocateReservation(ReservationRequest request): Task<ReservationResult>
+          ReleaseReservation(Guid reservationId): Task
+        ReservationAllocator.cs
+          TryAllocate(AllocationContext ctx): bool
+          ...
 
-3. ck signatures  InventoryReservationService.cs ReservationAllocator.cs
-      → compact list of all signatures, ~1-2 lines each
-
-4. ck get-method-source  InventoryReservationService.cs  AllocateReservation
+3. ck get-method-source  InventoryReservationService.cs  AllocateReservation
       → just that method's body, with exact start_line / start_char / end_char
 
-5. Read  (fallback only, when you need several members from the same file)
+4. Edit
 ```
+
+`ck signatures <folder>` is an alternative to step 2 when you want all members with no filter.
 
 ## Benchmark: "Describe retry handling and incremental support" on MassTransit (~5 500 files)
 
@@ -243,6 +248,7 @@ support for each one found. Deployment is per-CLI-tool:
 ├── skills/
 │   ├── ck/                          ← ck binary + platform wrapper
 │   ├── ck-find-scope/SKILL.md
+│   ├── ck-expand-folder/SKILL.md
 │   ├── ck-signatures/SKILL.md
 │   ├── ck-get-method-source/SKILL.md
 │   └── ck-index/SKILL.md
@@ -256,7 +262,7 @@ support for each one found. Deployment is per-CLI-tool:
 **Codex CLI / Agents** (detected by `.codex/` or `.agents/` directory):
 - `.codex/`: Installs binaries, models, and skills to `~/.codex/` (global). Writes full protocol to `.codex/ck-code-search-protocol.md`.
 - `.agents/`: Installs binaries, models, skills, and rules to `.agents/` (project-local). Binary paths are rewritten to `.agents/skills/ck/ck`.
-- Both: Adds a short pointer entry to `AGENTS.md` at the repo root directing the agent to read the protocol.
+- Both: Writes the inline 4-step workflow directly into `AGENTS.md` at the repo root.
 
 **OpenCode** (detected by `.opencode/` directory):
 ```
@@ -266,7 +272,7 @@ support for each one found. Deployment is per-CLI-tool:
 ├── skills/ck-*/SKILL.md             ← skill docs (opencode paths)
 ├── plugin/ck-guards.ts              ← hook plugin (auto-loaded by OpenCode)
 ├── ck-code-search-protocol.md      ← full code search protocol
-├── AGENTS.md                        ← short pointer to the protocol file
+├── AGENTS.md                        ← inline 4-step workflow (auto-upgraded by deploy)
 └── config.json                      ← tool allowlist
 ```
 
@@ -357,16 +363,17 @@ before reading any source file; and never speculatively open a file.
 ### Codex CLI / Agents
 
 The full code search protocol is deployed to `.codex/ck-code-search-protocol.md` or
-`.agents/rules/ck-code-search-protocol.md`. A short pointer entry is appended to `AGENTS.md`
-at the repo root directing the agent to read it and use the CK binary. Skills and the binary
-are installed to `~/.codex/` globally (Codex) or `.agents/skills/` locally (Agents).
+`.agents/rules/ck-code-search-protocol.md`. The inline 4-step workflow is written directly
+into `AGENTS.md` at the repo root so the agent sees it without needing to follow a pointer.
+Skills and the binary are installed to `~/.codex/` globally (Codex) or `.agents/skills/`
+locally (Agents).
 
 ### OpenCode
 
-The full code search protocol is written to `.opencode/ck-code-search-protocol.md`. A short
-pointer entry is added to `.opencode/AGENTS.md` directing OpenCode to read it, keeping
-the file uncluttered for user-owned content. The `ck` binary is allowed via the
-`tools.bash.allow` list in `.opencode/config.json`.
+The full code search protocol is written to `.opencode/ck-code-search-protocol.md`. The
+inline 4-step workflow is written directly into `.opencode/AGENTS.md` so OpenCode sees it
+without needing to follow a pointer. The `ck` binary is allowed via the `tools.bash.allow`
+list in `.opencode/config.json`.
 
 A TypeScript plugin (`plugin/ck-guards.ts`) is deployed to `.opencode/plugin/` and
 auto-loaded by OpenCode on session start. It intercepts four patterns before they waste
@@ -418,20 +425,25 @@ ck find-scope --query "<multi-keyword description>" [--top <n>] [--repo <path>]
 Output: `<score>\t<relative-folder-path>`, one line per result, sorted by score descending.
 Default `--top 10`. Auto-builds index on first call.
 
-### `ck search`
+### `ck expand-folder`
 
 ```
-ck search --query <scope-text> --pattern <keyword> [--top <n>] [--min-score <f>] [--case-sensitive] [--repo <path>]
+ck expand-folder [--pattern <regex>] <folder> [--repo <path>]
 ```
 
-Combines semantic folder ranking with keyword search in one call. First ranks folders by
-semantic relevance to `--query`, then searches within the top folders for `--pattern` using
-git grep. Case-insensitive by default.
+Enumerates every `.cs`, `.ts`, and `.tsx` file under `<folder>` recursively, extracts
+signatures from each file, and (if `--pattern` is given) filters to only files that have at
+least one matching signature.
 
-Output: matches grouped by folder, ordered by semantic relevance score:
+Output: files grouped with their matching signatures, one file per block. When no `--pattern`
+is supplied, all signatures in the folder are returned.
+
+`\|` in the pattern is normalised to `|` automatically, so agent-generated `bash` patterns
+work correctly regardless of quoting style.
+
+If no signatures match, a diagnostic line is printed to stdout with the file count:
 ```
-<score>\t<folder-path>
-  <file>:<line>: <matching-content>
+[ck expand-folder] No signatures matched pattern 'X' in 'folder' (N files scanned)
 ```
 
 ### `ck signatures`
