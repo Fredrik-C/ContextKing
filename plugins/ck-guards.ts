@@ -48,6 +48,30 @@ function isNarrowPath(path: string | undefined): boolean {
   return segments.length >= 2
 }
 
+/**
+ * Extract the static path prefix of a glob pattern — everything before the
+ * first wildcard character (`*`, `?`, `[`, `{`). Used to detect when a
+ * pattern itself encodes a narrow scope, e.g.
+ *   "src/ContextKing.Core/Ast/**\/*.cs"  →  "src/ContextKing.Core/Ast"
+ *   "src/Modules/Inventory/*.cs"          →  "src/Modules/Inventory"
+ *   "**\/*.cs"                            →  ""  (broad)
+ *   "*.cs"                                →  ""  (broad)
+ */
+function globPrefix(pattern: string): string {
+  const firstWild = pattern.search(/[*?[{]/)
+  const prefix = firstWild < 0 ? pattern : pattern.slice(0, firstWild)
+  // Trim trailing slash so "src/Foo/" and "src/Foo" both count as 2 segments.
+  return prefix.replace(/\/+$/, "")
+}
+
+/**
+ * A glob/grep call is narrowly scoped if EITHER the `path` argument OR the
+ * static prefix of the pattern identifies a folder at least 2 segments deep.
+ */
+function isNarrowlyScoped(path: string, pattern: string): boolean {
+  return isNarrowPath(path) || isNarrowPath(globPrefix(pattern))
+}
+
 export default async function ckGuards() {
   return {
     "tool.execute.before": async (
@@ -62,7 +86,7 @@ export default async function ckGuards() {
         const pattern = String(args.pattern ?? args.glob ?? "")
         const path = String(args.path ?? args.cwd ?? "")
 
-        if (SOURCE_EXT_RE.test(pattern) && !isNarrowPath(path)) {
+        if (SOURCE_EXT_RE.test(pattern) && !isNarrowlyScoped(path, pattern)) {
           throw new Error(
             `[ck-guard] Broad source file glob detected (pattern: "${pattern}", path: "${path || "repo root"}").
 
@@ -87,7 +111,7 @@ Do NOT use broad glob — it wastes tokens scanning irrelevant files.`
         const isSource =
           SOURCE_EXT_RE.test(globArg) || /^(cs|tsx?)$/.test(typeArg)
 
-        if (isSource && !isNarrowPath(path)) {
+        if (isSource && !isNarrowlyScoped(path, globArg)) {
           throw new Error(
             `[ck-guard] Broad source file grep detected (path: "${path || "repo root"}").
 
