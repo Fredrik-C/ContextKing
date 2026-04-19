@@ -7,7 +7,8 @@ CK tools work on both C# and TypeScript/TSX files.
 
 ```
 1. SCOPE    → .claude/skills/ck/ck find-scope --query "domain area concept operation"
-2. EXPLORE  → .claude/skills/ck/ck signatures <folder>/     (for each relevant folder)
+2. EXPLORE  → .claude/skills/ck/ck expand-folder --pattern "<keyword>" <folder>   (when you have a keyword)
+              .claude/skills/ck/ck signatures <folder>/                            (when you need everything)
 3. READ     → .claude/skills/ck/ck get-method-source <file> <MemberName>
 4. EDIT     → make your changes
 ```
@@ -23,12 +24,12 @@ ranking within a result set. On large codebases they typically cluster between 0
 ```bash
 # C# example:
 .claude/skills/ck/ck find-scope --query "adyen terminal card-present refund"
-.claude/skills/ck/ck signatures <folder>/
+.claude/skills/ck/ck expand-folder --pattern "Refund" <folder>
 .claude/skills/ck/ck get-method-source <file.cs> <ExactMemberName>
 
 # TypeScript example:
 .claude/skills/ck/ck find-scope --query "backend rendering template fetcher"
-.claude/skills/ck/ck signatures <folder>/
+.claude/skills/ck/ck expand-folder --pattern "fetch\|render" <folder>
 .claude/skills/ck/ck get-method-source <file.ts> <functionOrMethodName>
 ```
 
@@ -41,11 +42,11 @@ ranking within a result set. On large codebases they typically cluster between 0
 .claude/skills/ck/ck find-scope --query "terminal card-present refund payment" --must "adyen"   # target
 
 # 2. Explore reference implementation
-.claude/skills/ck/ck signatures <stripe-folder>/
+.claude/skills/ck/ck expand-folder --pattern "Refund" <stripe-folder>
 .claude/skills/ck/ck get-method-source <file> RefundInPersonPaymentAsync
 
 # 3. Explore target (what exists today)
-.claude/skills/ck/ck signatures <adyen-folder>/
+.claude/skills/ck/ck expand-folder --pattern "Refund" <adyen-folder>
 .claude/skills/ck/ck get-method-source <file> RefundPaymentAsync
 
 # 4. Edit — you now have enough context
@@ -67,7 +68,7 @@ grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
 
 1. **Always start with `ck find-scope`** when the relevant folder is unknown. Use `--top 15` or `--top 20` for broad tasks — don't cap too tight.
 2. **Commit to your folders.** Once find-scope returns results, work within them. Don't re-run find-scope with rephrased queries — synonyms return the same ranking.
-3. **Use `ck signatures` before reading files.** It shows every member without reading full content. Pass the folder path directly.
+3. **Use `ck expand-folder` to explore folders.** Pass `--pattern "<keyword>"` to filter to only relevant files and signatures. Use `ck signatures <folder>` only when you genuinely need everything in the folder.
 4. **Use `ck get-method-source` for single methods.** Use exact member names from signatures output — `Refund` won't match `RefundPaymentAsync`. Fall back to `Read` only when you need 3+ members from one file.
 5. **Any search tool works within scoped folders.** After scoping, use grep, rg, Glob, Grep, or Read freely — but always scoped to the folders find-scope returned. Never `grep -r` from repo root.
 6. **Don't guess symbol names.** If you don't know the name, run signatures first. Don't invent class names for searches.

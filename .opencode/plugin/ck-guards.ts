@@ -12,10 +12,10 @@
  *   grep on source files across a wide path   → redirect to ck find-scope
  *   bash cat on source files                  → redirect to ck get-method-source / Read
  *   bash grep targeting source files          → redirect to ck find-scope
- *   bash pipe on ck find-scope/search         → block (destroys structure)
+ *   bash pipe on ck find-scope         → block (destroys structure)
  *
  * Hints implemented (tool.execute.after):
- *   ck find-scope / ck search with tight score cluster → suggest --min-score
+ *   ck find-scope with tight score cluster → suggest --min-score
  */
 
 const CK = ".opencode/skills/ck/ck"
@@ -96,9 +96,9 @@ Do NOT use broad grep — it wastes tokens scanning irrelevant files.`
       if (tool === "bash") {
         const cmd = String(args.command ?? "")
 
-        // Detect ck search/find-scope piped through head/grep/tail (real shell pipe, not regex \|)
+        // Detect ck find-scope piped through head/grep/tail (real shell pipe, not regex \|)
         // Allow pipes on signatures and get-method-source (filtering large output is fine).
-        if (/ck\s+(search|find-scope)\b/.test(cmd) &&
+        if (/ck\s+find-scope\b/.test(cmd) &&
             /\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b/.test(cmd)) {
           throw new Error(
             `[ck-guard] Do NOT pipe ck output through head, grep, or tail.
@@ -150,7 +150,7 @@ Use the native grep tool (not bash grep) only within a scoped folder.`
     },
 
     // ── tool.execute.after: tight score cluster hint ──────────────────────
-    // Fires after ck find-scope or ck search completes. Parses the score column
+    // Fires after ck find-scope completes. Parses the score column
     // and appends a hint when avg_gap = spread/(count-1) <= 0.01 and scores
     // are above the noise floor — scales correctly with --top N.
     "tool.execute.after": async (
@@ -160,7 +160,7 @@ Use the native grep tool (not bash grep) only within a scoped folder.`
       if (input.tool !== "bash") return
 
       const cmd = String(input.args?.command ?? "")
-      if (!/ck\s+(find-scope|search)\b/.test(cmd)) return
+      if (!/ck\s+find-scope\b/.test(cmd)) return
 
       // Parse score values from lines formatted as "<float>\t<folder-path>"
       const scoreLineRe = /^([\d.]+)\t/

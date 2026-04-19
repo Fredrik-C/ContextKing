@@ -10,7 +10,7 @@ return args[0] switch
 {
     "index"             => await IndexCommand.RunAsync(args[1..]),
     "find-scope"        => await FindScopeCommand.RunAsync(args[1..]),
-    "search"            => await SearchCommand.RunAsync(args[1..]),
+    "expand-folder"     => await ExpandFolderCommand.RunAsync(args[1..]),
     "signatures"        => await SignaturesCommand.RunAsync(args[1..]),
     "get-method-source" => await GetMethodSourceCommand.RunAsync(args[1..]),
     "--version"         => PrintVersion(),
@@ -25,19 +25,19 @@ static void PrintHelp()
         Commands:
           ck index              Build or update the semantic source-map index
           ck find-scope         Semantic search to find the most relevant folder(s)
-          ck search             Scoped keyword search (semantic ranking + git grep)
+          ck expand-folder      List files in a folder with filtered signatures
           ck signatures         Extract method signatures from C#/TypeScript files (always live)
           ck get-method-source  Extract method/property source with exact span (always live)
 
         Run 'ck <command> --help' for command-specific options.
 
-        Version: 1.3.3
+        Version: 1.3.4
         """);
 }
 
 static int PrintVersion()
 {
-    Console.WriteLine("ck 1.3.3");
+    Console.WriteLine("ck 1.3.4");
     return 0;
 }
 

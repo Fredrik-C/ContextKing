@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ck-scope-hint: PostToolUse hook for the Bash tool.
 #
-# Fires after ck find-scope or ck search completes. Inspects the score column
+# Fires after ck find-scope completes. Inspects the score column
 # in the output and appends an additionalContext hint when the average gap
 # between adjacent scores is <= 0.01 and scores are above the noise floor
 # (0.70) — a signal that --top N sliced through a relevant cluster, silently
@@ -26,7 +26,7 @@ TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
 # Only fire when the command ran ck find-scope or ck search
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-printf '%s' "$COMMAND" | grep -qE 'ck\s+(find-scope|search)\b' || exit 0
+printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' || exit 0
 
 # Extract stdout
 OUTPUT=$(printf '%s' "$INPUT" | jq -r '.tool_response.output // empty' 2>/dev/null)

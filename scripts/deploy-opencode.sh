@@ -67,9 +67,9 @@ chmod +x \
   "$DOT_OPENCODE/skills/ck/ck-linux-x64" \
   2>/dev/null || true
 
-# ── 3. Write protocol file + short AGENTS.md pointer ───────────────────────────
-# Full protocol goes to a dedicated file; AGENTS.md gets only a short pointer
-# so the user's own AGENTS.md content isn't crowded out.
+# ── 3. Write protocol file + AGENTS.md inline workflow ─────────────────────────
+# Full protocol goes to a dedicated file; AGENTS.md gets the core 4-step
+# workflow inline so agents see it without needing to follow a pointer.
 PROTOCOL_FILE="$DOT_OPENCODE/ck-code-search-protocol.md"
 cp "$REPO_DIR/rules/ck-code-search-protocol.md" "$PROTOCOL_FILE"
 # Rewrite .claude/ binary paths → .opencode/
@@ -79,12 +79,44 @@ sed -i.bak \
   "$PROTOCOL_FILE" && rm -f "$PROTOCOL_FILE.bak"
 echo "  Wrote CK code search protocol to .opencode/ck-code-search-protocol.md"
 
+write_ck_agents_block() {
+  cat <<'AGENTSEOF'
+## Context King — code search protocol
+
+This repo has Context King installed for fast C# and TypeScript/TSX navigation.
+Full reference: `.opencode/ck-code-search-protocol.md`
+
+### Mandatory workflow for .cs / .ts / .tsx files
+
+```
+1. SCOPE   → .opencode/skills/ck/ck find-scope --query "domain area concept operation"
+2. EXPLORE → .opencode/skills/ck/ck expand-folder --pattern "<keyword>" <folder>
+3. READ    → .opencode/skills/ck/ck get-method-source <file> <MemberName>
+4. EDIT    → make your changes
+```
+
+Use `ck signatures <folder>` at step 2 only when you need all members with no filter.
+Do not read source files before running step 1.
+AGENTSEOF
+}
+
 AGENTS_MD="$DOT_OPENCODE/AGENTS.md"
-if [ ! -f "$AGENTS_MD" ] || ! grep -q 'ck-code-search-protocol' "$AGENTS_MD" 2>/dev/null; then
-  printf '## Context King — code search protocol\n\nThis repo has Context King installed for fast C# navigation.\nRead `.opencode/ck-code-search-protocol.md` for mandatory instructions before browsing `.cs` files.\n' >> "$AGENTS_MD"
-  echo "  Added Context King pointer to .opencode/AGENTS.md"
+if grep -q 'expand-folder' "$AGENTS_MD" 2>/dev/null; then
+  echo "  .opencode/AGENTS.md already has CK expand-folder workflow — skipping."
+elif grep -q 'ck-code-search-protocol' "$AGENTS_MD" 2>/dev/null; then
+  # Upgrade: remove old pointer-only CK section, append new inline workflow
+  tmp_file="$(mktemp)"
+  awk '
+    /^## Context King/ { in_ck=1; next }
+    in_ck && /^## /    { in_ck=0 }
+    !in_ck             { print }
+  ' "$AGENTS_MD" > "$tmp_file"
+  write_ck_agents_block >> "$tmp_file"
+  mv "$tmp_file" "$AGENTS_MD"
+  echo "  Upgraded Context King section in .opencode/AGENTS.md (added expand-folder workflow)"
 else
-  echo "  .opencode/AGENTS.md already references CK — skipping."
+  write_ck_agents_block >> "$AGENTS_MD"
+  echo "  Added Context King inline workflow to .opencode/AGENTS.md"
 fi
 
 # ── 4. Copy plugin (OpenCode hook enforcement) ─────────────────────────────────

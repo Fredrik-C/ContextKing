@@ -1,6 +1,6 @@
 # ck-scope-hint: PostToolUse hook for the Bash tool (PowerShell).
 #
-# Fires after ck find-scope or ck search completes. Inspects the score column
+# Fires after ck find-scope completes. Inspects the score column
 # in the output and appends an additionalContext hint when the average gap
 # between adjacent scores is <= 0.01 and scores are above the noise floor
 # (0.70) — a signal that --top N sliced through a relevant cluster.
@@ -16,7 +16,7 @@ $tool = $input_json | jq -r '.tool_name // empty' 2>$null
 if ($tool -ne "Bash") { exit 0 }
 
 $command = $input_json | jq -r '.tool_input.command // empty' 2>$null
-if ($command -notmatch 'ck\s+(find-scope|search)\b') { exit 0 }
+if ($command -notmatch 'ck\s+find-scope\b') { exit 0 }
 
 $output = $input_json | jq -r '.tool_response.output // empty' 2>$null
 if ([string]::IsNullOrEmpty($output)) { exit 0 }

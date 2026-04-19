@@ -16,9 +16,9 @@ $command = if ($obj.tool_input.command) { $obj.tool_input.command }
 
 if (-not $command) { exit 0 }
 
-# Pattern 1: ck search/find-scope with real shell pipe (not regex \|)
+# Pattern 1: ck find-scope with real shell pipe (not regex \|)
 # Allow pipes on signatures and get-method-source (filtering large output is fine).
-$hasCk = $command -match 'ck\s+(search|find-scope)\b'
+$hasCk = $command -match 'ck\s+find-scope\b'
 $hasPipe = $command -match '\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b'
 
 if ($hasCk -and $hasPipe) {
@@ -33,9 +33,6 @@ ck output is already structured and scoped. Piping discards folder scores and
 grouping structure you need. Instead:
 
   - Reduce output with --top <n> or --min-score <f>
-  - Use --type and --name for precise matching:
-    ck search --query "<scope>" --type class --name "ClassName"
-  - Types: class, method, member, file
 
 Remove the pipe and re-run the ck command directly.
 "@

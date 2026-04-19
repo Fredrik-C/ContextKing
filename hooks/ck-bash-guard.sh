@@ -2,7 +2,7 @@
 # ck-bash-guard: PreToolUse hook for the Bash tool.
 # Detects two anti-patterns:
 #   1. Piping ck output through head/grep/tail/wc (wastes context, discards structure)
-#   2. Using raw grep/rg on source files instead of ck search
+#   2. Using raw grep/rg on source files instead of ck tools
 #
 # Pattern 1 BLOCKS the call — allow-with-warning was tested and agents ignore it.
 # Pattern 2 allows with a hint (blocking grep entirely is too aggressive).
@@ -19,10 +19,10 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '
 
 [ -z "$COMMAND" ] && exit 0
 
-# ── Pattern 1: ck search/find-scope piped through head/grep/tail ──────────────
-# Block pipes on search and find-scope (destroys folder scores and grouping).
+# ── Pattern 1: ck find-scope piped through head/grep/tail ──────────────────
+# Block pipes on find-scope (destroys folder scores and grouping).
 # Allow pipes on signatures and get-method-source (filtering large output is fine).
-if printf '%s' "$COMMAND" | grep -qE 'ck\s+(search|find-scope)\b' && \
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' && \
    printf '%s' "$COMMAND" | grep -qE '\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b'; then
   jq -n \
     --arg reason "[ck-guard] BLOCKED — do not pipe ck output through head, grep, or tail.
@@ -31,9 +31,6 @@ ck output is already structured and scoped. Piping discards folder scores and
 grouping structure you need. Instead:
 
   • Reduce output with --top <n> or --min-score <f>
-  • Use --type and --name for precise matching:
-    ck search --query \"<scope>\" --type class --name \"ClassName\"
-  • Types: class, method, member, file
 
 Remove the pipe and re-run the ck command directly." \
     '{
