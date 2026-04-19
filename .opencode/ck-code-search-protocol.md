@@ -1,56 +1,74 @@
-## Code Search Protocol — mandatory
+## Code Navigation Protocol — mandatory for all source files (.cs, .ts, .tsx)
 
-This codebase has a large number of C# and TypeScript files across many folders. Searching without
-narrowing scope first produces false positives, wastes tokens, and reads the wrong files.
+This codebase is large. Searching without narrowing scope first wastes tokens and reads wrong files.
+CK tools work on both C# and TypeScript/TSX files.
 
-**Before any Glob, Grep, or Read on an unknown file location, use a CK command first.**
+### The workflow
 
-### Step 1 — Choose the right entry point
-
-**If you have a keyword** (method name, class name, symbol, error message):
-```bash
-.opencode/skills/ck/ck search --query "<domain description>" --pattern "<keyword>"
 ```
-This is the most common case. It combines semantic folder ranking with git grep in one
-call — no need for separate find-scope + grep round-trips. Use `--top 20` to widen scope.
-
-**If you only need to discover the right area** (no specific keyword yet):
-```bash
-.opencode/skills/ck/ck find-scope --query "<multi-keyword description>"
+1. SCOPE    → .opencode/skills/ck/ck find-scope --query "domain area concept operation"
+2. EXPLORE  → .opencode/skills/ck/ck signatures <folder>/     (for each relevant folder)
+3. READ     → .opencode/skills/ck/ck get-method-source <file> <MemberName>
+4. EDIT     → make your changes
 ```
-Use this when you're exploring — e.g. "where does payment processing live?" — and don't
-yet have a symbol to search for.
 
-Windows PowerShell equivalents use `.opencode\skills\ck\ck.cmd` instead.
+**Step 1 gives you folders. Steps 2–4 happen within those folders. Do not re-scope.**
+
+`ck find-scope` output is `<score>\t<folder-path>`. The score is a **relevance score** —
+higher means more relevant. It is not a percentage; scores are relative values used for
+ranking within a result set. On large codebases they typically cluster between 0.69 and 0.82.
+
+### Playbook A — Find and read a specific symbol
+
+```bash
+# C# example:
+.opencode/skills/ck/ck find-scope --query "adyen terminal card-present refund"
+.opencode/skills/ck/ck signatures <folder>/
+.opencode/skills/ck/ck get-method-source <file.cs> <ExactMemberName>
+
+# TypeScript example:
+.opencode/skills/ck/ck find-scope --query "backend rendering template fetcher"
+.opencode/skills/ck/ck signatures <folder>/
+.opencode/skills/ck/ck get-method-source <file.ts> <functionOrMethodName>
+```
+
+### Playbook B — Implement a feature using an existing pattern
+
+```bash
+# 1. Scope both the reference and the target
+#    Use --must to prevent competing providers from bleeding into results
+.opencode/skills/ck/ck find-scope --query "terminal card-present refund payment" --must "stripe"  # reference
+.opencode/skills/ck/ck find-scope --query "terminal card-present refund payment" --must "adyen"   # target
+
+# 2. Explore reference implementation
+.opencode/skills/ck/ck signatures <stripe-folder>/
+.opencode/skills/ck/ck get-method-source <file> RefundInPersonPaymentAsync
+
+# 3. Explore target (what exists today)
+.opencode/skills/ck/ck signatures <adyen-folder>/
+.opencode/skills/ck/ck get-method-source <file> RefundPaymentAsync
+
+# 4. Edit — you now have enough context
+```
+
+### Playbook C — Impact analysis (cross-cutting change)
+
+```bash
+.opencode/skills/ck/ck find-scope --query "payment gateway refund async" --min-score 0.5 --top 30
+# returns ALL folders above threshold — may be 15-20 folders, that's fine
+.opencode/skills/ck/ck signatures <folder1>/
+.opencode/skills/ck/ck signatures <folder2>/
+# ... for each relevant folder
+# use grep/rg WITHIN these folders for cross-references
+grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
+```
 
 ### Rules
 
-1. **Always start with `ck search` or `ck find-scope`** when the relevant folder is unknown.
-   Never jump straight to Glob, Grep, Read, or `grep -r`.
-2. Use **multiple keywords** in `--query` — combine the module name, concept, operation, and type.
-   Good: `"stripe payment disbursement payout reconciliation"`
-   Bad:  `"stripe"` or `"payment"`
-3. **Never use `grep -r`, `grep -rn`, or bash grep** to search source files. Use `ck search`
-   with `--pattern` instead. This is the single most important rule — bash grep bypasses
-   semantic scoping and wastes tokens scanning irrelevant files.
-4. Scope all subsequent Glob/Grep searches to the folder(s) returned — never use `**/*.cs` or
-   `**/*.ts` from the repo root. Pass the returned folder as the `path` parameter to Glob/Grep.
-5. Do NOT run a broad Grep or Glob across the repo as a supplement to CK results. If CK results
-   don't cover what you need, run another `ck search` or `ck find-scope` with different keywords.
-6. Before reading ANY `.cs`, `.ts`, or `.tsx` file, run `ck signatures` first to confirm it
-   contains what you need:
-   ```bash
-   .opencode/skills/ck/ck signatures <folder-or-file>
-   ```
-   Pass the **folder path** to get all signatures in one call.
-   Proceed to Read only after signatures output confirms the file is relevant.
-7. After signatures identifies the right file and method, use `ck get-method-source` to read just
-   that method — not the whole file:
-   ```bash
-   .opencode/skills/ck/ck get-method-source <file> <MethodName>
-   ```
-   Fall back to a full Read only when you need 3+ members from the same file.
-8. Never Read a `.cs`, `.ts`, or `.tsx` file speculatively. If you are not certain it is the
-   right file, run signatures first.
-9. **Do NOT use `find`, `ls`, or `Search` to enumerate files** after CK has returned results.
-   Pass the folder directly to `ck signatures` — it recursively processes all supported files.
+1. **Always start with `ck find-scope`** when the relevant folder is unknown. Use `--top 15` or `--top 20` for broad tasks — don't cap too tight.
+2. **Commit to your folders.** Once find-scope returns results, work within them. Don't re-run find-scope with rephrased queries — synonyms return the same ranking.
+3. **Use `ck signatures` before reading files.** It shows every member without reading full content. Pass the folder path directly.
+4. **Use `ck get-method-source` for single methods.** Use exact member names from signatures output — `Refund` won't match `RefundPaymentAsync`. Fall back to `Read` only when you need 3+ members from one file.
+5. **Any search tool works within scoped folders.** After scoping, use grep, rg, Glob, Grep, or Read freely — but always scoped to the folders find-scope returned. Never `grep -r` from repo root.
+6. **Don't guess symbol names.** If you don't know the name, run signatures first. Don't invent class names for searches.
+7. **Budget: 2 find-scope calls per task.** One for the reference area, one for the target. If you need a third, you're re-scoping — stop and use the folders you have.

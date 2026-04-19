@@ -148,9 +148,11 @@ if [ "$HAS_CLAUDE" = true ]; then
   cp "$REPO_DIR/hooks/agent-usage-guard.ps1" "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.sh"      "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.ps1"     "$DOT_CLAUDE/hooks/"
+  cp "$REPO_DIR/hooks/ck-scope-hint.sh"      "$DOT_CLAUDE/hooks/"
+  cp "$REPO_DIR/hooks/ck-scope-hint.ps1"     "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-update-check.sh"    "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-update-check.ps1"   "$DOT_CLAUDE/hooks/"
-  chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh" "$DOT_CLAUDE/hooks/ck-update-check.sh"
+  chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh" "$DOT_CLAUDE/hooks/ck-scope-hint.sh" "$DOT_CLAUDE/hooks/ck-update-check.sh"
 
   # 5. Register hooks in settings.json (idempotent)
   SETTINGS="$DOT_CLAUDE/settings.json"
@@ -203,6 +205,17 @@ if [ "$HAS_CLAUDE" = true ]; then
       echo "  Registered Bash hook in settings.json"
     else
       echo "  Bash hook already registered — skipping."
+    fi
+    # Register PostToolUse hook (scope-cluster hint after ck find-scope / ck search)
+    if ! jq -e '[.hooks.PostToolUse[]?.hooks[]?.command // empty] | any(test("ck-scope-hint"))' \
+         "$SETTINGS" >/dev/null 2>&1; then
+      jq '.hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{"matcher":"Bash","hooks":[
+        {"type":"command","command":".claude/hooks/ck-scope-hint.sh"},
+        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-scope-hint.ps1 || exit 0'\''"}
+      ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+      echo "  Registered PostToolUse scope-hint hook in settings.json"
+    else
+      echo "  PostToolUse scope-hint hook already registered — skipping."
     fi
     # Register SessionStart hook (update check)
     if ! jq -e '[.hooks.SessionStart[]?.hooks[]?.command // empty] | any(test("ck-update-check"))' \

@@ -18,6 +18,7 @@ internal static class SearchCommand
         float   minScore = 0f;
         bool    topKSet  = false;
         bool    caseSensitive = false;
+        var     mustTexts = new List<string>();
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -28,6 +29,7 @@ internal static class SearchCommand
                 case "--name"      when i + 1 < args.Length: name    = args[++i]; break;
                 case "--type"      when i + 1 < args.Length: typeStr = args[++i]; break;
                 case "--repo"      when i + 1 < args.Length: repo    = args[++i]; break;
+                case "--must"      when i + 1 < args.Length: mustTexts.Add(args[++i]); break;
                 case "--top"       when i + 1 < args.Length:
                     if (int.TryParse(args[++i], out int k) && k > 0) { topK = k; topKSet = true; }
                     break;
@@ -145,7 +147,8 @@ internal static class SearchCommand
         {
             result = scopedSearcher.SearchTyped(
                 dbPath, repoRoot, query, searchType.Value, name!,
-                topK, minScore, ignoreCase: !caseSensitive);
+                topK, minScore, ignoreCase: !caseSensitive,
+                mustTexts: mustTexts.Count > 0 ? mustTexts : null);
 
             var effectivePattern = SearchPatternRegistry.BuildPattern(searchType.Value, name!) ?? name!;
             EmitDedupHintIfNeeded(repoRoot, result.Folders, effectivePattern);
@@ -156,7 +159,8 @@ internal static class SearchCommand
             var effectivePattern = pattern ?? name!;
             result = scopedSearcher.Search(
                 dbPath, repoRoot, query, effectivePattern,
-                topK, minScore, ignoreCase: !caseSensitive);
+                topK, minScore, ignoreCase: !caseSensitive,
+                mustTexts: mustTexts.Count > 0 ? mustTexts : null);
 
             EmitDedupHintIfNeeded(repoRoot, result.Folders, effectivePattern);
         }

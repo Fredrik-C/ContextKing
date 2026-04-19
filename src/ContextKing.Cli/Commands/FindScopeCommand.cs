@@ -13,6 +13,7 @@ internal static class FindScopeCommand
         int     topK     = 10;
         float   minScore = 0f;
         bool    topKSet  = false;
+        var     mustTexts = new List<string>();
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -20,6 +21,7 @@ internal static class FindScopeCommand
             {
                 case "--query"     when i + 1 < args.Length: query = args[++i]; break;
                 case "--repo"      when i + 1 < args.Length: repo  = args[++i]; break;
+                case "--must"      when i + 1 < args.Length: mustTexts.Add(args[++i]); break;
                 case "--top"       when i + 1 < args.Length:
                     if (int.TryParse(args[++i], out int k) && k > 0) { topK = k; topKSet = true; }
                     break;
@@ -76,7 +78,8 @@ internal static class FindScopeCommand
 
         using var searchEmbedder = ModelLocator.CreateEmbedder();
         var searcher = new SourceMapSearcher(searchEmbedder);
-        var results  = searcher.Search(dbPath, query, topK, minScore);
+        var results  = searcher.Search(dbPath, query, topK, minScore,
+            mustTexts.Count > 0 ? mustTexts : null);
 
         if (results.Count == 0)
         {
@@ -96,10 +99,14 @@ internal static class FindScopeCommand
             ck find-scope — semantic search to find the most relevant folder(s)
 
             Usage:
-              ck find-scope --query <text> [--repo <path>] [--top <n>] [--min-score <f>]
+              ck find-scope --query <text> [--must <text>] [--repo <path>] [--top <n>] [--min-score <f>]
 
             Options:
               --query <text>      Natural language description of the code area (required)
+              --must <text>       Provider/concept to focus on. Boosts folders that contain this
+                                  term and penalises folders about competing concepts detected via
+                                  embedding similarity (e.g. --must "stripe" boosts Stripe folders
+                                  and suppresses Adyen folders without naming them). Can be repeated.
               --repo <path>       Path to git repo root (default: git rev-parse from cwd)
               --top <n>           Hard cap on result count (default: 10; ignored when
                                   --min-score is set without --top)

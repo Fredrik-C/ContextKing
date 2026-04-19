@@ -1,24 +1,26 @@
 /**
  * ck-guards — OpenCode plugin
  *
- * Enforces the Context King code-search protocol by intercepting broad C# file
- * searches before they waste tokens scanning the wrong files.
+ * Enforces the Context King code-search protocol by intercepting anti-patterns
+ * before they waste tokens. In OpenCode, throw actually blocks the call.
  *
  * Deployed to: .opencode/plugin/ck-guards.ts
  * Auto-loaded by OpenCode from .opencode/plugin/ on session start.
  *
- * Guards implemented (all non-blocking in intent — throw redirects the agent):
- *   glob on .cs across a wide path   → redirect to ck find-scope
- *   grep on .cs across a wide path   → redirect to ck find-scope
- *   bash grep targeting .cs files    → redirect to ck find-scope
+ * Guards implemented:
+ *   glob on source files across a wide path   → redirect to ck find-scope
+ *   grep on source files across a wide path   → redirect to ck find-scope
+ *   bash cat on source files                  → redirect to ck get-method-source / Read
+ *   bash grep targeting source files          → redirect to ck find-scope
+ *   bash pipe on ck find-scope/search         → block (destroys structure)
  *
- * Read guard is intentionally omitted: OpenCode only supports throw-to-block
- * with no warn-and-allow equivalent. Blocking all .cs reads would cause infinite
- * retry loops when the agent legitimately needs a full file. The protocol file
- * and AGENTS.md pointer handle read discipline via instructions instead.
+ * Hints implemented (tool.execute.after):
+ *   ck find-scope / ck search with tight score cluster → suggest --min-score
  */
 
 const CK = ".opencode/skills/ck/ck"
+
+const SOURCE_EXT_RE = /\.(cs|tsx?)(\b|$)/
 
 /**
  * A path is considered narrow (already scoped) when it has more than 3 segments.
@@ -43,67 +45,153 @@ export default async function ckGuards() {
       const { tool } = input
       const args = output.args
 
-      // ── glob: broad .cs pattern ─────────────────────────────────────────────
+      // ── glob: broad source file pattern ──────────────────────────────────
       if (tool === "glob") {
         const pattern = String(args.pattern ?? args.glob ?? "")
         const path = String(args.path ?? args.cwd ?? "")
 
-        if (pattern.includes(".cs") && !isNarrowPath(path)) {
+        if (SOURCE_EXT_RE.test(pattern) && !isNarrowPath(path)) {
           throw new Error(
-            `[ck-guard] Broad .cs glob detected (pattern: "${pattern}", path: "${path || "repo root"}").
+            `[ck-guard] Broad source file glob detected (pattern: "${pattern}", path: "${path || "repo root"}").
 
-Run ck find-scope FIRST to narrow scope:
-  ${CK} find-scope --query "<multi-keyword description — module, concept, operation, type>"
+Use ck find-scope to discover the right area first:
+  ${CK} find-scope --query "<multi-keyword description>"
 
-Then scope this glob to the returned folder path.
-Proceed only once the scope is narrowed to a specific folder.`
+Then explore within those folders:
+  ${CK} signatures <folder>/
+  ${CK} get-method-source <file> <MemberName>
+
+Do NOT use broad glob — it wastes tokens scanning irrelevant files.`
           )
         }
         return
       }
 
-      // ── grep: broad .cs search ──────────────────────────────────────────────
+      // ── grep: broad source file search ─────────────────────────────────────
       if (tool === "grep") {
         const globArg = String(args.glob ?? args.include ?? "")
         const typeArg = String(args.type ?? "")
         const path = String(args.path ?? args.cwd ?? "")
-        const isCS = globArg.includes(".cs") || typeArg === "cs"
+        const isSource =
+          SOURCE_EXT_RE.test(globArg) || /^(cs|tsx?)$/.test(typeArg)
 
-        if (isCS && !isNarrowPath(path)) {
+        if (isSource && !isNarrowPath(path)) {
           throw new Error(
-            `[ck-guard] Broad C# grep detected (path: "${path || "repo root"}").
+            `[ck-guard] Broad source file grep detected (path: "${path || "repo root"}").
 
-Run ck find-scope FIRST to narrow scope:
-  ${CK} find-scope --query "<multi-keyword description — module, concept, operation, type>"
+Use ck find-scope to discover the right area first:
+  ${CK} find-scope --query "<multi-keyword description>"
 
-Then scope this grep to the returned folder path.
-Proceed only once the scope is narrowed to a specific folder.`
+Then explore within those folders:
+  ${CK} signatures <folder>/
+  ${CK} get-method-source <file> <MemberName>
+
+Do NOT use broad grep — it wastes tokens scanning irrelevant files.`
           )
         }
         return
       }
 
-      // ── bash: grep on .cs files ─────────────────────────────────────────────
+      // ── bash: piped ck output or grep on source files ───────────────────
       if (tool === "bash") {
         const cmd = String(args.command ?? "")
-        const isGrepCmd = cmd.includes("grep")
-        const targetsCS =
-          cmd.includes(".cs") || /grep\s+-[a-zA-Z]*r/.test(cmd)
 
-        if (isGrepCmd && targetsCS) {
+        // Detect ck search/find-scope piped through head/grep/tail (real shell pipe, not regex \|)
+        // Allow pipes on signatures and get-method-source (filtering large output is fine).
+        if (/ck\s+(search|find-scope)\b/.test(cmd) &&
+            /\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b/.test(cmd)) {
           throw new Error(
-            `[ck-guard] bash grep on C# files detected.
+            `[ck-guard] Do NOT pipe ck output through head, grep, or tail.
 
-Do NOT use bash grep to search this codebase — follow the code search protocol:
+ck output is already structured and scoped. Piping discards folder scores and
+grouping structure you need. Instead:
 
+  • Reduce output with --top <n> or --min-score <f>
+
+Remove the pipe and run the ck command directly.`
+          )
+        }
+
+        // Detect cat on source files (should use Read or ck get-method-source)
+        if (/\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*$/.test(cmd) ||
+            /\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*\|/.test(cmd)) {
+          throw new Error(
+            `[ck-guard] Do not use cat to read source files.
+
+Use ck tools to read exactly what you need:
+
+  ${CK} signatures <file>                    # list all members
+  ${CK} get-method-source <file> <MemberName> # read one method
+
+Or use the Read tool if you need the full file. cat wastes tokens by dumping
+the entire file into the command output without line numbers.`
+          )
+        }
+
+        // Detect raw grep on source files
+        const isGrepCmd = cmd.includes("grep")
+        const targetsSource =
+          SOURCE_EXT_RE.test(cmd) || /grep\s+-[a-zA-Z]*r/.test(cmd)
+
+        if (isGrepCmd && targetsSource) {
+          throw new Error(
+            `[ck-guard] bash grep on source files detected.
+
+Follow the code search protocol:
   1. ${CK} find-scope --query "<module, concept, operation, type>"
-  2. ${CK} signatures <file.cs> [file2.cs ...]
-  3. ${CK} get-method-source <file.cs> <MemberName>
+  2. ${CK} signatures <folder-or-file>
+  3. ${CK} get-method-source <file> <MemberName>
 
 Use the native grep tool (not bash grep) only within a scoped folder.`
           )
         }
         return
+      }
+    },
+
+    // ── tool.execute.after: tight score cluster hint ──────────────────────
+    // Fires after ck find-scope or ck search completes. Parses the score column
+    // and appends a hint when avg_gap = spread/(count-1) <= 0.01 and scores
+    // are above the noise floor — scales correctly with --top N.
+    "tool.execute.after": async (
+      input: { tool: string; sessionID: string; callID: string; args: any },
+      output: { title: string; output: string; metadata: any }
+    ) => {
+      if (input.tool !== "bash") return
+
+      const cmd = String(input.args?.command ?? "")
+      if (!/ck\s+(find-scope|search)\b/.test(cmd)) return
+
+      // Parse score values from lines formatted as "<float>\t<folder-path>"
+      const scoreLineRe = /^([\d.]+)\t/
+      const scores: number[] = []
+      for (const line of output.output.split("\n")) {
+        const m = scoreLineRe.exec(line.trim())
+        if (m) {
+          const score = parseFloat(m[1])
+          if (!isNaN(score)) scores.push(score)
+        }
+      }
+
+      // Need at least 5 scored results to make a meaningful assessment
+      if (scores.length < 5) return
+
+      const maxScore = Math.max(...scores)
+      const minScore = Math.min(...scores)
+      const spread   = maxScore - minScore
+      const avgGap   = spread / (scores.length - 1)
+
+      // Tight cluster: avg gap between adjacent scores <= 0.01 and all above
+      // the noise floor (0.70). Using avg_gap rather than a fixed spread
+      // threshold makes the check scale with --top N: --top 5 triggers at
+      // spread ≤ 0.04, --top 10 at ≤ 0.09, --top 30 at ≤ 0.29.
+      if (avgGap <= 0.01 && minScore > 0.70) {
+        const suggested = (minScore - avgGap).toFixed(2)
+        output.output +=
+          `\n[ck-hint] Scores are tightly clustered ` +
+          `(${minScore.toFixed(2)}–${maxScore.toFixed(2)} across ${scores.length} folders). ` +
+          `The cutoff is likely mid-cluster — relevant folders may be missing. ` +
+          `Re-run with --min-score ${suggested} to capture the full cluster.`
       }
     },
   }

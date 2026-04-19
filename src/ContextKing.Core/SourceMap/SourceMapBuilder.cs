@@ -112,19 +112,14 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
 
                     var filenameSetKey = FilenameSetKey(files);
                     var pathTokens     = PathTokenizer.TokenizePath(folderPath);
-                    var fileTokens     = string.Join(' ', files.Keys.Select(PathTokenizer.TokenizeFileName));
 
                     // Extract public method names from all source files (Roslyn/tree-sitter parse — CPU + I/O)
                     var methodNames  = ExtractPublicMethodNames(repoRoot, folderPath, files.Keys);
 
-                    // Match tokens: lowercase split tokens for exact-match scoring.
-                    // Method names are also split so query term "refund" matches "RefundPaymentAsync".
-                    var methodMatchTokens = methodNames.Count > 0
-                        ? " " + string.Join(' ', methodNames.SelectMany(n => PathTokenizer.MethodNameToPhrase(n)
-                            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                            .Select(t => t.ToLowerInvariant())))
-                        : string.Empty;
-                    var combined = $"{pathTokens} {fileTokens}{methodMatchTokens}".Trim();
+                    // Match tokens: lowercase, globally deduplicated across path + filenames + method words.
+                    // Deduplication prevents a token that appears in both the folder path and a filename
+                    // from being double-counted in the exact-match fraction.
+                    var combined = BuildDistinctTokens(pathTokens, files.Keys, methodNames);
 
                     // Embedding text: readable phrase for BGE semantic embedding.
                     // Preserves casing and word structure for better embedding quality.
@@ -161,6 +156,42 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     }
 
     // ── Pure computation helpers ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Builds a globally-deduplicated, space-separated lowercase token string
+    /// covering path segments, filenames, and public method name words.
+    /// A token that appears in more than one section is emitted only once,
+    /// preserving the first-occurrence order (path → filenames → methods).
+    /// </summary>
+    private static string BuildDistinctTokens(
+        string pathTokens,
+        IEnumerable<string> fileNames,
+        IReadOnlyList<string> methodNames)
+    {
+        var seen   = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>();
+
+        void Add(string token)
+        {
+            if (seen.Add(token)) result.Add(token);
+        }
+
+        foreach (var t in pathTokens.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            Add(t);
+
+        foreach (var fileName in fileNames)
+            foreach (var t in PathTokenizer.TokenizeFileName(fileName)
+                         .Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                Add(t);
+
+        foreach (var name in methodNames)
+            foreach (var t in PathTokenizer.MethodNameToPhrase(name)
+                         .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                         .Select(x => x.ToLowerInvariant()))
+                Add(t);
+
+        return string.Join(' ', result);
+    }
 
     /// <summary>
     /// Extracts distinct public method names from all source files in a folder.

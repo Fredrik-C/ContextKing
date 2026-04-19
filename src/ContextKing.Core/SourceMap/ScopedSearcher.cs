@@ -19,9 +19,10 @@ public sealed class ScopedSearcher(SourceMapSearcher searcher)
         string pattern,
         int topK = 10,
         float minScore = 0f,
-        bool ignoreCase = true)
+        bool ignoreCase = true,
+        IReadOnlyList<string>? mustTexts = null)
     {
-        var folders = searcher.Search(dbPath, query, topK, minScore);
+        var folders = searcher.Search(dbPath, query, topK, minScore, mustTexts);
         if (folders.Count == 0)
             return new ScopedSearchResult([], []);
 
@@ -49,9 +50,10 @@ public sealed class ScopedSearcher(SourceMapSearcher searcher)
         string name,
         int topK = 10,
         float minScore = 0f,
-        bool ignoreCase = true)
+        bool ignoreCase = true,
+        IReadOnlyList<string>? mustTexts = null)
     {
-        var folders = searcher.Search(dbPath, query, topK, minScore);
+        var folders = searcher.Search(dbPath, query, topK, minScore, mustTexts);
         if (folders.Count == 0)
             return new ScopedSearchResult([], []);
 

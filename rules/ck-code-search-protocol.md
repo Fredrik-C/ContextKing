@@ -14,6 +14,10 @@ CK tools work on both C# and TypeScript/TSX files.
 
 **Step 1 gives you folders. Steps 2–4 happen within those folders. Do not re-scope.**
 
+`ck find-scope` output is `<score>\t<folder-path>`. The score is a **relevance score** —
+higher means more relevant. It is not a percentage; scores are relative values used for
+ranking within a result set. On large codebases they typically cluster between 0.69 and 0.82.
+
 ### Playbook A — Find and read a specific symbol
 
 ```bash
@@ -32,8 +36,9 @@ CK tools work on both C# and TypeScript/TSX files.
 
 ```bash
 # 1. Scope both the reference and the target
-.claude/skills/ck/ck find-scope --query "stripe terminal card-present refund"         # reference
-.claude/skills/ck/ck find-scope --query "adyen terminal payment gateway"              # target
+#    Use --must to prevent competing providers from bleeding into results
+.claude/skills/ck/ck find-scope --query "terminal card-present refund payment" --must "stripe"  # reference
+.claude/skills/ck/ck find-scope --query "terminal card-present refund payment" --must "adyen"   # target
 
 # 2. Explore reference implementation
 .claude/skills/ck/ck signatures <stripe-folder>/

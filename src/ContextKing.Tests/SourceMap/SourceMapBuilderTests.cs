@@ -70,6 +70,22 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
     }
 
     [Fact]
+    public async Task BuildAsync_CombinedTokens_AreDistinct_NoDuplicates()
+    {
+        // "Payment" appears in both the folder path and the filename — should appear once.
+        _repo.WriteFile("src/Payment/PaymentService.cs");
+        _repo.StageAndCommit();
+
+        await Builder().BuildAsync(_repo.Root);
+
+        var folder  = LoadIndexed().Single(f => f.Path == "src/Payment");
+        var tokens  = folder.CombinedTokens.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var distinct = tokens.Distinct(StringComparer.Ordinal).ToArray();
+        tokens.Should().BeEquivalentTo(distinct,
+            "combined_tokens must not contain duplicate entries");
+    }
+
+    [Fact]
     public async Task BuildAsync_CombinedTokensContainPublicMethodNames()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs", """

@@ -13,6 +13,9 @@
  *   bash cat on source files                  → redirect to ck get-method-source / Read
  *   bash grep targeting source files          → redirect to ck find-scope
  *   bash pipe on ck find-scope/search         → block (destroys structure)
+ *
+ * Hints implemented (tool.execute.after):
+ *   ck find-scope / ck search with tight score cluster → suggest --min-score
  */
 
 const CK = ".opencode/skills/ck/ck"
@@ -143,6 +146,52 @@ Use the native grep tool (not bash grep) only within a scoped folder.`
           )
         }
         return
+      }
+    },
+
+    // ── tool.execute.after: tight score cluster hint ──────────────────────
+    // Fires after ck find-scope or ck search completes. Parses the score column
+    // and appends a hint when avg_gap = spread/(count-1) <= 0.01 and scores
+    // are above the noise floor — scales correctly with --top N.
+    "tool.execute.after": async (
+      input: { tool: string; sessionID: string; callID: string; args: any },
+      output: { title: string; output: string; metadata: any }
+    ) => {
+      if (input.tool !== "bash") return
+
+      const cmd = String(input.args?.command ?? "")
+      if (!/ck\s+(find-scope|search)\b/.test(cmd)) return
+
+      // Parse score values from lines formatted as "<float>\t<folder-path>"
+      const scoreLineRe = /^([\d.]+)\t/
+      const scores: number[] = []
+      for (const line of output.output.split("\n")) {
+        const m = scoreLineRe.exec(line.trim())
+        if (m) {
+          const score = parseFloat(m[1])
+          if (!isNaN(score)) scores.push(score)
+        }
+      }
+
+      // Need at least 5 scored results to make a meaningful assessment
+      if (scores.length < 5) return
+
+      const maxScore = Math.max(...scores)
+      const minScore = Math.min(...scores)
+      const spread   = maxScore - minScore
+      const avgGap   = spread / (scores.length - 1)
+
+      // Tight cluster: avg gap between adjacent scores <= 0.01 and all above
+      // the noise floor (0.70). Using avg_gap rather than a fixed spread
+      // threshold makes the check scale with --top N: --top 5 triggers at
+      // spread ≤ 0.04, --top 10 at ≤ 0.09, --top 30 at ≤ 0.29.
+      if (avgGap <= 0.01 && minScore > 0.70) {
+        const suggested = (minScore - avgGap).toFixed(2)
+        output.output +=
+          `\n[ck-hint] Scores are tightly clustered ` +
+          `(${minScore.toFixed(2)}–${maxScore.toFixed(2)} across ${scores.length} folders). ` +
+          `The cutoff is likely mid-cluster — relevant folders may be missing. ` +
+          `Re-run with --min-score ${suggested} to capture the full cluster.`
       }
     },
   }

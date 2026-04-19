@@ -66,4 +66,3 @@ These return structured output with exact line spans. grep loses context.
     } | ConvertTo-Json -Depth 3
     exit 0
 }
-}

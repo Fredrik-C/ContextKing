@@ -1,209 +1,61 @@
 ---
 name: ck-find-scope
-description: Semantic folder search for pure discovery when you don't have a keyword yet. If you have a keyword to search for, use ck-search instead — it combines scope + grep in one call.
+description: Semantic folder search — always the first step. Returns the folders you'll work in for the rest of the task.
 ---
 
-# ck find-scope — Semantic Scope Search
+# ck find-scope — Reference
 
-Use this for **pure discovery** when you don't yet have a specific keyword, symbol, or method
-name to search for. It narrows the search to the most relevant folder subtree, eliminating
-false-positive matches in unrelated areas.
+The entry point for all code navigation. Returns ranked folders that become your working scope.
 
-**If you have a keyword** (method name, class name, symbol), use `ck search` instead — it
-combines semantic folder ranking with keyword search in one call and is more efficient.
-
-## This is step 1 — always run it first
-
-Before using Glob, Grep, or Read to explore unknown code:
-
-1. **Run `ck find-scope`** with a rich multi-keyword query → get the top-scored folder path(s).
-2. **Scope all subsequent searches** to that folder path.
-3. Only read full files once you have a specific target.
-
-Skipping this step in a large codebase means searching the whole tree — many false positives,
-many wasted file reads, many wasted tokens.
-
-## Two distinct use cases — choose the right --top
-
-### Targeted search (find the code for feature X)
-Default `--top 10` is fine. You want the best-matching folder and a few neighbours.
-
-### Impact analysis (find ALL code affected by a change)
-Use `--min-score <threshold>` instead of `--top`. This returns **every** folder above the
-relevance threshold — no silent truncation, no need to guess the right count. A broad change
-like "make all X async" or "find all callers of Y" touches many folders; `--top 10` (or even
-`--top 25`) can silently drop relevant areas.
+## Syntax
 
 ```bash
-# Finding all controllers in an API area for a cross-cutting async rewrite:
-.opencode/skills/ck/ck find-scope \
-  --query "Catalog API products controllers endpoints" --min-score 0.5
-
-# Finding all callers/implementations of an interface across modules:
-.opencode/skills/ck/ck find-scope \
-  --query "IPaymentGateway implementation process charge" --min-score 0.5
-```
-
-**Picking a threshold:** scores cluster in a narrow band that shifts per codebase and per query
-(typically 0.69–0.82). Run one query first to see your range, then set the threshold slightly
-above the bottom of the cluster you want to keep. There is no universal good value — 0.5 sounds
-intuitive but will return the entire index on a typical codebase where the floor is already 0.69+.
-
-You can combine both filters: `--min-score <threshold> --top 30` caps a score-filtered list as
-a safety bound when the score distribution is unusually flat.
-
-After finding the folders, run `ck signatures` on **all files** in each returned folder
-(not just the ones you already know about). See the `ck-signatures` skill for the folder
-sweep pattern.
-
-**How to pick the threshold:** run one query first and look at the scores. All results will
-cluster in a narrow band (typically 0.69–0.82 for large codebases). Set `--min-score` just
-below the cluster floor to return the whole relevant cluster, or a few points above the bottom
-to trim the tail. The exact value is codebase-dependent — do not use a fixed threshold without
-first checking your own score range.
-
-## Use multiple keywords — this matters
-
-The search combines semantic similarity with exact keyword matching. More keywords in the query
-means more signal on both axes:
-- **Semantic**: a longer phrase anchors the embedding more precisely in concept space.
-- **Exact match**: each query term that appears literally in a folder path or filename adds a
-  tiebreaker bonus.
-
-**Prefer:**
-```
---query "stripe payment disbursement payout"
---query "adyen interchange fee calculation"
---query "order cancellation refund policy"
-```
-
-**Avoid (too vague):**
-```
---query "stripe"
---query "payment"
---query "fee"
-```
-
-Use the vocabulary of the domain and the codebase: include the integration name, the business
-concept, the operation, and the data type if known. Even if some words do not appear literally
-in folder names, they improve the semantic embedding that drives the primary ranking.
-
-### Query the structural location, not just the domain concept
-
-The index scores folder paths and filenames. When looking for code in a specific layer of the
-architecture (controllers, repositories, handlers, consumers), **include that structural term
-in the query** alongside the domain concept:
-
-**Less effective** (domain only — may return DTOs, helpers, tests instead of the right layer):
-```
---query "orders async helpers GetOrders"
-```
-
-**More effective** (domain + structural layer):
-```
---query "Catalog API products controllers endpoints"
---query "orders repository data access query"
---query "order domain handlers commands events"
-```
-
-This distinction matters most for impact analysis, where you must find the right structural
-layer (e.g. all controllers in an API area) rather than just any folder mentioning the domain.
-
-## Command
-
-**Mac / Linux:**
-```bash
-.opencode/skills/ck/ck find-scope --query "<description>" [--top <n>] [--repo <path>]
-```
-
-**Windows (PowerShell):**
-```powershell
-.opencode\skills\ck\ck.cmd find-scope --query "<description>" [--top <n>] [--repo <path>]
+.opencode/skills/ck/ck find-scope --query "<multi-keyword description>" [--must "<provider>"] [--top <n>] [--min-score <f>]
 ```
 
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--query <text>` | (required) | Multi-keyword description of the code area |
-| `--top <n>` | 10 | Hard cap on result count. When `--min-score` is set without `--top`, this cap is removed. |
-| `--min-score <f>` | off | Exclude folders below this score. Returns all above-threshold folders when used without `--top`. Check your score range first — scores cluster in a narrow band that varies by codebase (often 0.69–0.82). |
-| `--repo <path>` | auto | Repo root (defaults to `git rev-parse --show-toplevel`) |
+| `--query <text>` | required | Multi-keyword description — domain, concept, operation, structural layer |
+| `--must <text>` | off | Provider/concept to focus on. Boosts folders containing this term; auto-penalises competing providers detected via embedding similarity — without needing to name them. Repeatable. |
+| `--top <n>` | 10 | Max folders. Use 15–20 for broad tasks, 30 for impact analysis. |
+| `--min-score <f>` | off | Score threshold — returns all above it. Check your range first (typically 0.69–0.82). |
+| `--repo <path>` | auto | Repo root |
 
-## Output (stdout)
+## Output
 
 ```
 <score>\t<relative-folder-path>
 ```
 
-One line per result. Scores are not capped at 1.0 — they are relative, so use them for ranking,
-not as absolute confidence values.
+The score is a **relevance score** — higher means more relevant. It combines semantic similarity
+with an exact-keyword match bonus. Scores are not percentages or probabilities; they are relative
+values used for ranking. On large codebases they typically cluster in a narrow band (e.g. 0.69–0.82)
+— a spread of 0.03–0.07 across 10 results is normal. Use them to rank folders against each other,
+not as absolute confidence measures.
 
-## Behaviour
+## Query tips
 
-- **Auto-builds index on first call** if no index exists for this repo/worktree. Progress goes to
-  stderr; wait for it to complete (typically under 30 s for large repos).
-- The index reflects the live working tree: untracked files and working-tree deletions are included,
-  not just committed state.
-- Subsequent calls are fast (in-memory scoring after index load).
-- Each linked worktree has its own index.
-
-## Interpreting results
-
-- Use the **top-scored folder path** to scope Glob/Grep/Read.
-- If the top score is much higher than the rest, the answer is likely in that subtree.
-- If scores are tightly clustered, consider `--min-score 0.65` to keep only the clearly relevant
-  results rather than a fixed count.
-- Scores cluster in a narrow band — a spread of 0.03–0.07 across 10 results is normal. The
-  absolute values shift per query; use them for relative ranking within a result set, not as
-  absolute confidence measures.
-- If all scores seem low compared to previous queries, the query vocabulary probably doesn't
-  match the codebase's naming conventions — try different structural or domain terms.
-
-## Examples
-
-```bash
-# Good: rich multi-keyword query
-.opencode/skills/ck/ck find-scope \
-  --query "stripe payment disbursement payout reconciliation"
-
-# Good: specific integration + concept + operation
-.opencode/skills/ck/ck find-scope \
-  --query "adyen interchange fee calculation"
-
-# When uncertain about which module: widen to top 5
-.opencode/skills/ck/ck find-scope \
-  --query "order cancellation refund" --top 5
-```
+- Use 3–5 keywords: `"adyen terminal card-present refund"` not `"adyen"`
+- Include structural terms: `"Catalog API controllers endpoints"` not just `"Catalog"`
+- Synonyms produce the same ranking — never rephrase, change vocabulary instead
+- Use `--must` when working with one provider in a multi-provider codebase:
+  ```
+  ck find-scope --query "card-present refund terminal payment" --must "adyen"
+  ck find-scope --query "card-present refund terminal payment" --must "stripe"
+  ```
+  Each call returns the provider's own folders plus shared neutral infra, without
+  the other provider's folders bleeding in.
 
 ## After this step
 
-Use the returned folder path to scope the **next** operation.
+**Commit to these folders.** Pass them to `.opencode/skills/ck/ck signatures <folder>/` to list all members, then use `.opencode/skills/ck/ck get-method-source` or `Read` within them. Use grep/rg within these folders freely.
 
-**Step 2 — pass the folder path directly to `ck signatures`:**
-```bash
-.opencode/skills/ck/ck signatures <returned-folder-path>/
-```
+Do not re-run find-scope with rephrased queries. Do not search outside these folders.
 
-This produces every method signature in the folder in one command. **Use the raw output** —
-do not summarise it or pre-select files before running signatures. Pre-selecting files means
-silently skipping files you haven't thought of yet.
+## Behaviour
 
-Never use a repo-wide `**/*.cs` Glob or Grep after find-scope has narrowed the area.
-
-**Step 3 — read only what you need** using `ck get-method-source` for a single method, or
-a full Read only when several members from the same file are needed.
-
-## When NOT to use find-scope
-
-`find-scope` is for **semantic folder discovery** — finding *where* in the codebase a concept
-lives. It is **not** the right tool for:
-
-- **Cross-cutting reference searches** (who calls X, who implements interface Y, all usages of
-  an enum value). Use `grep -rn` scoped to the relevant module for these.
-- **Exact symbol lookup** when you already know the file or folder. Go straight to
-  `ck signatures` or `ck get-method-source`.
-- **Finding a specific class by name** (e.g. "where is `TerminalPaymentComponent` defined?").
-  Use `grep -rn 'class TerminalPaymentComponent'` scoped to the relevant module — find-scope
-  searches folder/file names semantically, not class declarations.
-- **Non-C#/TypeScript files** (SQL, config, YAML, etc.).
+- Auto-builds index on first call (~30s for large repos).
+- Reflects live working tree (untracked files included).
+- Large `--top` values are fine — the output is one line per folder.

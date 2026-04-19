@@ -138,7 +138,45 @@ public class SourceMapSearcherTests : IClassFixture<EmbedderFixture>, IDisposabl
         paymentScore.Should().BeGreaterThan(authScore);
     }
 
-    // ── Edge cases ────────────────────────────────────────────────────────────
+    // ── Low-rank term filtering ───────────────────────────────────────────────
+
+    [Fact]
+    public void Search_LowRankOnlyQuery_DoesNotCrashAndReturnsSemanticallyRanked()
+    {
+        // A query made up entirely of low-rank terms should produce 0 exact-match
+        // bonus for all folders, leaving ranking purely to cosine similarity.
+        // It should not throw and must return results ordered by descending score.
+        var results = Searcher().Search(_dbPath, "get add retry", topK: 10);
+
+        results.Should().NotBeEmpty();
+        for (int i = 1; i < results.Count; i++)
+            results[i].Score.Should().BeLessOrEqualTo(results[i - 1].Score,
+                "results must remain ordered by score even with all-low-rank queries");
+    }
+
+    [Fact]
+    public void Search_LowRankTermMixedWithHighRank_OnlyHighRankTermContributesToBonus()
+    {
+        // "payment" is a high-rank term that appears in src/Payment's combined_tokens.
+        // "get" is low-rank and filtered out before computing the exact-match fraction.
+        // Therefore the score diff between Payment and Auth for "get payment" should equal
+        // the diff for "payment" alone, because only "payment" contributes to the bonus
+        // in both cases.  (Semantic differences cancel in the diff.)
+        var withLowRank    = Searcher().Search(_dbPath, "get payment");
+        var withoutLowRank = Searcher().Search(_dbPath, "payment");
+
+        float DiffPaymentVsAuth(IReadOnlyList<ScoredFolder> results)
+            => results.First(r => r.Path == "src/Payment").Score
+             - results.First(r => r.Path == "src/Auth").Score;
+
+        var diffWith    = DiffPaymentVsAuth(withLowRank);
+        var diffWithout = DiffPaymentVsAuth(withoutLowRank);
+
+        // The score delta between the two folders should be nearly identical for both
+        // queries because "get" contributes 0 to the exact-match bonus in each case.
+        diffWith.Should().BeApproximately(diffWithout, precision: 0.05f,
+            "adding a low-rank term must not widen or narrow the score gap between folders");
+    }
 
     [Fact]
     public void Search_EmptyIndex_ReturnsEmpty()

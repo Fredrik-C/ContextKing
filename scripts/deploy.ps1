@@ -80,12 +80,24 @@ if ($HasClaude) {
     Write-Host "  Copying hooks..."
     $hooksDir = Join-Path $DotClaude 'hooks'
     New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
-    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-read-guard.sh')       -Destination $hooksDir -Force
-    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-read-guard.ps1')     -Destination $hooksDir -Force
-    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-search-guard.sh')    -Destination $hooksDir -Force
-    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-search-guard.ps1')   -Destination $hooksDir -Force
+
+    # Remove obsolete guards that no longer exist (allow-only guards removed in v1.2.9)
+    foreach ($oldGuard in @('ck-read-guard.sh','ck-read-guard.ps1','ck-search-guard.sh','ck-search-guard.ps1')) {
+        $oldPath = Join-Path $hooksDir $oldGuard
+        if (Test-Path $oldPath) {
+            Remove-Item $oldPath -Force
+            Write-Host "  Removed obsolete hook: $oldGuard"
+        }
+    }
+
     Copy-Item -Path (Join-Path $RepoDir 'hooks\agent-usage-guard.sh')  -Destination $hooksDir -Force
     Copy-Item -Path (Join-Path $RepoDir 'hooks\agent-usage-guard.ps1') -Destination $hooksDir -Force
+    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-bash-guard.sh')      -Destination $hooksDir -Force
+    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-bash-guard.ps1')     -Destination $hooksDir -Force
+    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-scope-hint.sh')      -Destination $hooksDir -Force
+    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-scope-hint.ps1')     -Destination $hooksDir -Force
+    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-update-check.sh')    -Destination $hooksDir -Force
+    Copy-Item -Path (Join-Path $RepoDir 'hooks\ck-update-check.ps1')   -Destination $hooksDir -Force
 
     $settingsPath = Join-Path $DotClaude 'settings.json'
     if (-not (Test-Path $settingsPath)) { '{}' | Set-Content $settingsPath -Encoding UTF8 }
@@ -106,56 +118,102 @@ if ($HasClaude) {
     }
 
     if (-not $settings.ContainsKey('hooks')) { $settings['hooks'] = @{} }
+
+    # Remove stale Read/Glob/Grep hook registrations for deleted guards
+    if ($settings['hooks'].ContainsKey('PreToolUse')) {
+        $staleMatchers = @('Read', 'Glob', 'Grep')
+        $stale = $settings['hooks']['PreToolUse'] | Where-Object {
+            $m = $_
+            $staleMatchers -contains $m.matcher -and
+            ($m.hooks | Where-Object { $_.command -match 'ck-read-guard|ck-search-guard' })
+        }
+        if ($stale) {
+            $settings['hooks']['PreToolUse'] = @($settings['hooks']['PreToolUse'] | Where-Object {
+                $m = $_
+                -not ($staleMatchers -contains $m.matcher -and
+                      ($m.hooks | Where-Object { $_.command -match 'ck-read-guard|ck-search-guard' }))
+            })
+            Write-Host "  Removed obsolete hook registrations (Read/Glob/Grep guards) from settings.json"
+        }
+    }
+
+    # Migrate: remove old PreToolUse Agent hook
+    if ($settings['hooks'].ContainsKey('PreToolUse')) {
+        $oldAgentHook = $settings['hooks']['PreToolUse'] | Where-Object {
+            $_.matcher -eq 'Agent' -and ($_.hooks | Where-Object { $_.command -match 'agent-usage-guard' })
+        }
+        if ($oldAgentHook) {
+            $settings['hooks']['PreToolUse'] = @($settings['hooks']['PreToolUse'] | Where-Object {
+                -not ($_.matcher -eq 'Agent' -and ($_.hooks | Where-Object { $_.command -match 'agent-usage-guard' }))
+            })
+            Write-Host "  Migrated: removed old PreToolUse Agent hook"
+        }
+    }
+
     if (-not $settings['hooks'].ContainsKey('PreToolUse')) { $settings['hooks']['PreToolUse'] = @() }
 
-    $hasReadGuard = $settings['hooks']['PreToolUse'] |
-        Where-Object { ($_.hooks | Where-Object { $_.command -match 'ck-read-guard' }) } |
-        Measure-Object | Select-Object -ExpandProperty Count
-    if ($hasReadGuard -eq 0) {
-        $settings['hooks']['PreToolUse'] += @{
-            matcher = 'Read'
-            hooks   = @(
-                @{ type = 'command'; command = '.claude/hooks/ck-read-guard.sh' },
-                @{ type = 'command'; command = "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-read-guard.ps1 || exit 0'" }
-            )
-        }
-        Write-Host "  Registered Read hook in settings.json"
-    } else { Write-Host "  Read hook already registered — skipping." }
-
-    $hasSearchGuard = $settings['hooks']['PreToolUse'] |
-        Where-Object { ($_.hooks | Where-Object { $_.command -match 'ck-search-guard' }) } |
-        Measure-Object | Select-Object -ExpandProperty Count
-    if ($hasSearchGuard -eq 0) {
-        $settings['hooks']['PreToolUse'] += @{
-            matcher = 'Glob'
-            hooks   = @(
-                @{ type = 'command'; command = '.claude/hooks/ck-search-guard.sh' },
-                @{ type = 'command'; command = "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'" }
-            )
-        }
-        $settings['hooks']['PreToolUse'] += @{
-            matcher = 'Grep'
-            hooks   = @(
-                @{ type = 'command'; command = '.claude/hooks/ck-search-guard.sh' },
-                @{ type = 'command'; command = "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'" }
-            )
-        }
-        Write-Host "  Registered Glob/Grep hooks in settings.json"
-    } else { Write-Host "  Glob/Grep hooks already registered — skipping." }
-
-    $hasAgentGuard = $settings['hooks']['PreToolUse'] |
+    # Register SubagentStart hook
+    if (-not $settings['hooks'].ContainsKey('SubagentStart')) { $settings['hooks']['SubagentStart'] = @() }
+    $hasSubagentGuard = $settings['hooks']['SubagentStart'] |
         Where-Object { ($_.hooks | Where-Object { $_.command -match 'agent-usage-guard' }) } |
         Measure-Object | Select-Object -ExpandProperty Count
-    if ($hasAgentGuard -eq 0) {
-        $settings['hooks']['PreToolUse'] += @{
-            matcher = 'Agent'
+    if ($hasSubagentGuard -eq 0) {
+        $settings['hooks']['SubagentStart'] += @{
+            matcher = '*'
             hooks   = @(
                 @{ type = 'command'; command = '.claude/hooks/agent-usage-guard.sh' },
                 @{ type = 'command'; command = "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/agent-usage-guard.ps1 || exit 0'" }
             )
         }
-        Write-Host "  Registered Agent hook in settings.json"
-    } else { Write-Host "  Agent hook already registered — skipping." }
+        Write-Host "  Registered SubagentStart hook in settings.json"
+    } else { Write-Host "  SubagentStart hook already registered — skipping." }
+
+    # Register PreToolUse Bash hook (ck-bash-guard)
+    $hasBashGuard = $settings['hooks']['PreToolUse'] |
+        Where-Object { ($_.hooks | Where-Object { $_.command -match 'ck-bash-guard' }) } |
+        Measure-Object | Select-Object -ExpandProperty Count
+    if ($hasBashGuard -eq 0) {
+        $settings['hooks']['PreToolUse'] += @{
+            matcher = 'Bash'
+            hooks   = @(
+                @{ type = 'command'; command = '.claude/hooks/ck-bash-guard.sh' },
+                @{ type = 'command'; command = "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-bash-guard.ps1 || exit 0'" }
+            )
+        }
+        Write-Host "  Registered Bash hook in settings.json"
+    } else { Write-Host "  Bash hook already registered — skipping." }
+
+    # Register PostToolUse scope-hint hook
+    if (-not $settings['hooks'].ContainsKey('PostToolUse')) { $settings['hooks']['PostToolUse'] = @() }
+    $hasScopeHint = $settings['hooks']['PostToolUse'] |
+        Where-Object { ($_.hooks | Where-Object { $_.command -match 'ck-scope-hint' }) } |
+        Measure-Object | Select-Object -ExpandProperty Count
+    if ($hasScopeHint -eq 0) {
+        $settings['hooks']['PostToolUse'] += @{
+            matcher = 'Bash'
+            hooks   = @(
+                @{ type = 'command'; command = '.claude/hooks/ck-scope-hint.sh' },
+                @{ type = 'command'; command = "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-scope-hint.ps1 || exit 0'" }
+            )
+        }
+        Write-Host "  Registered PostToolUse scope-hint hook in settings.json"
+    } else { Write-Host "  PostToolUse scope-hint hook already registered — skipping." }
+
+    # Register SessionStart update-check hook
+    if (-not $settings['hooks'].ContainsKey('SessionStart')) { $settings['hooks']['SessionStart'] = @() }
+    $hasUpdateCheck = $settings['hooks']['SessionStart'] |
+        Where-Object { ($_.hooks | Where-Object { $_.command -match 'ck-update-check' }) } |
+        Measure-Object | Select-Object -ExpandProperty Count
+    if ($hasUpdateCheck -eq 0) {
+        $settings['hooks']['SessionStart'] += @{
+            matcher = 'startup'
+            hooks   = @(
+                @{ type = 'command'; command = '.claude/hooks/ck-update-check.sh'; timeout = 15 },
+                @{ type = 'command'; command = "bash -c 'command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-update-check.ps1 || exit 0'"; timeout = 15 }
+            )
+        }
+        Write-Host "  Registered SessionStart hook (update check) in settings.json"
+    } else { Write-Host "  SessionStart hook already registered — skipping." }
 
     $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
 
