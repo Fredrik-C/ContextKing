@@ -11,8 +11,12 @@
 #   skills/ck-signatures/       — SKILL.md (opencode paths)
 #   skills/ck-get-method-source/ — SKILL.md (opencode paths)
 #   skills/ck-index/            — SKILL.md (opencode paths)
-#   AGENTS.md                   — code search protocol instructions
+#   plugin/ck-guards.ts         — hook plugin (auto-loaded by OpenCode)
+#   ck-code-search-protocol.md  — full protocol reference
 #   config.json                 — tool allowlist (created or merged)
+#
+# And in the target repo root:
+#   AGENTS.md                   — inline 4-step workflow appended (OpenCode auto-loads this)
 
 set -euo pipefail
 
@@ -100,9 +104,9 @@ Do not read source files before running step 1.
 AGENTSEOF
 }
 
-AGENTS_MD="$DOT_OPENCODE/AGENTS.md"
+AGENTS_MD="$TARGET/AGENTS.md"
 if grep -q 'expand-folder' "$AGENTS_MD" 2>/dev/null; then
-  echo "  .opencode/AGENTS.md already has CK expand-folder workflow — skipping."
+  echo "  AGENTS.md already has CK expand-folder workflow — skipping."
 elif grep -q 'ck-code-search-protocol' "$AGENTS_MD" 2>/dev/null; then
   # Upgrade: remove old pointer-only CK section, append new inline workflow
   tmp_file="$(mktemp)"
@@ -113,10 +117,10 @@ elif grep -q 'ck-code-search-protocol' "$AGENTS_MD" 2>/dev/null; then
   ' "$AGENTS_MD" > "$tmp_file"
   write_ck_agents_block >> "$tmp_file"
   mv "$tmp_file" "$AGENTS_MD"
-  echo "  Upgraded Context King section in .opencode/AGENTS.md (added expand-folder workflow)"
+  echo "  Upgraded Context King section in AGENTS.md (added expand-folder workflow)"
 else
   write_ck_agents_block >> "$AGENTS_MD"
-  echo "  Added Context King inline workflow to .opencode/AGENTS.md"
+  echo "  Added Context King inline workflow to AGENTS.md (repo root)"
 fi
 
 # ── 4. Copy plugin (OpenCode hook enforcement) ─────────────────────────────────

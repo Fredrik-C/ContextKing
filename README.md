@@ -285,9 +285,11 @@ support for each one found. Deployment is per-CLI-tool:
 ├── skills/ck-*/SKILL.md             ← skill docs (opencode paths)
 ├── plugin/ck-guards.ts              ← hook plugin (auto-loaded by OpenCode)
 ├── ck-code-search-protocol.md      ← full code search protocol
-├── AGENTS.md                        ← inline 4-step workflow (auto-upgraded by deploy)
 └── config.json                      ← tool allowlist
 ```
+The inline 4-step workflow is appended to `<target-repo>/AGENTS.md` (repo root) —
+that is the file OpenCode auto-loads into the system prompt. Writing to
+`.opencode/AGENTS.md` would not get auto-loaded.
 
 The index lives at `<repo-root>/.ck-index/` (gitignored, created on first use). Each git
 worktree has its own database, keyed by a SHA-256 of the worktree root path.
@@ -384,9 +386,10 @@ locally (Agents).
 ### OpenCode
 
 The full code search protocol is written to `.opencode/ck-code-search-protocol.md`. The
-inline 4-step workflow is written directly into `.opencode/AGENTS.md` so OpenCode sees it
-without needing to follow a pointer. The `ck` binary is allowed via the `tools.bash.allow`
-list in `.opencode/config.json`.
+inline 4-step workflow is appended to the repo-root `AGENTS.md` because that is the file
+OpenCode auto-loads into the system prompt (writing to `.opencode/AGENTS.md` would not be
+auto-loaded). The `ck` binary is allowed via the `tools.bash.allow` list in
+`.opencode/config.json`.
 
 A TypeScript plugin (`plugin/ck-guards.ts`) is deployed to `.opencode/plugin/` and
 auto-loaded by OpenCode on session start. It intercepts four patterns before they waste

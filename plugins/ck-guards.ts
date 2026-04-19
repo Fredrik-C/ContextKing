@@ -23,17 +23,29 @@ const CK = ".opencode/skills/ck/ck"
 const SOURCE_EXT_RE = /\.(cs|tsx?)(\b|$)/
 
 /**
- * A path is considered narrow (already scoped) when it has more than 3 segments.
- * Mirrors the shell guard logic: depth > 3 means the agent has already narrowed scope.
- * Examples:
- *   ""                              → broad (0 segments)
- *   "src"                           → broad (1 segment)
- *   "src/Modules/Inventory"         → broad (3 segments)
- *   "src/Modules/Inventory/Orders"  → narrow (4 segments) — skip guard
+ * A path is considered narrow (already scoped) when it has at least 2 segments.
+ * Any path with at least one subfolder — e.g. `src/RetryPolicies` or
+ * `src/Modules/Inventory` — is treated as narrow. This covers both deep
+ * enterprise repo layouts and shallower OSS layouts.
+ *
+ * Still blocked as broad:
+ *   ""                              → 0 segments, repo root
+ *   "."                             → 0 effective segments
+ *   "src"                           → 1 segment, too broad to grep .cs/.ts across
+ *   "app"                           → 1 segment
+ *
+ * Treated as narrow (allowed):
+ *   "src/RetryPolicies"             → 2 segments
+ *   "src/Modules/Inventory"         → 3 segments
+ *   "src/Modules/Inventory/Orders"  → 4 segments
  */
 function isNarrowPath(path: string | undefined): boolean {
   if (!path) return false
-  return path.split("/").filter((s) => s.trim() !== "").length > 3
+  const segments = path
+    .split("/")
+    .map((s) => s.trim())
+    .filter((s) => s !== "" && s !== ".")
+  return segments.length >= 2
 }
 
 export default async function ckGuards() {
@@ -96,10 +108,25 @@ Do NOT use broad grep — it wastes tokens scanning irrelevant files.`
       if (tool === "bash") {
         const cmd = String(args.command ?? "")
 
+        // Strip quoted string literals (single, double, and heredoc bodies) so
+        // the guard only inspects actual command tokens, not message bodies
+        // passed as arguments (e.g. `git commit -m "...grep..."` or
+        // `gh release edit --notes-file ...`). Without this, any commit message
+        // or release note that mentions `grep` and `.cs`/`.ts` would be blocked.
+        const stripped = cmd
+          // heredoc bodies: <<EOF ... EOF or <<'EOF' ... EOF
+          .replace(/<<-?\s*'?"?(\w+)"?'?[\s\S]*?^\s*\1\s*$/gm, " ")
+          // $(...) command substitutions: inspect the outer command only
+          .replace(/\$\([^)]*\)/g, " ")
+          // double-quoted strings
+          .replace(/"(?:\\.|[^"\\])*"/g, " ")
+          // single-quoted strings
+          .replace(/'(?:\\.|[^'\\])*'/g, " ")
+
         // Detect ck find-scope piped through head/grep/tail (real shell pipe, not regex \|)
         // Allow pipes on signatures and get-method-source (filtering large output is fine).
-        if (/ck\s+find-scope\b/.test(cmd) &&
-            /\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b/.test(cmd)) {
+        if (/ck\s+find-scope\b/.test(stripped) &&
+            /\|\s*(head|tail|grep|wc|sort|awk|sed|cut|less|more)\b/.test(stripped)) {
           throw new Error(
             `[ck-guard] Do NOT pipe ck output through head, grep, or tail.
 
@@ -113,8 +140,8 @@ Remove the pipe and run the ck command directly.`
         }
 
         // Detect cat on source files (should use Read or ck get-method-source)
-        if (/\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*$/.test(cmd) ||
-            /\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*\|/.test(cmd)) {
+        if (/\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*$/.test(stripped) ||
+            /\bcat\s+["']?[^\s]*\.(cs|tsx?)["']?\s*\|/.test(stripped)) {
           throw new Error(
             `[ck-guard] Do not use cat to read source files.
 
@@ -128,10 +155,15 @@ the entire file into the command output without line numbers.`
           )
         }
 
-        // Detect raw grep on source files
-        const isGrepCmd = cmd.includes("grep")
+        // Detect raw grep on source files.
+        // Require grep to appear as an actual command token (start of line,
+        // after a pipe, &&, ||, ;, or `( `) — not as a substring of another
+        // word or argument. This prevents false positives on commands like
+        // `git log --grep=...` or messages containing the word "grep".
+        const grepAsCmdRe = /(^|[|&;(]|\s&&\s|\s\|\|\s)\s*grep\b/
+        const isGrepCmd = grepAsCmdRe.test(stripped)
         const targetsSource =
-          SOURCE_EXT_RE.test(cmd) || /grep\s+-[a-zA-Z]*r/.test(cmd)
+          SOURCE_EXT_RE.test(stripped) || /grep\s+-[a-zA-Z]*r/.test(stripped)
 
         if (isGrepCmd && targetsSource) {
           throw new Error(

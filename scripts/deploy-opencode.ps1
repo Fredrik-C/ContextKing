@@ -7,8 +7,11 @@
 #   models/bge-small-en-v1.5/   — embedding model
 #   skills/ck/                  — ck binaries + platform wrapper
 #   skills/ck-*/SKILL.md        — skill docs (opencode paths)
-#   AGENTS.md                   — code search protocol instructions
+#   ck-code-search-protocol.md  — full protocol reference
 #   config.json                 — tool allowlist (created or merged)
+#
+# And in the target repo root:
+#   AGENTS.md                   — inline 4-step workflow appended (OpenCode auto-loads this)
 
 param(
     [Parameter(Mandatory = $true)]
@@ -43,9 +46,11 @@ foreach ($skillFile in $skillFiles) {
     Set-Content -LiteralPath $skillFile.FullName -Value $text -Encoding UTF8
 }
 
-# ── 3. Write protocol file + short AGENTS.md pointer ───────────────────────────
-# Full protocol goes to a dedicated file; AGENTS.md gets only a short pointer
-# so the user's own AGENTS.md content isn't crowded out.
+# ── 3. Write protocol file + inline workflow to repo-root AGENTS.md ────────────
+# Full protocol goes to a dedicated file inside .opencode/.
+# The 4-step workflow is appended to the repo-root AGENTS.md because that is
+# the file OpenCode auto-loads into the system prompt. Writing to
+# .opencode/AGENTS.md does NOT get auto-loaded.
 $protocolDest = Join-Path $DotOpenCode 'ck-code-search-protocol.md'
 $protocolSrc  = Join-Path $RepoDir 'rules\ck-code-search-protocol.md'
 $text = Get-Content -LiteralPath $protocolSrc -Raw
@@ -54,18 +59,50 @@ $text = $text.Replace('.claude\skills\ck\ck.cmd', '.opencode\skills\ck\ck.cmd')
 Set-Content -LiteralPath $protocolDest -Value $text -Encoding UTF8
 Write-Host "  Wrote CK code search protocol to .opencode/ck-code-search-protocol.md"
 
-$agentsMd = Join-Path $DotOpenCode 'AGENTS.md'
-$needsPointer = $true
+$agentsBlock = @'
+
+## Context King — code search protocol
+
+This repo has Context King installed for fast C# and TypeScript/TSX navigation.
+Full reference: `.opencode/ck-code-search-protocol.md`
+
+### Mandatory workflow for .cs / .ts / .tsx files
+
+```
+1. SCOPE   → .opencode/skills/ck/ck find-scope --query "domain area concept operation"
+2. EXPLORE → .opencode/skills/ck/ck expand-folder --pattern "<keyword>" <folder>
+3. READ    → .opencode/skills/ck/ck get-method-source <file> <MemberName>
+4. EDIT    → make your changes
+```
+
+Use `ck signatures <folder>` at step 2 only when you need all members with no filter.
+Do not read source files before running step 1.
+'@
+
+$agentsMd = Join-Path $TargetRepo 'AGENTS.md'
+$existing = ''
 if (Test-Path $agentsMd) {
     $existing = Get-Content $agentsMd -Raw -ErrorAction SilentlyContinue
-    if ($existing -match 'ck-code-search-protocol') { $needsPointer = $false }
 }
-if ($needsPointer) {
-    $pointer = "## Context King — code search protocol`n`nThis repo has Context King installed for fast C# navigation.`nRead ``.opencode/ck-code-search-protocol.md`` for mandatory instructions before browsing ``.cs`` files.`n"
-    Add-Content -LiteralPath $agentsMd -Value $pointer
-    Write-Host "  Added Context King pointer to .opencode/AGENTS.md"
+
+if ($existing -match 'expand-folder') {
+    Write-Host "  AGENTS.md already has CK expand-folder workflow — skipping."
+} elseif ($existing -match 'ck-code-search-protocol') {
+    # Upgrade: strip the old pointer-only CK section, then append the new inline block
+    $lines = $existing -split "`r?`n"
+    $sb = New-Object System.Text.StringBuilder
+    $inCk = $false
+    foreach ($line in $lines) {
+        if ($line -match '^## Context King') { $inCk = $true; continue }
+        if ($inCk -and $line -match '^## ') { $inCk = $false }
+        if (-not $inCk) { [void]$sb.AppendLine($line) }
+    }
+    $cleaned = $sb.ToString().TrimEnd() + "`n" + $agentsBlock
+    Set-Content -LiteralPath $agentsMd -Value $cleaned -Encoding UTF8
+    Write-Host "  Upgraded Context King section in AGENTS.md (added expand-folder workflow)"
 } else {
-    Write-Host "  .opencode/AGENTS.md already references CK — skipping."
+    Add-Content -LiteralPath $agentsMd -Value $agentsBlock
+    Write-Host "  Added Context King inline workflow to AGENTS.md (repo root)"
 }
 
 # ── 4. Copy plugin (OpenCode hook enforcement) ─────────────────────────────────
