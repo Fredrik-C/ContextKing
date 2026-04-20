@@ -64,7 +64,36 @@ CODEX_HOME_DIR="$(cd "$CODEX_HOME_DIR" && pwd)"
 MODELS_DIR="$CODEX_HOME_DIR/models"
 SKILLS_DIR="$CODEX_HOME_DIR/skills"
 
+# ── Purge helpers ──────────────────────────────────────────────────────────────
+purge_ck_skills() {
+  local skills_root="$1"
+  [ -d "$skills_root" ] || return 0
+  [ -d "$skills_root/ck" ] && rm -rf "$skills_root/ck"
+  for d in "$skills_root"/ck-*; do
+    [ -d "$d" ] || continue
+    rm -rf "$d"
+  done
+}
+
+purge_ck_models() {
+  local models_root="$1"
+  [ -d "$models_root/bge-small-en-v1.5" ] && rm -rf "$models_root/bge-small-en-v1.5"
+  return 0
+}
+
+purge_ck_index() {
+  local repo_root="$1"
+  if [ -d "$repo_root/.ck-index" ]; then
+    rm -rf "$repo_root/.ck-index"
+    echo "  Removed .ck-index/ (will rebuild on next ck find-scope)"
+  fi
+}
+
 echo "Deploying Context King to Codex home: $CODEX_HOME_DIR"
+
+# Purge previously-deployed CK assets in Codex home so removed skills don't linger.
+purge_ck_skills "$SKILLS_DIR"
+purge_ck_models "$MODELS_DIR"
 
 echo "  Copying models..."
 mkdir -p "$MODELS_DIR"
@@ -96,6 +125,9 @@ if [ -n "$TARGET_REPO" ]; then
     echo "Target repo does not exist or is not a directory: $TARGET_REPO" >&2
     exit 1
   fi
+
+  # Purge stale CK index in the target repo so it rebuilds cleanly.
+  purge_ck_index "$TARGET_REPO"
 
   GITIGNORE="$TARGET_REPO/.gitignore"
   if [ -f "$GITIGNORE" ]; then

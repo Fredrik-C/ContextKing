@@ -22,8 +22,52 @@ $ErrorActionPreference = 'Stop'
 $RepoDir     = Split-Path $PSScriptRoot -Parent
 $DotOpenCode = Join-Path $TargetRepo '.opencode'
 
+# ── Purge helpers ──────────────────────────────────────────────────────────────
+function Remove-CkSkills {
+    param([string]$SkillsRoot)
+    if (-not (Test-Path -LiteralPath $SkillsRoot -PathType Container)) { return }
+    $ckDir = Join-Path $SkillsRoot 'ck'
+    if (Test-Path -LiteralPath $ckDir) { Remove-Item -LiteralPath $ckDir -Recurse -Force }
+    Get-ChildItem -LiteralPath $SkillsRoot -Directory -Filter 'ck-*' -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+}
+
+function Remove-CkPlugin {
+    param([string]$PluginRoot)
+    $f = Join-Path $PluginRoot 'ck-guards.ts'
+    if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force }
+}
+
+function Remove-CkProtocol {
+    param([string]$OpenCodeRoot)
+    $f = Join-Path $OpenCodeRoot 'ck-code-search-protocol.md'
+    if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force }
+}
+
+function Remove-CkModels {
+    param([string]$ModelsRoot)
+    $d = Join-Path $ModelsRoot 'bge-small-en-v1.5'
+    if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force }
+}
+
+function Remove-CkIndex {
+    param([string]$RepoRoot)
+    $d = Join-Path $RepoRoot '.ck-index'
+    if (Test-Path -LiteralPath $d) {
+        Remove-Item -LiteralPath $d -Recurse -Force
+        Write-Host "  Removed .ck-index/ (will rebuild on next ck find-scope)"
+    }
+}
+
 Write-Host "Deploying Context King to OpenCode: $DotOpenCode"
 New-Item -ItemType Directory -Force -Path $DotOpenCode | Out-Null
+
+# Purge previously-deployed CK assets so removed skills/plugins don't linger.
+Remove-CkSkills   (Join-Path $DotOpenCode 'skills')
+Remove-CkPlugin   (Join-Path $DotOpenCode 'plugin')
+Remove-CkProtocol $DotOpenCode
+Remove-CkModels   (Join-Path $DotOpenCode 'models')
+Remove-CkIndex    $TargetRepo
 
 # ── 1. Copy models ──────────────────────────────────────────────────────────────
 Write-Host "  Copying models..."

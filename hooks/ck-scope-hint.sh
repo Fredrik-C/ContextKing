@@ -24,7 +24,7 @@ INPUT=$(cat)
 TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 [ "$TOOL" != "Bash" ] && exit 0
 
-# Only fire when the command ran ck find-scope or ck search
+# Only fire when the command ran ck find-scope
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' || exit 0
 

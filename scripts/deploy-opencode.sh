@@ -40,8 +40,52 @@ normalize_path() {
 TARGET="$(normalize_path "$TARGET")"
 DOT_OPENCODE="$TARGET/.opencode"
 
+# ── Purge helpers ──────────────────────────────────────────────────────────────
+purge_ck_skills() {
+  local skills_root="$1"
+  [ -d "$skills_root" ] || return 0
+  [ -d "$skills_root/ck" ] && rm -rf "$skills_root/ck"
+  for d in "$skills_root"/ck-*; do
+    [ -d "$d" ] || continue
+    rm -rf "$d"
+  done
+}
+
+purge_ck_plugin() {
+  local plugin_root="$1"
+  [ -f "$plugin_root/ck-guards.ts" ] && rm -f "$plugin_root/ck-guards.ts"
+  return 0
+}
+
+purge_ck_models() {
+  local models_root="$1"
+  [ -d "$models_root/bge-small-en-v1.5" ] && rm -rf "$models_root/bge-small-en-v1.5"
+  return 0
+}
+
+purge_ck_protocol() {
+  local opencode_root="$1"
+  [ -f "$opencode_root/ck-code-search-protocol.md" ] && rm -f "$opencode_root/ck-code-search-protocol.md"
+  return 0
+}
+
+purge_ck_index() {
+  local repo_root="$1"
+  if [ -d "$repo_root/.ck-index" ]; then
+    rm -rf "$repo_root/.ck-index"
+    echo "  Removed .ck-index/ (will rebuild on next ck find-scope)"
+  fi
+}
+
 echo "Deploying Context King to OpenCode: $DOT_OPENCODE"
 mkdir -p "$DOT_OPENCODE"
+
+# Purge previously-deployed CK assets so removed skills/plugins don't linger.
+purge_ck_skills   "$DOT_OPENCODE/skills"
+purge_ck_plugin   "$DOT_OPENCODE/plugin"
+purge_ck_protocol "$DOT_OPENCODE"
+purge_ck_models   "$DOT_OPENCODE/models"
+purge_ck_index    "$TARGET"
 
 # ── 1. Copy models ─────────────────────────────────────────────────────────────
 echo "  Copying models..."

@@ -61,6 +61,56 @@ if [ ! -d "$TARGET" ]; then
   exit 1
 fi
 
+# ── Purge helpers ──────────────────────────────────────────────────────────────
+# Remove every CK-owned skill directory (skills/ck and skills/ck-*) from the
+# given root without touching unrelated skills the user may have added.
+purge_ck_skills() {
+  local skills_root="$1"
+  [ -d "$skills_root" ] || return 0
+  if [ -d "$skills_root/ck" ]; then
+    rm -rf "$skills_root/ck"
+  fi
+  # Delete any ck-* skill directory (covers stale ones like ck-search).
+  for d in "$skills_root"/ck-*; do
+    [ -d "$d" ] || continue
+    rm -rf "$d"
+  done
+}
+
+# Remove CK-owned hook scripts only (leave user-authored hooks untouched).
+purge_ck_hooks() {
+  local hooks_root="$1"
+  [ -d "$hooks_root" ] || return 0
+  for f in \
+    "$hooks_root"/ck-*.sh  "$hooks_root"/ck-*.ps1 \
+    "$hooks_root"/agent-usage-guard.sh "$hooks_root"/agent-usage-guard.ps1; do
+    [ -f "$f" ] && rm -f "$f"
+  done
+}
+
+# Remove the CK rule file only.
+purge_ck_rules() {
+  local rules_root="$1"
+  [ -f "$rules_root/ck-code-search-protocol.md" ] && rm -f "$rules_root/ck-code-search-protocol.md"
+  return 0
+}
+
+# Remove the CK embedding model (fixed subdir name).
+purge_ck_models() {
+  local models_root="$1"
+  [ -d "$models_root/bge-small-en-v1.5" ] && rm -rf "$models_root/bge-small-en-v1.5"
+  return 0
+}
+
+# Delete the semantic index db so it gets rebuilt fresh on next `ck find-scope`.
+purge_ck_index() {
+  local repo_root="$1"
+  if [ -d "$repo_root/.ck-index" ]; then
+    rm -rf "$repo_root/.ck-index"
+    echo "  Removed .ck-index/ (will rebuild on next ck find-scope)"
+  fi
+}
+
 # ── Detect configured CLI tools ────────────────────────────────────────────────
 HAS_CLAUDE=false
 HAS_CODEX=false
@@ -111,6 +161,14 @@ if [ "$HAS_CLAUDE" = true ]; then
   echo "── Claude Code (.claude/) ────────────────────────────────────────────────"
   DOT_CLAUDE="$TARGET/.claude"
   mkdir -p "$DOT_CLAUDE"
+
+  # Purge previously-deployed CK assets so removed skills/hooks don't linger.
+  # Only CK-owned files are removed; user-authored siblings are preserved.
+  purge_ck_skills "$DOT_CLAUDE/skills"
+  purge_ck_hooks  "$DOT_CLAUDE/hooks"
+  purge_ck_rules  "$DOT_CLAUDE/rules"
+  purge_ck_models "$DOT_CLAUDE/models"
+  purge_ck_index  "$TARGET"
 
   # 1. Copy models
   echo "  Copying models..."
@@ -206,7 +264,7 @@ if [ "$HAS_CLAUDE" = true ]; then
     else
       echo "  Bash hook already registered — skipping."
     fi
-    # Register PostToolUse hook (scope-cluster hint after ck find-scope / ck search)
+    # Register PostToolUse hook (scope-cluster hint after ck find-scope)
     if ! jq -e '[.hooks.PostToolUse[]?.hooks[]?.command // empty] | any(test("ck-scope-hint"))' \
          "$SETTINGS" >/dev/null 2>&1; then
       jq '.hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{"matcher":"Bash","hooks":[
@@ -268,6 +326,12 @@ fi
 if [ "$HAS_AGENTS" = true ]; then
   echo "── Agents (.agents/) ─────────────────────────────────────────────────────"
   DOT_AGENTS="$TARGET/.agents"
+
+  # Purge previously-deployed CK assets so removed skills don't linger.
+  purge_ck_skills "$DOT_AGENTS/skills"
+  purge_ck_rules  "$DOT_AGENTS/rules"
+  purge_ck_models "$DOT_AGENTS/models"
+  purge_ck_index  "$TARGET"
 
   # 1. Copy models
   echo "  Copying models..."

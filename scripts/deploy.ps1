@@ -28,6 +28,47 @@ if (-not (Test-Path -LiteralPath $TargetRepo -PathType Container)) {
     exit 1
 }
 
+# ── Purge helpers ──────────────────────────────────────────────────────────────
+# Remove every CK-owned skill directory (skills/ck and skills/ck-*) without
+# touching unrelated skills the user may have added.
+function Remove-CkSkills {
+    param([string]$SkillsRoot)
+    if (-not (Test-Path -LiteralPath $SkillsRoot -PathType Container)) { return }
+    $ckDir = Join-Path $SkillsRoot 'ck'
+    if (Test-Path -LiteralPath $ckDir) { Remove-Item -LiteralPath $ckDir -Recurse -Force }
+    Get-ChildItem -LiteralPath $SkillsRoot -Directory -Filter 'ck-*' -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+}
+
+function Remove-CkHooks {
+    param([string]$HooksRoot)
+    if (-not (Test-Path -LiteralPath $HooksRoot -PathType Container)) { return }
+    Get-ChildItem -LiteralPath $HooksRoot -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^(ck-.*|agent-usage-guard)\.(sh|ps1)$' } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+}
+
+function Remove-CkRules {
+    param([string]$RulesRoot)
+    $f = Join-Path $RulesRoot 'ck-code-search-protocol.md'
+    if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force }
+}
+
+function Remove-CkModels {
+    param([string]$ModelsRoot)
+    $d = Join-Path $ModelsRoot 'bge-small-en-v1.5'
+    if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force }
+}
+
+function Remove-CkIndex {
+    param([string]$RepoRoot)
+    $d = Join-Path $RepoRoot '.ck-index'
+    if (Test-Path -LiteralPath $d) {
+        Remove-Item -LiteralPath $d -Recurse -Force
+        Write-Host "  Removed .ck-index/ (will rebuild on next ck find-scope)"
+    }
+}
+
 # ── Detect configured CLI tools ────────────────────────────────────────────────
 $HasClaude   = $All -or (Test-Path (Join-Path $TargetRepo '.claude')   -PathType Container)
 $HasCodex    = $All -or (Test-Path (Join-Path $TargetRepo '.codex')    -PathType Container)
@@ -61,6 +102,13 @@ if ($HasClaude) {
     Write-Host "── Claude Code (.claude/) ────────────────────────────────────────────────"
     $DotClaude = Join-Path $TargetRepo '.claude'
     New-Item -ItemType Directory -Force -Path $DotClaude | Out-Null
+
+    # Purge previously-deployed CK assets so removed skills/hooks don't linger.
+    Remove-CkSkills (Join-Path $DotClaude 'skills')
+    Remove-CkHooks  (Join-Path $DotClaude 'hooks')
+    Remove-CkRules  (Join-Path $DotClaude 'rules')
+    Remove-CkModels (Join-Path $DotClaude 'models')
+    Remove-CkIndex  $TargetRepo
 
     Write-Host "  Copying models..."
     $modelsDir = Join-Path $DotClaude 'models'
