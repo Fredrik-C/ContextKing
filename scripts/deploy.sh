@@ -102,6 +102,21 @@ purge_ck_models() {
   return 0
 }
 
+# Remove all CK-owned entries from settings.json so registrations are always
+# written fresh — ensures format changes on redeploy take effect.
+purge_ck_settings() {
+  local settings="$1"
+  [ -f "$settings" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  jq '
+    .permissions.allowedTools = [(.permissions.allowedTools // [])[] | select(test("ck/ck|ck\\.cmd") | not)] |
+    .hooks.PreToolUse    = [(.hooks.PreToolUse    // [])[] | .hooks = [(.hooks // [])[]? | select((.command // "") | test("ck-bash-guard|ck-read-guard|ck-search-guard") | not)] | select((.hooks | length) > 0)] |
+    .hooks.SubagentStart = [(.hooks.SubagentStart // [])[] | .hooks = [(.hooks // [])[]? | select((.command // "") | test("agent-usage-guard")                             | not)] | select((.hooks | length) > 0)] |
+    .hooks.PostToolUse   = [(.hooks.PostToolUse   // [])[] | .hooks = [(.hooks // [])[]? | select((.command // "") | test("ck-scope-hint")                                 | not)] | select((.hooks | length) > 0)] |
+    .hooks.SessionStart  = [(.hooks.SessionStart  // [])[] | .hooks = [(.hooks // [])[]? | select((.command // "") | test("ck-update-check")                               | not)] | select((.hooks | length) > 0)]
+  ' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+}
+
 # Delete the semantic index db so it gets rebuilt fresh on next `ck find-scope`.
 purge_ck_index() {
   local repo_root="$1"
@@ -194,14 +209,6 @@ if [ "$HAS_CLAUDE" = true ]; then
   echo "  Copying hooks..."
   mkdir -p "$DOT_CLAUDE/hooks"
 
-  # Remove old guards that no longer exist (allow-only guards removed in v1.2.9)
-  for old_guard in ck-read-guard.sh ck-read-guard.ps1 ck-search-guard.sh ck-search-guard.ps1; do
-    if [ -f "$DOT_CLAUDE/hooks/$old_guard" ]; then
-      rm "$DOT_CLAUDE/hooks/$old_guard"
-      echo "  Removed obsolete hook: $old_guard"
-    fi
-  done
-
   cp "$REPO_DIR/hooks/agent-usage-guard.sh"  "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/agent-usage-guard.ps1" "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.sh"      "$DOT_CLAUDE/hooks/"
@@ -212,80 +219,44 @@ if [ "$HAS_CLAUDE" = true ]; then
   cp "$REPO_DIR/hooks/ck-update-check.ps1"   "$DOT_CLAUDE/hooks/"
   chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh" "$DOT_CLAUDE/hooks/ck-scope-hint.sh" "$DOT_CLAUDE/hooks/ck-update-check.sh"
 
-  # 5. Register hooks in settings.json (idempotent)
+  # 5. Register hooks in settings.json (purge CK entries then re-add fresh)
   SETTINGS="$DOT_CLAUDE/settings.json"
   if [ ! -f "$SETTINGS" ]; then
     echo '{}' > "$SETTINGS"
   fi
 
   if command -v jq >/dev/null 2>&1; then
-    # Remove stale hook registrations for deleted guards (Read, Glob, Grep)
-    if jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("ck-read-guard|ck-search-guard"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.PreToolUse = [.hooks.PreToolUse[]? | select(.hooks | all(.command | test("ck-read-guard|ck-search-guard") | not))]' \
-        "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Removed obsolete hook registrations (Read/Glob/Grep guards) from settings.json"
-    fi
+    purge_ck_settings "$SETTINGS"
 
-    if ! jq -e '.permissions.allowedTools // [] | any(test("ck/ck"))' "$SETTINGS" >/dev/null 2>&1; then
-      jq '.permissions.allowedTools = ((.permissions.allowedTools // []) + [
-        "Bash(.claude/skills/ck/ck *)",
-        "Bash(.claude\\skills\\ck\\ck.cmd *)"
-      ])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Added ck allowedTools permissions to settings.json"
-    else
-      echo "  ck allowedTools permissions already present — skipping."
-    fi
-    # Migrate: remove old PreToolUse Agent hook if present
-    if jq -e '[.hooks.PreToolUse[]? | select(.matcher == "Agent") | .hooks[]?.command // empty] | any(test("agent-usage-guard"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.PreToolUse = [.hooks.PreToolUse[]? | select(.matcher != "Agent" or (.hooks | all(.command | test("agent-usage-guard") | not)))]' \
-        "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Migrated: removed old PreToolUse Agent hook"
-    fi
-    # Register SubagentStart hook (injects CK protocol into sub-agent context)
-    if ! jq -e '[.hooks.SubagentStart[]?.hooks[]?.command // empty] | any(test("agent-usage-guard"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.SubagentStart = ((.hooks.SubagentStart // []) + [{"matcher":"*","hooks":[
-        {"type":"command","command":".claude/hooks/agent-usage-guard.sh"},
-        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/agent-usage-guard.ps1 || exit 0'\''"}
-      ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Registered SubagentStart hook in settings.json"
-    else
-      echo "  SubagentStart hook already registered — skipping."
-    fi
-    if ! jq -e '[.hooks.PreToolUse[]?.hooks[]?.command // empty] | any(test("ck-bash-guard"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.PreToolUse += [{"matcher":"Bash","hooks":[
-        {"type":"command","command":".claude/hooks/ck-bash-guard.sh"},
-        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-bash-guard.ps1 || exit 0'\''"}
-      ]}]' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Registered Bash hook in settings.json"
-    else
-      echo "  Bash hook already registered — skipping."
-    fi
-    # Register PostToolUse hook (scope-cluster hint after ck find-scope)
-    if ! jq -e '[.hooks.PostToolUse[]?.hooks[]?.command // empty] | any(test("ck-scope-hint"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{"matcher":"Bash","hooks":[
-        {"type":"command","command":".claude/hooks/ck-scope-hint.sh"},
-        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-scope-hint.ps1 || exit 0'\''"}
-      ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Registered PostToolUse scope-hint hook in settings.json"
-    else
-      echo "  PostToolUse scope-hint hook already registered — skipping."
-    fi
-    # Register SessionStart hook (update check)
-    if ! jq -e '[.hooks.SessionStart[]?.hooks[]?.command // empty] | any(test("ck-update-check"))' \
-         "$SETTINGS" >/dev/null 2>&1; then
-      jq '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"startup","hooks":[
-        {"type":"command","command":".claude/hooks/ck-update-check.sh","timeout":15},
-        {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-update-check.ps1 || exit 0'\''","timeout":15}
-      ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-      echo "  Registered SessionStart hook (update check) in settings.json"
-    else
-      echo "  SessionStart hook already registered — skipping."
-    fi
+    jq '.permissions.allowedTools = ((.permissions.allowedTools // []) + [
+      "Bash(.claude/skills/ck/ck *)",
+      "Bash(.claude\\skills\\ck\\ck.cmd *)"
+    ])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+    echo "  Registered ck allowedTools permissions."
+
+    jq '.hooks.SubagentStart = ((.hooks.SubagentStart // []) + [{"matcher":"*","hooks":[
+      {"type":"command","command":".claude/hooks/agent-usage-guard.sh"},
+      {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/agent-usage-guard.ps1 || exit 0'\''"}
+    ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+    echo "  Registered SubagentStart hook."
+
+    jq '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[
+      {"type":"command","command":".claude/hooks/ck-bash-guard.sh"},
+      {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-bash-guard.ps1 || exit 0'\''"}
+    ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+    echo "  Registered Bash hook."
+
+    jq '.hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{"matcher":"Bash","hooks":[
+      {"type":"command","command":".claude/hooks/ck-scope-hint.sh"},
+      {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-scope-hint.ps1 || exit 0'\''"}
+    ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+    echo "  Registered PostToolUse scope-hint hook."
+
+    jq '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{"matcher":"startup","hooks":[
+      {"type":"command","command":".claude/hooks/ck-update-check.sh","timeout":15},
+      {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-update-check.ps1 || exit 0'\''","timeout":15}
+    ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+    echo "  Registered SessionStart hook (update check)."
   else
     echo "  WARNING: jq not found. Add hooks to $SETTINGS manually."
     echo "  See hooks/ directory for Agent and Bash guards to register."

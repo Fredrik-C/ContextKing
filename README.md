@@ -181,6 +181,12 @@ Each folder's embedding is built from the combined tokens of:
 - All source filenames it contains (e.g. `inventory reservation service reservation allocator`)
 - All exported/public method and function names from the source files (e.g. `AllocateReservation ReleaseReservation`)
 
+Together these three sources form a faithful semantic description of what the code in a folder
+actually does: the path gives domain and module context, the filenames give module-level
+responsibility, and the method names give concrete behavioural vocabulary. Without reading a
+single file body, the combined token string already answers "what operations does this folder
+expose?" — which is exactly what a query like `"allocate reservation inventory"` needs to match against.
+
 PascalCase and camelCase identifiers in paths and filenames are split at case boundaries
 (`InventoryReservationService` → `inventory reservation service`). Interface prefixes are
 stripped (`IReservationAllocator` → `reservation allocator`). Public method and exported function names are added

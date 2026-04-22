@@ -35,10 +35,19 @@ values used for ranking. On large codebases they typically cluster in a narrow b
 — a spread of 0.03–0.07 across 10 results is normal. Use them to rank folders against each other,
 not as absolute confidence measures.
 
+## What the index contains
+
+Each folder is indexed from three sources: its full path, all source filenames, and all
+public/exported method names. Together they describe what a folder exposes without reading
+any file body. This means your query can include operation-level terms (method names or
+verb phrases) and they will match directly against indexed method names.
+
 ## Query tips
 
 - Use 3–5 keywords: `"adyen terminal card-present refund"` not `"adyen"`
 - Include structural terms: `"Catalog API controllers endpoints"` not just `"Catalog"`
+- Include operation terms when known: `"AllocateReservation inventory"` will match a folder
+  that contains a method by that name, even if the folder path says nothing about allocation
 - Synonyms produce the same ranking — never rephrase, change vocabulary instead
 - Use `--must` when working with one provider in a multi-provider codebase:
   ```
