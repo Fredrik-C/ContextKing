@@ -63,3 +63,26 @@ These return structured output with exact line spans. grep loses context.
     } | ConvertTo-Json -Depth 3
     exit 0
 }
+
+# Pattern 3: find piped to xargs grep — block, use ck find-scope + expand-folder
+$isFindXargsGrep = $command -match '\bfind\b' -and $command -match '\|\s*xargs\s+(grep|rg)\b'
+
+if ($isFindXargsGrep) {
+    @{
+        hookSpecificOutput = @{
+            hookEventName = 'PreToolUse'
+            permissionDecision = 'deny'
+            permissionDecisionReason = @"
+[ck-guard] BLOCKED — use ck tools instead of find | xargs grep.
+
+find | xargs grep is manual file discovery. Use CK instead:
+
+  .claude/skills/ck/ck find-scope --query "<what you are looking for>"
+  .claude/skills/ck/ck expand-folder --pattern "<keyword>" <folder>
+
+This returns ranked, scoped results without reading every file.
+"@
+        }
+    } | ConvertTo-Json -Depth 3
+    exit 0
+}

@@ -213,11 +213,13 @@ if [ "$HAS_CLAUDE" = true ]; then
   cp "$REPO_DIR/hooks/agent-usage-guard.ps1" "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.sh"      "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-bash-guard.ps1"     "$DOT_CLAUDE/hooks/"
+  cp "$REPO_DIR/hooks/ck-search-guard.sh"    "$DOT_CLAUDE/hooks/"
+  cp "$REPO_DIR/hooks/ck-search-guard.ps1"   "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-scope-hint.sh"      "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-scope-hint.ps1"     "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-update-check.sh"    "$DOT_CLAUDE/hooks/"
   cp "$REPO_DIR/hooks/ck-update-check.ps1"   "$DOT_CLAUDE/hooks/"
-  chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh" "$DOT_CLAUDE/hooks/ck-scope-hint.sh" "$DOT_CLAUDE/hooks/ck-update-check.sh"
+  chmod +x "$DOT_CLAUDE/hooks/agent-usage-guard.sh" "$DOT_CLAUDE/hooks/ck-bash-guard.sh" "$DOT_CLAUDE/hooks/ck-search-guard.sh" "$DOT_CLAUDE/hooks/ck-scope-hint.sh" "$DOT_CLAUDE/hooks/ck-update-check.sh"
 
   # 5. Register hooks in settings.json (purge CK entries then re-add fresh)
   SETTINGS="$DOT_CLAUDE/settings.json"
@@ -243,8 +245,14 @@ if [ "$HAS_CLAUDE" = true ]; then
     jq '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher":"Bash","hooks":[
       {"type":"command","command":".claude/hooks/ck-bash-guard.sh"},
       {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-bash-guard.ps1 || exit 0'\''"}
+    ]},{"matcher":"Grep","hooks":[
+      {"type":"command","command":".claude/hooks/ck-search-guard.sh"},
+      {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'\''"}
+    ]},{"matcher":"Glob","hooks":[
+      {"type":"command","command":".claude/hooks/ck-search-guard.sh"},
+      {"type":"command","command":"bash -c '\''command -v pwsh >/dev/null 2>&1 && pwsh -NonInteractive -File .claude/hooks/ck-search-guard.ps1 || exit 0'\''"}
     ]}])' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-    echo "  Registered Bash hook."
+    echo "  Registered Bash, Grep, and Glob hooks."
 
     jq '.hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{"matcher":"Bash","hooks":[
       {"type":"command","command":".claude/hooks/ck-scope-hint.sh"},

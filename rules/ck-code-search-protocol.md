@@ -70,6 +70,6 @@ grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
 2. **Commit to your folders.** Once find-scope returns results, work within them. Don't re-run find-scope with rephrased queries — synonyms return the same ranking.
 3. **Use `ck expand-folder` to explore folders.** Pass `--pattern "<keyword>"` to filter to only relevant files and signatures. Use `ck signatures <folder>` only when you genuinely need everything in the folder.
 4. **Use `ck get-method-source` for single methods.** Use exact member names from signatures output — `Refund` won't match `RefundPaymentAsync`. Fall back to `Read` only when you need 3+ members from one file.
-5. **Any search tool works within scoped folders.** After scoping, use ugrep, bfs, grep, rg, Glob, Grep, or Read freely — but always scoped to the folders find-scope returned. Never search from repo root.
+5. **Within scoped folders, use Bash grep/rg or Read freely.** After scoping, `grep -rn`, `rg`, and `Read` are all fine — scoped to the folders find-scope returned. Never search from repo root. Do NOT use the built-in `Grep` or `Glob` tools with source-file filters (`*.cs`, `*.ts`, `*.tsx`) — use `ck expand-folder` to explore a folder or `grep -rn` via Bash for cross-references.
 6. **Don't guess symbol names.** If you don't know the name, run signatures first. Don't invent class names for searches.
 7. **Budget: 2 find-scope calls per task.** One for the reference area, one for the target. If you need a third, you're re-scoping — stop and use the folders you have.

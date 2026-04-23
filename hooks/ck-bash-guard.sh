@@ -66,3 +66,27 @@ These return structured output with exact line spans. grep loses context." \
     }'
   exit 0
 fi
+
+# ── Pattern 3: find piped to xargs grep (broad file discovery) ────────────────
+# find … | xargs grep is manual file discovery across the tree.
+# Use ck find-scope + expand-folder instead — faster and ranked.
+if printf '%s' "$COMMAND" | grep -qE '\bfind\b' && \
+   printf '%s' "$COMMAND" | grep -qE '\|\s*xargs\s+(grep|rg)\b'; then
+  jq -n \
+    --arg reason "[ck-guard] BLOCKED — use ck tools instead of find | xargs grep.
+
+find | xargs grep is manual file discovery. Use CK instead:
+
+  .claude/skills/ck/ck find-scope --query \"<what you are looking for>\"
+  .claude/skills/ck/ck expand-folder --pattern \"<keyword>\" <folder>
+
+This returns ranked, scoped results without reading every file." \
+    '{
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": $reason
+      }
+    }'
+  exit 0
+fi
