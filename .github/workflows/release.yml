@@ -100,6 +100,7 @@ jobs:
             cp -r skills/. "$stage/skills/"
             cp -r hooks/. "$stage/hooks/"
             cp /tmp/binaries/"$binary" "$stage/skills/ck/$binary"
+            cp /tmp/binaries/"$binary" "$stage/skills/ck/ck"
             chmod +x "$stage/skills/ck/$binary" "$stage/skills/ck/ck"
             find "$stage/hooks" -type f -name '*.sh' -exec chmod +x {} \;
             cp -r models/bge-small-en-v1.5/.  "$stage/models/bge-small-en-v1.5/"
