@@ -4,16 +4,15 @@ using TypeScriptParser.TreeSitter;
 namespace ContextKing.Core.Ast.TypeScript;
 
 /// <summary>
-/// Extracts the names of all exported functions and public methods from a TypeScript source file
+/// Extracts public-surface names from a TypeScript source file
 /// using tree-sitter. Lightweight alternative to <see cref="TsSignatureExtractor"/> — returns
-/// only method/function names for use as lexical keywords in the source-map index.
+/// type, function, method, field/property, and enum names for use as lexical keywords in the source-map index.
 /// </summary>
 public static class TsPublicMethodNameExtractor
 {
     /// <summary>
-    /// Returns the distinct names of all exported functions and public class methods
-    /// declared in <paramref name="sourceText"/>. Only explicitly exported or public
-    /// members are included.
+    /// Returns distinct public-surface names declared in <paramref name="sourceText"/>.
+    /// Exported declarations and public/default-visible class and interface members are included.
     /// </summary>
     public static IReadOnlyList<string> Extract(string sourceText)
     {
@@ -60,24 +59,37 @@ public static class TsPublicMethodNameExtractor
             return;
         }
 
-        // Exported function
+        // Exported top-level declarations.
         if (type == "function_declaration" && isExported)
         {
             AddName(node, source, names, seen);
             return;
         }
 
-        // Class methods — only include if they have `public` modifier or no access modifier
-        // (TypeScript default visibility is public)
-        if (type is "method_definition")
+        if (type is "class_declaration" or "interface_declaration" or "type_alias_declaration" or "enum_declaration")
+        {
+            if (isExported)
+                AddName(node, source, names, seen);
+            // Continue into exported and non-exported types so public members can still
+            // describe folders whose file names expose the module but classes are not exported.
+        }
+
+        // Class methods/fields — only include if public or default-visible.
+        if (type is "method_definition" or "public_field_definition")
         {
             if (!HasPrivateOrProtected(node, source))
                 AddName(node, source, names, seen);
             return;
         }
 
-        // Interface method signatures are always public
-        if (type is "method_signature")
+        // Interface method/property signatures are always public.
+        if (type is "method_signature" or "property_signature")
+        {
+            AddName(node, source, names, seen);
+            return;
+        }
+
+        if (type is "enum_assignment")
         {
             AddName(node, source, names, seen);
             return;

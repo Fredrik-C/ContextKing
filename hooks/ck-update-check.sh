@@ -8,12 +8,19 @@ GITHUB_OWNER="Fredrik-C"
 GITHUB_REPO="ContextKing"
 CACHE_HOURS=24
 
-# Find the ck binary relative to this hook
-HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-CK_BIN="$HOOK_DIR/../skills/ck/ck"
+# Find the ck binary: global install → project-local (per-repo deploy)
+find_ck_bin() {
+  command -v ck 2>/dev/null && return
+  local h; h="$HOME/.ck/bin/ck"; [ -x "$h" ] && { echo "$h"; return; }
+  local hook_dir; hook_dir="$(cd "$(dirname "$0")" && pwd)"
+  local rel="$hook_dir/../skills/ck/ck"; [ -x "$rel" ] && { echo "$rel"; return; }
+  local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$repo" ] && [ -x "$repo/.claude/skills/ck/ck" ] && echo "$repo/.claude/skills/ck/ck"
+}
+CK_BIN=$(find_ck_bin)
 
 # Bail silently if ck binary not found
-[ -x "$CK_BIN" ] || exit 0
+[ -n "$CK_BIN" ] && [ -x "$CK_BIN" ] || exit 0
 
 # Get installed version (e.g. "ck 1.3.1" → "1.3.1")
 INSTALLED=$("$CK_BIN" --version 2>/dev/null | sed 's/^ck //')
@@ -41,7 +48,7 @@ if [ -f "$CACHE_FILE" ]; then
       # Cache is fresh — read cached result
       CACHED_LATEST=$(cat "$CACHE_FILE")
       if [ "$CACHED_LATEST" != "$INSTALLED" ] && [ -n "$CACHED_LATEST" ]; then
-        echo "[Context King] Update available: v${CACHED_LATEST} (installed: v${INSTALLED}). Run: curl -fsSL https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/scripts/install.sh | bash"
+        echo "[Context King] Update available: v${CACHED_LATEST} (installed: v${INSTALLED}). Run: curl -fsSL https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/scripts/install-global.sh | bash"
       fi
       exit 0
     fi
@@ -68,7 +75,7 @@ fi
 
 # Compare and notify
 if [ -n "$LATEST" ] && [ "$LATEST" != "$INSTALLED" ]; then
-  echo "[Context King] Update available: v${LATEST} (installed: v${INSTALLED}). Run: curl -fsSL https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/scripts/install.sh | bash"
+  echo "[Context King] Update available: v${LATEST} (installed: v${INSTALLED}). Run: curl -fsSL https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/main/scripts/install-global.sh | bash"
 fi
 
 exit 0

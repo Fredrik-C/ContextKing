@@ -39,5 +39,6 @@ description: Extract a single C# or TypeScript method/property body with exact s
 ## Tips
 
 - Add `--type ClassName` to disambiguate overloads across types.
-- For files <50 lines, just `Read` the file directly.
+- After you reach this step, continue with targeted file/member reads in the same area; do not bounce back to `expand-folder` for that folder unless you intentionally reset direction with a new `find-scope`.
+- For files <50 lines, use `ck read-full-file <file>` directly.
 - No index required — always reads live from disk.

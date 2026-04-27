@@ -419,13 +419,17 @@ FodyWeavers.xsd
 .ck-index/
 
 # Context King platform binaries (built by CI, distributed via GitHub Releases)
+skills/ck/ck
 skills/ck/ck-osx-arm64
 skills/ck/ck-osx-x64
 skills/ck/ck-linux-x64
+skills/ck/ck-linux-arm64
 skills/ck/ck-win-x64.exe
+.opencode/skills/ck/ck
 .opencode/skills/ck/ck-osx-arm64
 .opencode/skills/ck/ck-osx-x64
 .opencode/skills/ck/ck-linux-x64
+.opencode/skills/ck/ck-linux-arm64
 .opencode/skills/ck/ck-win-x64.exe
 
 # Local deployment artifacts (created by deploy.sh when targeting this repo)

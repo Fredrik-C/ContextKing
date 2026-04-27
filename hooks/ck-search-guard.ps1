@@ -1,7 +1,8 @@
 #!/usr/bin/env pwsh
 # ck-search-guard: PreToolUse hook for the built-in Grep and Glob tools (PowerShell version).
-# Blocks broad source-file searches that should go through ck find-scope first.
-
+# Enforces CK search prerequisites for source-file Grep/Glob:
+# keyword-map must be created and scope must be established first.
+#
 $ErrorActionPreference = 'SilentlyContinue'
 
 $raw = $input | Out-String
@@ -14,44 +15,115 @@ if (-not $tool) { exit 0 }
 if ($tool -ne 'Grep' -and $tool -ne 'Glob') { exit 0 }
 
 $denyMsg = @"
-[ck-guard] BLOCKED — run ck find-scope before searching source files.
+[ck-guard] BLOCKED — source search requires keyword-map and scope.
 
-You are trying to search .cs/.ts/.tsx files across a broad path.
-Use CK to scope and explore instead:
+Before Grep/Glob searching in source files, run:
 
+  .claude/skills/ck/ck get-keyword-map --query "<what you are looking for>"
   .claude/skills/ck/ck find-scope --query "<what you are looking for>"
   .claude/skills/ck/ck expand-folder --pattern "<keyword>" <returned-folder>
 
-find-scope ranks folders semantically. expand-folder filters files and signatures
-within a folder by keyword. Together they replace broad Grep/Glob discovery.
+Then keep Grep/Glob paths inside folders returned by find-scope.
 "@
 
-# Glob: **/*.cs|ts|tsx
+$repoRoot = (& git rev-parse --show-toplevel 2>$null)
+if (-not $repoRoot) { $repoRoot = (Get-Location).Path }
+if (-not (Test-Path (Join-Path $repoRoot '.ck.json'))) { exit 0 }
+
+$stateFile = Join-Path $repoRoot ".ck-index/.ck-guard-state.json"
+$scopedFolders = @()
+$keywordMapSeen = $false
+if (Test-Path $stateFile) {
+    try {
+        $state = Get-Content $stateFile -Raw | ConvertFrom-Json
+        if ($state.scopedFolders) { $scopedFolders = @($state.scopedFolders) }
+        if ($state.keywordMapSeen -eq $true) { $keywordMapSeen = $true }
+    } catch { }
+}
+
+function NormalizePath([string]$path) {
+    if (-not $path) { return "" }
+    return $path.TrimStart('./').TrimEnd('/')
+}
+
+function IsWithinScopedFolders([string]$path, [string[]]$folders) {
+    $norm = NormalizePath $path
+    if (-not $norm) { return $false }
+    foreach ($folder in $folders) {
+        $f = NormalizePath ([string]$folder)
+        if (-not $f) { continue }
+        if ($norm -eq $f -or $norm.StartsWith("$f/")) { return $true }
+    }
+    return $false
+}
+
+# Extract static prefix of a glob pattern (before first wildcard)
+function GlobStaticPrefix([string]$pattern) {
+    $idx = $pattern.IndexOfAny([char[]]@('*','?','{','['))
+    $prefix = if ($idx -lt 0) { $pattern } else { $pattern.Substring(0, $idx) }
+    return $prefix.TrimEnd('/')
+}
+
+# Glob: source file pattern without a narrow static prefix
 if ($tool -eq 'Glob') {
-    $pattern = $obj.tool_input.pattern
-    if ($pattern -match '\*\*?/\*\.(cs|ts|tsx)$') {
-        @{
-            hookSpecificOutput = @{
-                hookEventName      = 'PreToolUse'
-                permissionDecision = 'deny'
-                permissionDecisionReason = $denyMsg
+    $pattern = [string]$obj.tool_input.pattern
+    if ($pattern -match '\.(cs|ts|tsx)$') {
+        $prefix  = GlobStaticPrefix $pattern
+        $pathArg = [string]$obj.tool_input.path
+        if (-not $keywordMapSeen -or $scopedFolders.Count -eq 0) {
+            @{
+                hookSpecificOutput = @{
+                    hookEventName      = 'PreToolUse'
+                    permissionDecision = 'deny'
+                    permissionDecisionReason = $denyMsg
+                }
+            } | ConvertTo-Json -Depth 3
+            exit 0
+        }
+        if ($scopedFolders.Count -gt 0) {
+            $target = if ($pathArg) { $pathArg } else { $prefix }
+            if (-not (IsWithinScopedFolders $target $scopedFolders)) {
+                @{
+                    hookSpecificOutput = @{
+                        hookEventName      = 'PreToolUse'
+                        permissionDecision = 'deny'
+                        permissionDecisionReason = '[ck-guard] BLOCKED — Glob path is outside current scoped folders from ck find-scope.'
+                    }
+                } | ConvertTo-Json -Depth 3
+                exit 0
             }
-        } | ConvertTo-Json -Depth 3
-        exit 0
+        }
     }
 }
 
-# Grep: include targets source files
+# Grep: source file include without a narrow path
 if ($tool -eq 'Grep') {
-    $include = $obj.tool_input.include
+    $include = [string]$obj.tool_input.include
     if ($include -match '\*\.(cs|ts|tsx)$') {
-        @{
-            hookSpecificOutput = @{
-                hookEventName      = 'PreToolUse'
-                permissionDecision = 'deny'
-                permissionDecisionReason = $denyMsg
+        $pathArg = if ($obj.tool_input.path) { [string]$obj.tool_input.path }
+                   elseif ($obj.tool_input.cwd) { [string]$obj.tool_input.cwd }
+                   else { '' }
+        if (-not $keywordMapSeen -or $scopedFolders.Count -eq 0) {
+            @{
+                hookSpecificOutput = @{
+                    hookEventName      = 'PreToolUse'
+                    permissionDecision = 'deny'
+                    permissionDecisionReason = $denyMsg
+                }
+            } | ConvertTo-Json -Depth 3
+            exit 0
+        }
+        if ($scopedFolders.Count -gt 0) {
+            if (-not (IsWithinScopedFolders $pathArg $scopedFolders)) {
+                @{
+                    hookSpecificOutput = @{
+                        hookEventName      = 'PreToolUse'
+                        permissionDecision = 'deny'
+                        permissionDecisionReason = '[ck-guard] BLOCKED — Grep path is outside current scoped folders from ck find-scope.'
+                    }
+                } | ConvertTo-Json -Depth 3
+                exit 0
             }
-        } | ConvertTo-Json -Depth 3
-        exit 0
+        }
     }
 }

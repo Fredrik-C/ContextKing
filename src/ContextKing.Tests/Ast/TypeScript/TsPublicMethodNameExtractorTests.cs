@@ -138,4 +138,30 @@ public class TsPublicMethodNameExtractorTests
 
         names.Where(n => n == "doWork").Should().HaveCount(1);
     }
+
+    [Fact]
+    public void Extract_PublicSurface_IncludesExportedTypesFieldsPropertiesAndEnumMembers()
+    {
+        var source = """
+            export enum PaymentType {
+                Sale = 'Sale',
+                Refund = 'Refund'
+            }
+
+            export interface PaymentRequest {
+                saleData: string;
+                refundAmount?: number;
+            }
+
+            export class TerminalPayment {
+                paymentType: PaymentType;
+                private internalState: string;
+            }
+            """;
+
+        var names = TsPublicMethodNameExtractor.Extract(source);
+
+        names.Should().Contain(["PaymentType", "Sale", "Refund", "PaymentRequest", "saleData", "refundAmount", "TerminalPayment", "paymentType"]);
+        names.Should().NotContain("internalState");
+    }
 }

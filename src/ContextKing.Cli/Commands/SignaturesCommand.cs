@@ -1,11 +1,16 @@
 using ContextKing.Core;
 using ContextKing.Core.Ast;
 using ContextKing.Core.Ast.TypeScript;
+using ContextKing.Cli.KeywordAtlas;
+using ContextKing.Core.SourceMap;
+using System.Text.RegularExpressions;
 
 namespace ContextKing.Cli.Commands;
 
 internal static class SignaturesCommand
 {
+    private const int MaxDirectoryFilesWithoutAll = 30;
+
     internal static Task<int> RunAsync(string[] args)
     {
         var reader = new ArgReader(args);
@@ -14,6 +19,8 @@ internal static class SignaturesCommand
             PrintHelp();
             return Task.FromResult(reader.IsEmpty ? 1 : 0);
         }
+
+        var allowLargeDirectory = reader.HasFlag("--all");
 
         // All non-flag arguments are treated as file paths or glob patterns.
         // Globs are expanded here so behavior is consistent across shells
@@ -53,6 +60,19 @@ internal static class SignaturesCommand
                     continue;
                 }
 
+                if (!allowLargeDirectory && directoryMatches.Count > MaxDirectoryFilesWithoutAll)
+                {
+                    var ranked = SmartRankFiles(input, directoryMatches);
+                    var selected = SelectAdaptiveSubset(ranked, directoryMatches.Count);
+                    Console.Error.WriteLine(
+                        $"[ck hint] Large folder ({directoryMatches.Count} files). " +
+                        $"Smart-ranked subset selected ({selected.Count} files, {Math.Round(100.0 * selected.Count / directoryMatches.Count)}% of files) " +
+                        "using folder-specific lexical signal and session keyword atlas relevance. " +
+                        "Use --all for full output.");
+                    expanded.AddRange(selected);
+                    continue;
+                }
+
                 expanded.AddRange(directoryMatches);
             }
             else
@@ -87,12 +107,13 @@ internal static class SignaturesCommand
         if (tsFiles.Count > 0)
             TsSignatureExtractor.Extract(tsFiles, Console.Out, Console.Error);
 
-        // Guard: warn when too many files were processed (broad folder passed).
+        // Guard: warn when many explicit files/globs were processed.
         if (valid.Count > 30)
         {
             Console.Error.WriteLine(
                 $"[ck hint] {valid.Count} files processed — this is a broad folder. " +
-                "Pass the leaf folder from 'ck find-scope' or specific files to reduce output.");
+                "Prefer 'ck expand-folder --pattern \"<keyword>\" <folder>' unless you intentionally need all signatures. " +
+                "For large folders, signatures now applies adaptive relevance ranking unless --all is set.");
         }
 
         // Hint: if the folder contains only small files, suggest reading directly next time.
@@ -110,10 +131,11 @@ internal static class SignaturesCommand
               ck signatures <folder/>              — all supported files in the folder (recursive)
               ck signatures <file.cs> [file2.ts …]  — specific files (.cs, .ts, .tsx)
               ck signatures <pattern/*.ts>          — glob pattern
+              ck signatures --all <folder/>          — allow broad folder output intentionally
 
-            The folder form is the recommended starting point: pipe the folder path returned
-            by 'ck find-scope' directly into 'ck signatures' to get every member in that
-            subtree without needing to enumerate files yourself.
+            Prefer 'ck expand-folder --pattern "<keyword>" <folder>' when you have a keyword — it is faster and more focused.
+            For large folders (>30 files), signatures applies adaptive relevance ranking by default to limit output volume.
+            Pass --all to force full output intentionally.
 
             Output (stdout):
               <filepath>:<line>\t<containingType>\t<memberName>\t<signature>
@@ -159,4 +181,141 @@ internal static class SignaturesCommand
             // Best-effort hint — don't fail the command.
         }
     }
+
+    private static IReadOnlyList<ScoredFile> SmartRankFiles(string folder, IReadOnlyList<string> files)
+    {
+        var atlas = SessionKeywordAtlasStore.LoadForFolder(folder);
+        var focusTerms = (atlas?.HighValueTerms ?? [])
+            .Where(IsUsefulTerm)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var fileTokens = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var documentFrequency = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var file in files)
+        {
+            var rel = Path.GetRelativePath(folder, file).Replace('\\', '/');
+            var tokens = TokenizeForRanking(rel);
+            fileTokens[file] = tokens;
+
+            foreach (var token in tokens)
+            {
+                if (!documentFrequency.TryAdd(token, 1))
+                    documentFrequency[token]++;
+            }
+        }
+
+        var totalDocs = Math.Max(1, files.Count);
+        var scored = new List<ScoredFile>(files.Count);
+        foreach (var file in files)
+        {
+            var rel = Path.GetRelativePath(folder, file).Replace('\\', '/');
+            var tokens = fileTokens[file];
+            var score = 0d;
+            var focusMatches = 0;
+
+            foreach (var token in tokens)
+            {
+                if (!documentFrequency.TryGetValue(token, out var df) || df <= 0) continue;
+                var rarity = Math.Log(1.0 + (double)totalDocs / df);
+                score += rarity;
+                if (focusTerms.Contains(token))
+                {
+                    focusMatches++;
+                    score += rarity * 2.5;
+                }
+            }
+
+            if (focusMatches > 0)
+                score += focusMatches * 2.0;
+
+            if (rel.Contains("/test", StringComparison.OrdinalIgnoreCase)
+                || rel.Contains("/tests", StringComparison.OrdinalIgnoreCase)
+                || rel.Contains("/temporary", StringComparison.OrdinalIgnoreCase)
+                || rel.Contains("/migration", StringComparison.OrdinalIgnoreCase))
+            {
+                score -= 2.0;
+            }
+
+            // Slightly favor implementation files over interfaces in huge folders.
+            if (Path.GetFileNameWithoutExtension(rel).StartsWith("I", StringComparison.Ordinal) &&
+                Path.GetFileNameWithoutExtension(rel).Length > 2)
+            {
+                score -= 0.5;
+            }
+
+            scored.Add(new ScoredFile(file, rel, score));
+        }
+
+        return scored
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> SelectAdaptiveSubset(IReadOnlyList<ScoredFile> ranked, int originalCount)
+    {
+        if (ranked.Count <= MaxDirectoryFilesWithoutAll)
+            return ranked.Select(x => x.Path).ToArray();
+
+        var topScore = Math.Max(0.0001, ranked[0].Score);
+        var minScoreThreshold = topScore * 0.28;
+        var floor = Math.Min(Math.Max(12, MaxDirectoryFilesWithoutAll), ranked.Count);
+        var cap = Math.Clamp((int)Math.Ceiling(Math.Sqrt(originalCount) * 8), 24, 120);
+        var totalSignal = ranked.Sum(x => Math.Max(0.01, x.Score));
+
+        var selected = new List<ScoredFile>(Math.Min(cap, ranked.Count));
+        var cumulative = 0d;
+        foreach (var item in ranked)
+        {
+            var score = Math.Max(0.01, item.Score);
+            var coverage = totalSignal <= 0 ? 1d : cumulative / totalSignal;
+
+            var keep =
+                selected.Count < floor
+                || item.Score >= minScoreThreshold
+                || coverage < 0.85;
+
+            if (!keep)
+                break;
+
+            selected.Add(item);
+            cumulative += score;
+
+            if (selected.Count >= cap)
+            {
+                // Allow ties just beyond the adaptive cap to avoid hard top-N cutoff behavior.
+                var next = selected.Count < ranked.Count ? ranked[selected.Count].Score : double.NegativeInfinity;
+                if (Math.Abs(next - item.Score) > 0.02)
+                    break;
+            }
+        }
+
+        return selected
+            .Select(x => x.Path)
+            .ToArray();
+    }
+
+    private static HashSet<string> TokenizeForRanking(string relativePath)
+    {
+        var tokens = PathTokenizer.TokenizeQuery(relativePath)
+            .Where(IsUsefulTerm)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var normalized = Regex.Replace(relativePath, @"[^\p{L}\p{Nd}_]+", " ");
+        foreach (var token in PathTokenizer.TokenizeQuery(normalized))
+        {
+            if (IsUsefulTerm(token))
+                tokens.Add(token);
+        }
+
+        return tokens;
+    }
+
+    private static bool IsUsefulTerm(string token)
+        => token.Length >= 3
+           && token.Any(char.IsLetter)
+           && !LowRankDictionary.Contains(token);
+
+    private readonly record struct ScoredFile(string Path, string RelativePath, double Score);
 }

@@ -118,6 +118,18 @@ data
 id
 ids
 string
+char
+bool
+boolean
+int
+long
+decimal
+double
+float
+void
+task
+list
+array
 value
 values
 param
@@ -148,6 +160,20 @@ count
 amount
 total
 number
+file
+files
+path
+paths
+content
+contents
+body
+bodies
+signature
+signatures
+method
+methods
+node
+nodes
 
 # ── Universal architectural-pattern terms ─────────────────────────────────────
 # Present in most modules regardless of domain.
@@ -175,6 +201,19 @@ controller
 controllers
 adapter
 adapters
+
+# ── Language modifiers / declaration noise ──────────────────────────────────
+public
+private
+protected
+static
+readonly
+virtual
+override
+sealed
+partial
+abstract
+only
 
 # ── Common utility / infrastructure terms ────────────────────────────────────
 base

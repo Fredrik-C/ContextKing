@@ -14,6 +14,7 @@ namespace ContextKing.Core.SourceMap;
 public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegments = null)
 {
     private static readonly string[] DefaultExclusions = ["Test", "Tests", "Specs"];
+    private const string SchemaVersion = "2";
     private readonly string[] _excludeSegments = excludeSegments ?? DefaultExclusions;
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
         {
             var stored = index.ReadMeta("index_state_key");
             if (string.IsNullOrEmpty(stored)) return IndexStatus.Stale;
+            if (index.ReadMeta("source_map_schema_version") != SchemaVersion) return IndexStatus.Stale;
 
             var current = GitTracker.ComputeStateKey(worktreeRoot, excludeSegments);
             return string.Equals(stored, current, StringComparison.Ordinal)
@@ -102,7 +104,9 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
                     var fileHashesJson = SerialiseHashes(files);
 
                     if (!forceRebuild && existing.TryGetValue(folderPath, out var stored)
-                        && stored.FileHashes == fileHashesJson)
+                        && stored.FileHashes == fileHashesJson
+                        && stored.FileCount > 0
+                        && stored.TokenCount > 0)
                     {
                         Interlocked.Increment(ref skipped);
                         return;
@@ -111,25 +115,28 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
                     var filenameSetKey = FilenameSetKey(files);
                     var pathTokens     = PathTokenizer.TokenizePath(folderPath);
 
-                    // Extract public method names from all source files (Roslyn/tree-sitter parse — CPU + I/O)
-                    var methodNames  = ExtractPublicMethodNames(repoRoot, folderPath, files.Keys);
+                    // Extract public surface names from all source files (Roslyn/tree-sitter parse — CPU + I/O).
+                    // This intentionally includes DTO properties/type names, not just methods, so semantic
+                    // folder search can find property-heavy request/response folders before the agent knows filenames.
+                    var symbolNames  = ExtractPublicSymbolNames(repoRoot, folderPath, files.Keys);
 
                     // Match tokens: lowercase, globally deduplicated across path + filenames + method words.
                     // Deduplication prevents a token that appears in both the folder path and a filename
                     // from being double-counted in the exact-match fraction.
-                    var combined = BuildDistinctTokens(pathTokens, files.Keys, methodNames);
+                    var combined = BuildDistinctTokens(pathTokens, files.Keys, symbolNames);
 
                     // Embedding text: readable phrase for BGE semantic embedding.
                     // Preserves casing and word structure for better embedding quality.
                     var pathPhrase   = PathTokenizer.PathToPhrase(folderPath);
                     var filePhrase   = string.Join(", ", files.Keys.Select(PathTokenizer.FileNameToPhrase));
-                    var methodPhrase = methodNames.Count > 0
-                        ? ". Methods: " + string.Join(", ", methodNames.Select(PathTokenizer.MethodNameToPhrase))
+                    var symbolPhrase = symbolNames.Count > 0
+                        ? ". Symbols: " + string.Join(", ", symbolNames.Select(PathTokenizer.MethodNameToPhrase))
                         : string.Empty;
-                    var embeddingText = $"{pathPhrase}. Files: {filePhrase}{methodPhrase}".Trim();
+                    var embeddingText = $"{pathPhrase}. Files: {filePhrase}{symbolPhrase}".Trim();
+                    var tokenCount = combined.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
 
                     var blob     = SourceMapIndex.EncodeEmbedding(embedder.Embed(embeddingText));
-                    results[i]   = new FolderRow(folderPath, combined, embeddingText, blob, fileHashesJson, filenameSetKey);
+                    results[i]   = new FolderRow(folderPath, combined, embeddingText, blob, fileHashesJson, filenameSetKey, files.Count, tokenCount);
 
                     int done = Interlocked.Increment(ref embedded);
                     if (done % 50 == 0 || done == folderEntries.Length - Volatile.Read(ref skipped))
@@ -149,6 +156,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
         index.WriteMeta("index_state_key", stateKey);
         index.WriteMeta("git_head",        GitTracker.GetHead(repoRoot));
         index.WriteMeta("indexed_at",      DateTime.UtcNow.ToString("O"));
+        index.WriteMeta("source_map_schema_version", SchemaVersion);
 
         progress?.Report($"Index complete: {embedded} updated, {skipped} unchanged.");
     }
@@ -164,7 +172,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     private static string BuildDistinctTokens(
         string pathTokens,
         IEnumerable<string> fileNames,
-        IReadOnlyList<string> methodNames)
+        IReadOnlyList<string> symbolNames)
     {
         var seen   = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<string>();
@@ -182,7 +190,7 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
                          .Split(' ', StringSplitOptions.RemoveEmptyEntries))
                 Add(t);
 
-        foreach (var name in methodNames)
+        foreach (var name in symbolNames)
             foreach (var t in PathTokenizer.MethodNameToPhrase(name)
                          .Split(' ', StringSplitOptions.RemoveEmptyEntries)
                          .Select(x => x.ToLowerInvariant()))
@@ -192,11 +200,11 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     }
 
     /// <summary>
-    /// Extracts distinct public method names from all source files in a folder.
+    /// Extracts distinct public surface names from all source files in a folder.
     /// Dispatches to the appropriate extractor based on file extension.
     /// Names are returned as-is (not split by camelCase) for use as exact-match keywords.
     /// </summary>
-    private static IReadOnlyList<string> ExtractPublicMethodNames(
+    private static IReadOnlyList<string> ExtractPublicSymbolNames(
         string repoRoot,
         string folderPath,
         IEnumerable<string> fileNames)

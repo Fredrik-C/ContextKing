@@ -16,6 +16,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <ProjectReference Include="..\ContextKing.Cli\ContextKing.Cli.csproj" />
     <ProjectReference Include="..\ContextKing.Core\ContextKing.Core.csproj" />
   </ItemGroup>
 

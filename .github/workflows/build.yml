@@ -74,6 +74,28 @@ jobs:
           name: ck-linux-x64
           path: ck-linux-x64
 
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish linux-arm64
+        run: |
+          dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
+            -c Release -r linux-arm64 -p:PublishSingleFile=true \
+            -o /tmp/ck-publish -v q
+          cp /tmp/ck-publish/ck ck-linux-arm64
+          chmod +x ck-linux-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ck-linux-arm64
+          path: ck-linux-arm64
+
   build-windows:
     runs-on: windows-latest
     steps:

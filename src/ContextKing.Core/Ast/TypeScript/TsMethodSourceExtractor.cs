@@ -28,6 +28,62 @@ public static class TsMethodSourceExtractor
     }
 
     /// <summary>
+    /// Extracts all constructors from a TypeScript/TSX file, optionally filtered by
+    /// containing type name. TypeScript constructors are method_definition nodes named "constructor".
+    /// </summary>
+    public static IReadOnlyList<MethodSourceResult> ExtractAllConstructors(
+        string filePath,
+        string? typeFilter,
+        SourceMode mode)
+    {
+        var source = File.ReadAllText(filePath);
+        using var parser = new Parser();
+        var tree = parser.ParseString(source);
+        var root = tree.root_node();
+        var results = new List<MethodSourceResult>();
+
+        FindConstructors(root, source, filePath, typeFilter, mode, "<global>", results);
+        return results;
+    }
+
+    private static void FindConstructors(
+        TSNode node, string source, string filePath,
+        string? typeFilter, SourceMode mode,
+        string containingType, List<MethodSourceResult> results)
+    {
+        var nodeType = node.type();
+
+        if (nodeType is "class_declaration" or "interface_declaration")
+        {
+            var typeName = GetFieldText(node, "name", source) ?? "<anonymous>";
+            var newContainer = containingType == "<global>" ? typeName : $"{containingType}.{typeName}";
+            for (uint i = 0; i < node.child_count(); i++)
+                FindConstructors(node.child(i), source, filePath, typeFilter, mode, newContainer, results);
+            return;
+        }
+
+        if (nodeType == "method_definition")
+        {
+            var name = GetFieldText(node, "name", source);
+            if (name == "constructor")
+            {
+                if (typeFilter is null ||
+                    containingType.Equals(typeFilter, StringComparison.Ordinal) ||
+                    containingType.EndsWith("." + typeFilter, StringComparison.Ordinal))
+                {
+                    var result = BuildResult(node, source, filePath, "constructor", containingType, mode);
+                    if (result is not null)
+                        results.Add(result);
+                }
+            }
+            return;
+        }
+
+        for (uint i = 0; i < node.child_count(); i++)
+            FindConstructors(node.child(i), source, filePath, typeFilter, mode, containingType, results);
+    }
+
+    /// <summary>
     /// Returns all member names in the file. Used for fuzzy-match suggestions
     /// when a member name is not found.
     /// </summary>

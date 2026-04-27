@@ -62,7 +62,6 @@ internal static class GetMethodSourceCommand
                 Console.Error.WriteLine(
                     $"[ck get-method-source] No member '{memberName}' found{typeHint} in '{filePath}'.");
 
-                // Suggest closest member names as a guard against guessing
                 var allNames = SupportedLanguages.IsTypeScript(filePath)
                     ? TsMethodSourceExtractor.GetAllMemberNames(filePath)
                     : MethodSourceExtractor.GetAllMemberNames(filePath);
@@ -71,18 +70,17 @@ internal static class GetMethodSourceCommand
                     .Where(n => n.Contains(memberName, StringComparison.OrdinalIgnoreCase)
                              || memberName.Contains(n, StringComparison.OrdinalIgnoreCase))
                     .Distinct(StringComparer.Ordinal)
-                    .Take(10)
+                    .Take(5)
                     .ToList();
 
                 if (suggestions.Count > 0)
-                {
                     Console.Error.WriteLine($"[ck get-method-source] Did you mean: {string.Join(", ", suggestions)}");
-                    Console.Error.WriteLine($"[ck get-method-source] Run 'ck signatures {filePath}' to see all member names.");
-                }
-                else
-                {
-                    Console.Error.WriteLine($"[ck get-method-source] Run 'ck signatures {filePath}' to see all available member names.");
-                }
+
+                // Always embed the full member list so the agent can pick the right name
+                // without an extra ck signatures round trip.
+                Console.Error.WriteLine($"[ck get-method-source] All members in '{filePath}':");
+                foreach (var name in allNames.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+                    Console.Error.WriteLine($"  {name}");
 
                 Console.WriteLine("[]");
                 return Task.FromResult(1);

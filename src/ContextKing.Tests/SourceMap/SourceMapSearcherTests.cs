@@ -138,6 +138,71 @@ public class SourceMapSearcherTests : IClassFixture<EmbedderFixture>, IDisposabl
         paymentScore.Should().BeGreaterThan(authScore);
     }
 
+    [Fact]
+    public async Task Search_NoisePenalty_DemotesTemporaryGrabBagFolder()
+    {
+        using var repo = new TempRepo();
+        var dbPath = SourceMapBuilder.GetDbPath(repo.Root);
+
+        repo.WriteFile("src/Payment/Adyen/Terminal/AdyenTerminalRefundGateway.cs", """
+            public class AdyenTerminalRefundGateway
+            {
+                public void RefundInteracCardPresentPayment() { }
+            }
+            """);
+
+        for (var i = 0; i < 80; i++)
+        {
+            repo.WriteFile($"src/Payment/Jobs/Temporary/AdyenTerminalRefundInteracFixer{i}.cs", $$"""
+                public class AdyenTerminalRefundInteracFixer{{i}}
+                {
+                    public void RepairAdyenTerminalRefundInteracPayment{{i}}() { }
+                }
+                """);
+        }
+
+        repo.StageAndCommit();
+        await new SourceMapBuilder(_embedder).BuildAsync(repo.Root);
+
+        var results = Searcher().SearchDetailed(dbPath, "adyen terminal interac refund payment", topK: int.MaxValue);
+
+        results.First().Path.Should().Be("src/Payment/Adyen/Terminal");
+        var temporary = results.Single(r => r.Path == "src/Payment/Jobs/Temporary");
+        temporary.NoisePenalty.Should().BeGreaterThan(0f);
+    }
+
+    [Fact]
+    public async Task Search_MustToken_DemotesGenericFoldersWithoutMustToken()
+    {
+        using var repo = new TempRepo();
+        var dbPath = SourceMapBuilder.GetDbPath(repo.Root);
+
+        repo.WriteFile("src/Payment/Adyen/Terminal/AdyenTerminalRefundGateway.cs", """
+            public class AdyenTerminalRefundGateway
+            {
+                public void BuildCardPresentInteracRefundPayment() { }
+            }
+            """);
+        repo.WriteFile("src/Payment/Business/Events/TerminalRefundPaymentEventHandler.cs", """
+            public class TerminalRefundPaymentEventHandler
+            {
+                public void HandleCardPresentTerminalRefundPaymentEvent() { }
+            }
+            """);
+
+        repo.StageAndCommit();
+        await new SourceMapBuilder(_embedder).BuildAsync(repo.Root);
+
+        var results = Searcher().SearchDetailed(
+            dbPath,
+            "terminal card-present refund payment",
+            topK: int.MaxValue,
+            mustTexts: ["adyen"]);
+
+        results.First().Path.Should().Be("src/Payment/Adyen/Terminal");
+        results.Single(r => r.Path == "src/Payment/Business/Events").MustAdjustment.Should().BeNegative();
+    }
+
     // ── Low-rank term filtering ───────────────────────────────────────────────
 
     [Fact]

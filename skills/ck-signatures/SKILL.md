@@ -8,8 +8,9 @@ description: Extract all method/property signatures from C# and TypeScript files
 ## Syntax
 
 ```bash
-# Folder (recursive — preferred after find-scope)
+# Folder (recursive — only for small folders or when no keyword exists)
 .claude/skills/ck/ck signatures <folder-path>/
+.claude/skills/ck/ck signatures --all <folder-path>/  # only when broad output is intentional
 
 # Specific files
 .claude/skills/ck/ck signatures <file1.cs> [file2.cs ...]
@@ -34,6 +35,7 @@ Use the exact `memberName` column — it's the argument for `get-method-source`.
 
 ## Tips
 
-- Pass the **leaf folder** from find-scope, not a parent. If >30 files processed, narrow the folder.
-- For files <50 lines (DTOs, enums, records), skip signatures and just `Read` the file.
+- Pass the **leaf folder** from find-scope, not a parent. For large folders, `ck signatures` now applies adaptive relevance ranking by default; pass `--all` to force full output.
+- Prefer `ck expand-folder --pattern "<keyword>" <folder>` when you have any useful domain/symbol word.
+- For files <50 lines (DTOs, enums, records), skip signatures and use `ck read-full-file <file>`.
 - No index required — always reads live from disk.

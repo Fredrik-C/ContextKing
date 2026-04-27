@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
 # ck-scope-hint: PostToolUse hook for the Bash tool.
 #
-# Fires after ck find-scope completes. Inspects the score column
-# in the output and appends an additionalContext hint when the average gap
-# between adjacent scores is <= 0.01 and scores are above the noise floor
-# (0.70) — a signal that --top N sliced through a relevant cluster, silently
-# dropping folders that should be in scope.
-#
-# Using avg_gap = spread / (count - 1) rather than a fixed spread threshold
-# makes the check scale correctly with --top N: a --top 30 run with spread
-# 0.29 is just as suspicious as a --top 5 run with spread 0.04.
-#
-# The hint suggests a concrete --min-score value so the agent can re-run and
-# capture the full cluster rather than an arbitrary count.
+# Responsibilities:
+# 1) Existing hint: for tight find-scope score clusters, suggest --min-score.
+# 2) Stateful loop control support for PreToolUse guard:
+#    - mark broad find-scope as requiring get-keyword-map before next scope/explore
+#    - track last find-scope / expand-folder command (dedupe)
+#    - track consecutive expand-folder no-match count per folder
 
 if ! command -v jq >/dev/null 2>&1; then
   exit 0
@@ -20,20 +14,222 @@ fi
 
 INPUT=$(cat)
 
-# Only fire on the Bash tool
 TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 [ "$TOOL" != "Bash" ] && exit 0
 
-# Only fire when the command ran ck find-scope
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' || exit 0
+[ -z "$COMMAND" ] && exit 0
 
-# Extract stdout
 OUTPUT=$(printf '%s' "$INPUT" | jq -r '.tool_response.output // empty' 2>/dev/null)
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+STATE_DIR="$REPO_ROOT/.ck-index"
+STATE_FILE="$STATE_DIR/.ck-guard-state.json"
+mkdir -p "$STATE_DIR"
+
+if [ ! -f "$STATE_FILE" ]; then
+  cat > "$STATE_FILE" <<'JSON'
+{"keywordMapSeen":false,"pendingKeywordMap":false,"pendingQuery":"","lastFindScopeCommand":"","lastExpandFolderCommand":"","noMatchFolder":"","noMatchCount":0,"knownTargetFile":"","knownTargetFolder":"","knownTargetFrom":"","expandFolderCount":0,"signaturesFolderCount":0,"scopedFolders":[],"recentSearchToken":"","recentSearchCount":0,"recentSearchFirstTs":0,"lastBuildCheckCommand":"","lastBuildCheckTs":0,"lastBuildCheckTree":""}
+JSON
+fi
+
+update_state() {
+  local tmp="$STATE_FILE.tmp"
+  jq "$@" "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+}
+
+extract_search_token_family() {
+  local cmd="$1"
+  local token=""
+  if printf '%s' "$cmd" | grep -qE '(^|[;&|[:space:]])(grep|rg)\b'; then
+    token="$(printf '%s\n' "$cmd" | sed -nE 's/.*(grep|rg)[^"]*"([^"]{3,})".*/\2/p' | head -n 1)"
+    [ -z "$token" ] && token="$(printf '%s\n' "$cmd" | sed -nE "s/.*(grep|rg)[^']*'([^']{3,})'.*/\2/p" | head -n 1)"
+    [ -z "$token" ] && token="$(printf '%s\n' "$cmd" | awk '
+      {for(i=1;i<=NF;i++){
+        if($i=="grep"||$i=="rg"){
+          for(j=i+1;j<=NF;j++){
+            if($j ~ /^-/) continue;
+            print $j; exit
+          }
+        }
+      }}')"
+  elif printf '%s' "$cmd" | grep -qE '(^|[;&|[:space:]])find\b'; then
+    token="$(printf '%s\n' "$cmd" | sed -nE 's/.*-name[[:space:]]+"([^"]{3,})".*/\1/p' | head -n 1)"
+    [ -z "$token" ] && token="$(printf '%s\n' "$cmd" | sed -nE "s/.*-name[[:space:]]+'([^']{3,})'.*/\1/p" | head -n 1)"
+  fi
+  token="$(printf '%s' "$token" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_]+/ /g' | awk '{print $1}')"
+  printf '%s' "$token"
+}
+
+git_tree_fingerprint() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" status --porcelain --untracked-files=no 2>/dev/null | sha256sum | awk '{print $1}'
+  else
+    git -C "$REPO_ROOT" status --porcelain --untracked-files=no 2>/dev/null | shasum -a 256 | awk '{print $1}'
+  fi
+}
+
+extract_query_from_find_scope() {
+  local cmd="$1"
+  printf '%s\n' "$cmd" | sed -n 's/.*--query[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+}
+
+extract_file_arg_for_tool() {
+  local cmd="$1"
+  local tool="$2"
+  printf '%s\n' "$cmd" | sed -nE "s/.*ck[[:space:]]+$tool\\b[[:space:]]+\"?([^\"[:space:]]+\\.(cs|ts|tsx))\"?.*/\\1/p" | head -n 1
+}
+
+extract_scoped_folders_json() {
+  local output="$1"
+  printf '%s\n' "$output" \
+    | awk -F'\t' '/^[0-9]+\.[0-9]+\t/ {print $2}' \
+    | sed 's|\\|/|g' \
+    | sed 's|^\./||' \
+    | sed 's|/*$||' \
+    | awk 'length($0)>0' \
+    | jq -R . \
+    | jq -s 'unique'
+}
+
+# Clear pending keyword-map requirement once get-keyword-map succeeds.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+get-keyword-map\b'; then
+  update_state '.keywordMapSeen=true | .pendingKeywordMap=false | .pendingQuery="" | .noMatchFolder="" | .noMatchCount=0 | .knownTargetFile="" | .knownTargetFolder="" | .knownTargetFrom="" | .expandFolderCount=0 | .signaturesFolderCount=0 | .scopedFolders=[] | .recentSearchToken="" | .recentSearchCount=0 | .recentSearchFirstTs=0'
+  exit 0
+fi
+
+# Track find-scope outcomes.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b'; then
+  query="$(extract_query_from_find_scope "$COMMAND")"
+  [ -z "$query" ] && query="<same query>"
+  folders_json="$(extract_scoped_folders_json "$OUTPUT")"
+  [ -z "$folders_json" ] && folders_json='[]'
+
+  if printf '%s' "$OUTPUT" | grep -qF '[ck find-scope] Scope is too broad or ambiguous.'; then
+    update_state --arg cmd "$COMMAND" --arg q "$query" '
+      .lastFindScopeCommand=$cmd
+      | .pendingKeywordMap=true
+      | .pendingQuery=$q
+      | .noMatchFolder=""
+      | .noMatchCount=0
+      | .knownTargetFile=""
+      | .knownTargetFolder=""
+      | .knownTargetFrom=""
+      | .expandFolderCount=0
+      | .signaturesFolderCount=0
+      | .scopedFolders=[]
+    '
+  else
+    update_state --arg cmd "$COMMAND" --argjson folders "$folders_json" '
+      .lastFindScopeCommand=$cmd
+      | .pendingKeywordMap=false
+      | .pendingQuery=""
+      | .noMatchFolder=""
+      | .noMatchCount=0
+      | .knownTargetFile=""
+      | .knownTargetFolder=""
+      | .knownTargetFrom=""
+      | .expandFolderCount=0
+      | .signaturesFolderCount=0
+      | .scopedFolders=$folders
+    '
+  fi
+fi
+
+# Track expand-folder outcomes.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+expand-folder\b'; then
+  update_state --arg cmd "$COMMAND" '.lastExpandFolderCommand=$cmd'
+  update_state '.expandFolderCount=((.expandFolderCount // 0)+1)'
+
+  no_match_line="$(printf '%s' "$OUTPUT" | grep -F '[ck expand-folder] No signatures matched pattern' | head -n 1)"
+  if [ -n "$no_match_line" ]; then
+    folder="$(printf '%s\n' "$no_match_line" | sed -n "s/.* in '\([^']*\)'.*/\1/p" | head -n 1)"
+    if [ -n "$folder" ]; then
+      update_state --arg folder "$folder" '
+        if .noMatchFolder == $folder
+        then .noMatchCount = ((.noMatchCount // 0) + 1)
+        else .noMatchFolder = $folder | .noMatchCount = 1
+        end
+      '
+    fi
+  elif printf '%s' "$OUTPUT" | grep -qE '^[^[]+\.((cs)|(ts)|(tsx))$'; then
+    update_state '.noMatchFolder="" | .noMatchCount=0'
+  fi
+fi
+
+# Track when navigation has reached a concrete file target.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+get-method-source\b'; then
+  file="$(extract_file_arg_for_tool "$COMMAND" "get-method-source")"
+  if [ -n "$file" ] && ! printf '%s' "$OUTPUT" | grep -qE '\b(ERROR|Error)\b'; then
+    folder="$(dirname "$file")"
+    update_state --arg file "$file" --arg folder "$folder" '
+      .knownTargetFile=$file
+      | .knownTargetFolder=$folder
+      | .knownTargetFrom="get-method-source"
+    '
+  fi
+fi
+
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+(get-constructors|get-usings|get-base-types)\b'; then
+  file="$(extract_file_arg_for_tool "$COMMAND" "get-constructors")"
+  [ -z "$file" ] && file="$(extract_file_arg_for_tool "$COMMAND" "get-usings")"
+  [ -z "$file" ] && file="$(extract_file_arg_for_tool "$COMMAND" "get-base-types")"
+  if [ -n "$file" ] && ! printf '%s' "$OUTPUT" | grep -qE '\b(ERROR|Error)\b'; then
+    folder="$(dirname "$file")"
+    update_state --arg file "$file" --arg folder "$folder" --arg from "file-ast-read" '
+      .knownTargetFile=$file
+      | .knownTargetFolder=$folder
+      | .knownTargetFrom=$from
+    '
+  fi
+fi
+
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+signatures\b'; then
+  file="$(extract_file_arg_for_tool "$COMMAND" "signatures")"
+  if [ -n "$file" ] && ! printf '%s' "$OUTPUT" | grep -qE '\b(ERROR|Error)\b'; then
+    folder="$(dirname "$file")"
+    update_state --arg file "$file" --arg folder "$folder" --arg from "signatures-file" '
+      .knownTargetFile=$file
+      | .knownTargetFolder=$folder
+      | .knownTargetFrom=$from
+    '
+  elif [ -z "$file" ] && ! printf '%s' "$OUTPUT" | grep -qE '\b(ERROR|Error)\b'; then
+    update_state '.signaturesFolderCount=((.signaturesFolderCount // 0)+1)'
+  fi
+fi
+
+# Track repetitive grep/find token families.
+if printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])(grep|rg|find)\b'; then
+  now_epoch="$(date +%s)"
+  token_family="$(extract_search_token_family "$COMMAND")"
+  if [ -n "$token_family" ]; then
+    update_state --arg token "$token_family" --argjson now "$now_epoch" '
+      if .recentSearchToken == $token and ((($now - (.recentSearchFirstTs // 0)) <= 90))
+      then .recentSearchCount=((.recentSearchCount // 0)+1)
+      else .recentSearchToken=$token | .recentSearchCount=1 | .recentSearchFirstTs=$now
+      end
+    '
+  fi
+fi
+
+# Track last build-check invocation for dedupe guards.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+build-check\b'; then
+  now_epoch="$(date +%s)"
+  tree_fp="$(git_tree_fingerprint)"
+  update_state --arg cmd "$COMMAND" --argjson now "$now_epoch" --arg tree "$tree_fp" '
+    .lastBuildCheckCommand=$cmd
+    | .lastBuildCheckTs=$now
+    | .lastBuildCheckTree=$tree
+  '
+fi
+
+# Existing score-cluster hint (find-scope only).
+if ! printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b'; then
+  exit 0
+fi
+
 [ -z "$OUTPUT" ] && exit 0
 
-# Parse score column from lines formatted as "<float>\t<folder-path>".
-# Compute count, min, and max in a single awk pass.
 STATS=$(printf '%s' "$OUTPUT" | awk -F'\t' '
   /^[0-9]+\.[0-9]+\t/ {
     s = $1 + 0
@@ -50,7 +246,6 @@ COUNT=$(printf '%s' "$STATS" | awk '{print $1}')
 MIN=$(printf '%s'   "$STATS" | awk '{print $2}')
 MAX=$(printf '%s'   "$STATS" | awk '{print $3}')
 
-# Require at least 5 results; check avg_gap = spread/(count-1) <= 0.01 and min > 0.70
 HINT=$(printf '%s %s %s' "$COUNT" "$MIN" "$MAX" | awk '{
   count = $1; min = $2; max = $3
   spread = max - min

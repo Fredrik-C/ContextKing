@@ -6,32 +6,40 @@ description: List files in a folder with their signatures, filtered by an option
 # ck expand-folder — Filtered Signature Listing
 
 Expands a folder into a per-file signature list, optionally filtered by a regex pattern.
-Use this as the **EXPLORE step** after `ck find-scope` — it shows which files contain
-relevant members without dumping everything.
+Use this as the **EXPLORE step** after `ck find-scope` when the area is still uncharted.
+It shows which files contain relevant members without dumping everything.
 
 ## When to use
 
 - You got a folder from `ck find-scope` and want to narrow it down to relevant files.
 - The folder is large and `ck signatures` would return too much to scan.
-- You have a keyword (e.g. "Refund", "async Task", "ITerminal") and want to see which
-  files and members match before deciding which to read in full.
+- You have 2-4 high-signal keywords (provider/domain + workflow + symbol/DTO/type),
+  and want to see which files and members match before deciding which method to read.
+- You are still in map-building mode (before a concrete target file is known).
 
 ## When NOT to use
 
-- You already know the exact file → use `ck signatures <file>` or `ck get-method-source` directly.
+- You already know the exact file/member in this area → use `ck signatures <file>` or `ck get-method-source` directly.
 - You need to see **all** members in a small folder → use `ck signatures <folder>`.
 
 ## Command
 
 ```bash
-.claude/skills/ck/ck expand-folder [--pattern <regex>] <folder>
+.claude/skills/ck/ck expand-folder [--pattern <regex>] [--all] <folder>
 ```
 
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--pattern <regex>` | show all | Case-insensitive regex matched against `containingType`, `memberName`, and `signature` text. Files with zero matches are excluded from output. |
+| `--pattern <regex>` | show all for small folders only | Case-insensitive regex matched against `containingType`, `memberName`, and `signature` text. Files with zero matches are excluded from output. Broad matches are refused with keyword hints. Use 2-4 high-signal terms, not a single generic word. |
+| `--all` | off | Allow broad output intentionally. Do not use this as a workaround for an imprecise pattern. |
+
+If the command says `Pattern is too broad`, do not pipe or truncate the output. Rerun with more precision using the printed `add-keyword-hints`, for example provider + workflow + DTO/type/member words.
+
+If you already reached a concrete file in this direction, do not go back to `expand-folder`. Continue with `ck signatures <file>` and `ck get-method-source <file> <MemberName>`. If direction changed, run a new `find-scope` first.
+
+Budget rule: use at most 3 `expand-folder` calls per direction. After that, either move to targeted file reads or re-scope.
 
 ## Output
 
@@ -48,7 +56,7 @@ One block per file. Files with no matching signatures are omitted entirely.
 ## Examples
 
 ```bash
-# All signatures grouped by file (no filter)
+# All signatures grouped by file (small folders only)
 .claude/skills/ck/ck expand-folder src/Modules/Payment/Adyen/
 
 # Filter to members mentioning "Refund"
@@ -64,7 +72,9 @@ One block per file. Files with no matching signatures are omitted entirely.
 ## Workflow integration
 
 ```
-1. ck find-scope   → discover the right folder
-2. ck expand-folder --pattern "<keyword>" <folder>  → see which files and members match
-3. ck get-method-source <file> <MemberName>         → read the full method body
+0. ck get-keyword-map --query "..."                                → keywords = source of truth
+1. ck find-scope --query "..." (using terms from step 0)           → folders = source of truth
+2. ck expand-folder --pattern "<2-4 precise keywords>" <folder>    → see which files and members match
+   (grep/rg/glob are also fine within the scoped folder)
+3. ck get-method-source <file> <MemberName>                        → read the method body
 ```

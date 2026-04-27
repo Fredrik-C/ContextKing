@@ -25,7 +25,7 @@ $context = @"
 $protocol
 
 The ck binary is at: .claude\skills\ck\ck.cmd
-Use ck find-scope, ck signatures, and ck get-method-source instead of broad grep/glob.
+Use ck find-scope, ck expand-folder --pattern, and ck get-method-source instead of broad grep/glob.
 "@
 
 @{

@@ -1,6 +1,8 @@
 using ContextKing.Core;
 using ContextKing.Core.Ast;
 using ContextKing.Core.Ast.TypeScript;
+using ContextKing.Core.SourceMap;
+using ContextKing.Cli.KeywordAtlas;
 using System.Text.RegularExpressions;
 
 namespace ContextKing.Cli.Commands;
@@ -12,6 +14,10 @@ namespace ContextKing.Cli.Commands;
 /// </summary>
 internal static class ExpandFolderCommand
 {
+    private const int MaxFilesWithoutPattern = 30;
+    private const int MaxMatchedFiles = 8;
+    private const int MaxMatchedSignatures = 50;
+
     internal static Task<int> RunAsync(string[] args)
     {
         var reader = new ArgReader(args);
@@ -22,6 +28,7 @@ internal static class ExpandFolderCommand
         }
 
         var pattern     = reader.GetString("--pattern");
+        var allowBroad  = reader.HasFlag("--all");
         var positionals = reader.RemainingPositionals();
         var folderPath  = positionals.Count > 0 ? positionals[0] : null;
 
@@ -71,6 +78,35 @@ internal static class ExpandFolderCommand
             return Task.FromResult(0);
         }
 
+        // Guard against accidentally passing a top-level or very broad folder.
+        // At this scale, ck find-scope is the right starting point.
+        if (allFiles.Count > 300)
+        {
+            Console.Error.WriteLine(
+                $"[ck expand-folder] WARNING: '{folderPath}' contains {allFiles.Count} source files — " +
+                "this is too broad for expand-folder.");
+            if (pattern is null && !allowBroad)
+            {
+                Console.Error.WriteLine(
+                    "[ck expand-folder] Run 'ck find-scope --query \"<what you are looking for>\"' " +
+                    "to narrow to a relevant sub-folder first, then expand that sub-folder.");
+                return Task.FromResult(1);
+            }
+            if (!allowBroad)
+                Console.Error.WriteLine(
+                    "[ck expand-folder] Proceeding with --pattern filter, but will refuse if the matched output is still broad.");
+        }
+
+        if (pattern is null && allFiles.Count > MaxFilesWithoutPattern && !allowBroad)
+        {
+            Console.Error.WriteLine(
+                $"[ck expand-folder] Refusing unfiltered expansion of {allFiles.Count} files in '{folderPath}'.");
+            Console.Error.WriteLine(
+                "[ck expand-folder] Add --pattern with at least one precise symbol/domain word, " +
+                "or rerun ck find-scope with a narrower query. Use --all only when broad output is intentional.");
+            return Task.FromResult(1);
+        }
+
         // Capture all signature output into a string buffer
         var csFiles = allFiles.Where(SupportedLanguages.IsCSharp).ToList();
         var tsFiles = allFiles.Where(SupportedLanguages.IsTypeScript).ToList();
@@ -83,7 +119,7 @@ internal static class ExpandFolderCommand
 
         // Parse captured lines and group by normalised file path.
         // Line format: filepath:line\tcontainingType\tmemberName\tsignature
-        var byFile = new Dictionary<string, List<(int lineNo, string rest)>>(StringComparer.Ordinal);
+        var byFile = new Dictionary<string, List<SignatureEntry>>(StringComparer.Ordinal);
 
         foreach (var raw in captured.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -105,11 +141,26 @@ internal static class ExpandFolderCommand
             if (!byFile.TryGetValue(filePath, out var entries))
                 byFile[filePath] = entries = [];
 
-            entries.Add((lineNum, rest));
+            entries.Add(new SignatureEntry(lineNum, rest));
         }
 
-        // Emit results in file-enumeration order, applying the optional filter
-        bool anyOutput = false;
+        var patternTerms = pattern is null ? [] : PatternTerms(pattern);
+        var atlas = SessionKeywordAtlasStore.LoadForFolder(folderPath);
+
+        if (!allowBroad &&
+            pattern is not null &&
+            allFiles.Count > 40 &&
+            patternTerms.Count < 2)
+        {
+            Console.WriteLine("[ck expand-folder] Pattern is under-specified for this folder size.");
+            Console.WriteLine($"[ck expand-folder] matched-pattern-keywords: {FormatList(patternTerms)}");
+            var atlasHints = AtlasKeywordHints(atlas, patternTerms, 16);
+            Console.WriteLine($"[ck expand-folder] add-keyword-hints: {FormatList(atlasHints)}");
+            Console.WriteLine("[ck expand-folder] Use at least two precise terms (for example concept + workflow, or provider + symbol).");
+            return Task.FromResult(1);
+        }
+
+        var matchedByFile = new List<(string File, List<SignatureEntry> Entries)>();
         foreach (var file in allFiles)
         {
             var normalized = file.Replace('\\', '/');
@@ -124,6 +175,42 @@ internal static class ExpandFolderCommand
             if (matched.Count == 0)
                 continue;
 
+            matchedByFile.Add((normalized, matched));
+        }
+
+        if (matchedByFile.Count == 0)
+        {
+            // Print to stdout (not stderr) so the agent sees this even when stderr is suppressed.
+            Console.WriteLine(
+                filterRegex is not null
+                    ? $"[ck expand-folder] No signatures matched pattern '{pattern}' in '{folderPath}' ({allFiles.Count} files scanned)"
+                    : $"[ck expand-folder] No signatures found in '{folderPath}'");
+
+            var hints = KeywordHints(byFile.SelectMany(kvp => kvp.Value), patternTerms);
+            var mergedHints = MergeHints(hints, AtlasKeywordHints(atlas, patternTerms, 16), 20);
+            if (mergedHints.Count > 0)
+                Console.WriteLine($"[ck expand-folder] keyword-hints: {string.Join(", ", mergedHints)}");
+
+            return Task.FromResult(0);
+        }
+
+        var matchedSignatureCount = matchedByFile.Sum(x => x.Entries.Count);
+        if (!allowBroad && IsTooBroad(pattern, patternTerms, allFiles.Count, matchedByFile.Count, matchedSignatureCount))
+        {
+            Console.WriteLine("[ck expand-folder] Pattern is too broad for safe expansion. Output suppressed.");
+            Console.WriteLine($"[ck expand-folder] matched-files={matchedByFile.Count} matched-signatures={matchedSignatureCount} scanned-files={allFiles.Count}");
+            Console.WriteLine($"[ck expand-folder] matched-pattern-keywords: {FormatList(patternTerms)}");
+            var hints = KeywordHints(matchedByFile.SelectMany(x => x.Entries), patternTerms);
+            var mergedHints = MergeHints(hints, AtlasKeywordHints(atlas, patternTerms, 20), 24);
+            Console.WriteLine($"[ck expand-folder] add-keyword-hints: {FormatList(mergedHints)}");
+            Console.WriteLine("[ck expand-folder] Rerun with a more precise --pattern, for example combine provider + workflow + DTO/method term. Use --all only when broad output is intentional.");
+            return Task.FromResult(1);
+        }
+
+        // Emit results in file-enumeration order.
+        bool anyOutput = false;
+        foreach (var (normalized, matched) in matchedByFile)
+        {
             if (anyOutput)
                 Console.WriteLine();
 
@@ -134,17 +221,127 @@ internal static class ExpandFolderCommand
             anyOutput = true;
         }
 
-        if (!anyOutput)
-        {
-            // Print to stdout (not stderr) so the agent sees this even when stderr is suppressed.
-            Console.WriteLine(
-                filterRegex is not null
-                    ? $"[ck expand-folder] No signatures matched pattern '{pattern}' in '{folderPath}' ({allFiles.Count} files scanned)"
-                    : $"[ck expand-folder] No signatures found in '{folderPath}'");
-        }
-
         return Task.FromResult(0);
     }
+
+    private static bool IsTooBroad(
+        string? pattern,
+        IReadOnlyList<string> patternTerms,
+        int scannedFiles,
+        int matchedFiles,
+        int matchedSignatures)
+    {
+        if (pattern is null)
+            return scannedFiles > MaxFilesWithoutPattern;
+
+        if (patternTerms.Count == 0 && scannedFiles > 8)
+            return true;
+
+        return matchedFiles > MaxMatchedFiles || matchedSignatures > MaxMatchedSignatures;
+    }
+
+    private static IReadOnlyList<string> PatternTerms(string pattern)
+    {
+        var normalized = Regex.Replace(pattern.Replace(@"\|", "|"), @"[^\p{L}\p{Nd}_]+", " ");
+        return LowRankDictionary.FilterHighRank(PathTokenizer.TokenizeQuery(normalized));
+    }
+
+    private static IReadOnlyList<string> KeywordHints(IEnumerable<SignatureEntry> entries, IReadOnlyList<string> patternTerms)
+    {
+        var existing = patternTerms.ToHashSet(StringComparer.Ordinal);
+        var stats = new Dictionary<string, HintStats>(StringComparer.Ordinal);
+
+        foreach (var entry in entries)
+        {
+            var tokens = PathTokenizer
+                .TokenizeQuery(Regex.Replace(entry.rest, @"[^\p{L}\p{Nd}_]+", " "))
+                .Where(t => IsUsefulHint(t, existing))
+                .ToArray();
+
+            foreach (var group in tokens.GroupBy(t => t, StringComparer.Ordinal))
+            {
+                var term = group.Key;
+                if (!stats.TryGetValue(term, out var hintStats))
+                    stats[term] = hintStats = new HintStats();
+
+                hintStats.DocumentCount++;
+                hintStats.OccurrenceCount += group.Count();
+            }
+        }
+
+        return stats
+            .OrderByDescending(kvp => HintScore(kvp.Value))
+            .ThenBy(kvp => kvp.Value.DocumentCount)
+            .ThenBy(kvp => StableHash(kvp.Key))
+            .Take(16)
+            .Select(kvp => kvp.Key)
+            .ToArray();
+    }
+
+    private static float HintScore(HintStats stats)
+        => stats.OccurrenceCount / MathF.Pow(stats.DocumentCount, 1.35f);
+
+    private static bool IsUsefulHint(string token, HashSet<string> existing)
+        => token.Length >= 3
+           && token.Any(char.IsLetter)
+           && !existing.Contains(token)
+           && !LowRankDictionary.Contains(token);
+
+    private sealed class HintStats
+    {
+        public int DocumentCount { get; set; }
+        public int OccurrenceCount { get; set; }
+    }
+
+    private static IReadOnlyList<string> AtlasKeywordHints(
+        SessionKeywordAtlas? atlas,
+        IReadOnlyList<string> existingTerms,
+        int maxHints)
+    {
+        if (atlas is null)
+            return [];
+
+        var existing = existingTerms.ToHashSet(StringComparer.Ordinal);
+        return atlas.HighValueTerms
+            .Where(t => !existing.Contains(t))
+            .Take(maxHints)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> MergeHints(
+        IReadOnlyList<string> localHints,
+        IReadOnlyList<string> atlasHints,
+        int maxHints)
+    {
+        var merged = new List<string>(maxHints);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var hint in atlasHints.Concat(localHints))
+        {
+            if (seen.Add(hint))
+                merged.Add(hint);
+            if (merged.Count >= maxHints)
+                break;
+        }
+
+        return merged;
+    }
+
+    private static int StableHash(string value)
+    {
+        unchecked
+        {
+            var hash = 17;
+            foreach (var c in value)
+                hash = hash * 31 + c;
+            return hash;
+        }
+    }
+
+    private static string FormatList(IReadOnlyList<string> terms)
+        => terms.Count == 0 ? "-" : string.Join(", ", terms);
+
+    private readonly record struct SignatureEntry(int lineNo, string rest);
 
     private static void PrintHelp()
     {
@@ -161,7 +358,9 @@ internal static class ExpandFolderCommand
               --pattern <regex>   Case-insensitive regex to filter signatures.
                                   Matched against containingType, memberName, and signature text.
                                   Files with no matching signatures are excluded from output.
-                                  If omitted, all signatures in all files are shown.
+                                  If omitted, all signatures in all files are shown only for small folders.
+                                  Broad matches are refused with keyword hints.
+              --all               Allow broad output intentionally.
               --help, -h          Show this help
 
             Output (stdout):

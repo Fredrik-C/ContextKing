@@ -20,9 +20,16 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
     /// to decide the ranking.
     /// </summary>
     private const float ExactMatchBonus = 0.30f;
+    private const float MaxFileCountPenalty = 0.18f;
+    private const float MaxTokenCountPenalty = 0.12f;
+    private const float MiscFolderPenalty = 0.08f;
+    private const float GenericArchitecturePenalty = 0.06f;
 
     /// <summary>Score added when a folder explicitly contains a must token.</summary>
-    private const float MustBonus = 0.15f;
+    private const float MustBonus = 0.22f;
+
+    /// <summary>Score subtracted when --must is provided but the folder has no must token.</summary>
+    private const float MissingMustPenalty = 0.08f;
 
     /// <summary>
     /// Score subtracted when a folder does NOT contain any must token but its
@@ -68,6 +75,16 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
         int topK = 10,
         float minScore = 0f,
         IReadOnlyList<string>? mustTexts = null)
+        => SearchDetailed(dbPath, query, topK, minScore, mustTexts)
+            .Select(r => new ScoredFolder(r.Path, r.Score))
+            .ToArray();
+
+    public IReadOnlyList<ScoredFolderDetails> SearchDetailed(
+        string dbPath,
+        string query,
+        int topK = 10,
+        float minScore = 0f,
+        IReadOnlyList<string>? mustTexts = null)
     {
         var folders = new SourceMapIndex(dbPath).LoadIndexedFolders();
         if (folders.Count == 0) return [];
@@ -87,17 +104,30 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
         if (mustTexts is { Count: > 0 })
             (mustEmbedding, mustTermSet) = BuildMustState(mustTexts);
 
-        var scored = new List<ScoredFolder>(folders.Count);
+        var scored = new List<ScoredFolderDetails>(folders.Count);
         foreach (var folder in folders)
         {
-            var semantic = CosineSimilarity(queryVec, folder.Embedding);
-            var exact    = MatchFraction(highRankTerms, folder.CombinedTokens);
-            var score    = semantic + ExactMatchBonus * exact;
+            var semantic     = CosineSimilarity(queryVec, folder.Embedding);
+            var matchedTerms = MatchedTerms(highRankTerms, folder.CombinedTokens);
+            var exactBonus   = highRankTerms.Count == 0 ? 0f : ExactMatchBonus * matchedTerms.Count / highRankTerms.Count;
+            var mustAdjust   = mustEmbedding is not null && mustTermSet is not null
+                ? MustAdjustment(folder, mustEmbedding, mustTermSet)
+                : 0f;
+            var noisePenalty = NoisePenalty(folder, highRankTerms);
+            var score        = semantic + exactBonus + mustAdjust - noisePenalty;
 
-            if (mustEmbedding is not null && mustTermSet is not null)
-                score += MustAdjustment(folder, mustEmbedding, mustTermSet);
-
-            scored.Add(new ScoredFolder(folder.Path, score));
+            scored.Add(new ScoredFolderDetails(
+                folder.Path,
+                score,
+                semantic,
+                exactBonus,
+                mustAdjust,
+                noisePenalty,
+                folder.FileCount,
+                folder.TokenCount,
+                matchedTerms,
+                TopUnmatchedFolderTerms(folder.CombinedTokens, highRankTerms),
+                folder.CombinedTokens));
         }
 
         scored.Sort((a, b) => b.Score.CompareTo(a.Score));
@@ -164,27 +194,102 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
 
         // No must token present — check if this folder is about a competing concept
         var simToMust = CosineSimilarity(mustEmbedding, folder.Embedding);
-        return simToMust > CompetingThreshold ? -CompetingPenalty : 0f;
+        return simToMust > CompetingThreshold ? -CompetingPenalty : -MissingMustPenalty;
     }
 
     // ── Scoring helpers ───────────────────────────────────────────────────────
 
-    /// <summary>Fraction of high-rank query terms found in the folder's combined token string [0, 1].
-    /// Returns 0 when there are no high-rank terms (avoids dividing by zero and prevents
-    /// all-low-rank queries from granting an artificial exact-match boost).</summary>
-    private static float MatchFraction(IReadOnlyList<string> highRankTerms, string combinedTokens)
+    private static IReadOnlyList<string> MatchedTerms(IReadOnlyList<string> highRankTerms, string combinedTokens)
     {
-        if (highRankTerms.Count == 0 || string.IsNullOrEmpty(combinedTokens)) return 0f;
+        if (highRankTerms.Count == 0 || string.IsNullOrEmpty(combinedTokens)) return [];
 
         var folderTokens = combinedTokens
             .Split(' ', StringSplitOptions.RemoveEmptyEntries)
             .ToHashSet(StringComparer.Ordinal);
 
-        int matched = 0;
-        foreach (var term in highRankTerms)
-            if (folderTokens.Contains(term)) matched++;
+        return highRankTerms.Where(folderTokens.Contains).ToArray();
+    }
 
-        return (float)matched / highRankTerms.Count;
+    private static IReadOnlyList<string> TopUnmatchedFolderTerms(string combinedTokens, IReadOnlyList<string> highRankTerms)
+    {
+        if (string.IsNullOrWhiteSpace(combinedTokens)) return [];
+
+        var query = highRankTerms.ToHashSet(StringComparer.Ordinal);
+        return combinedTokens
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => t.Length >= 3 && !query.Contains(t) && !LowRankDictionary.Contains(t))
+            .GroupBy(t => t, StringComparer.Ordinal)
+            .OrderByDescending(g => g.Count())
+            .ThenByDescending(g => g.Key.Length)
+            .ThenBy(g => StableHash(g.Key))
+            .Take(12)
+            .Select(g => g.Key)
+            .ToArray();
+    }
+
+    private static int StableHash(string value)
+    {
+        unchecked
+        {
+            var hash = 17;
+            foreach (var c in value)
+                hash = hash * 31 + c;
+            return hash;
+        }
+    }
+
+    private static float NoisePenalty(IndexedFolder folder, IReadOnlyList<string> highRankTerms)
+    {
+        var fileCount = folder.FileCount;
+        if (fileCount <= 0 && !string.IsNullOrEmpty(folder.CombinedTokens))
+            fileCount = 1;
+
+        var tokenCount = folder.TokenCount;
+        if (tokenCount <= 0 && !string.IsNullOrEmpty(folder.CombinedTokens))
+            tokenCount = folder.CombinedTokens.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+
+        var penalty = 0f;
+
+        if (fileCount > 20)
+            penalty += Math.Min(MaxFileCountPenalty, MathF.Log2(fileCount / 20f) * 0.035f);
+
+        if (tokenCount > 120)
+            penalty += Math.Min(MaxTokenCountPenalty, MathF.Log2(tokenCount / 120f) * 0.025f);
+
+        if (IsMiscellaneousFolder(folder.Path))
+            penalty += MiscFolderPenalty;
+
+        if (IsGenericArchitectureFolder(folder.Path, highRankTerms))
+            penalty += GenericArchitecturePenalty;
+
+        return penalty;
+    }
+
+    private static bool IsMiscellaneousFolder(string path)
+    {
+        foreach (var segment in path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var s = segment.ToLowerInvariant();
+            if (s is "temporary" or "temp" or "tmp" or "migration" or "migrations" or "legacy")
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsGenericArchitectureFolder(string path, IReadOnlyList<string> highRankTerms)
+    {
+        var query = highRankTerms.ToHashSet(StringComparer.Ordinal);
+        foreach (var segment in path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var s = segment.ToLowerInvariant();
+            if ((s is "event" or "events") && !query.Overlaps(["event", "events", "notification", "notifications", "webhook", "webhooks"]))
+                return true;
+            if ((s is "job" or "jobs" or "worker" or "workers") && !query.Overlaps(["job", "jobs", "worker", "workers", "background", "queue", "queued"]))
+                return true;
+            if ((s is "finance" or "accounting") && !query.Overlaps(["finance", "accounting", "ledger", "invoice", "invoices"]))
+                return true;
+        }
+        return false;
     }
 
     private static float CosineSimilarity(float[] a, float[] b)

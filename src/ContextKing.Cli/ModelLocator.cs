@@ -35,6 +35,11 @@ internal static class ModelLocator
         }
         catch { /* git unavailable — fall through */ }
 
+        // Global user install: ~/.ck/models/bge-small-en-v1.5
+        var homeDir     = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var globalModel = Path.Combine(homeDir, ".ck", "models", "bge-small-en-v1.5");
+        if (Directory.Exists(globalModel)) return globalModel;
+
         var exeDir   = AppContext.BaseDirectory;
         var relModel = Path.GetFullPath(
             Path.Combine(exeDir, "..", "..", "models", "bge-small-en-v1.5"));
@@ -52,6 +57,6 @@ internal static class ModelLocator
 
         throw new DirectoryNotFoundException(
             "Could not locate the bge-small-en-v1.5 model directory. " +
-            "Set CK_MODEL_DIR env var or run the deploy script to place the model in .claude/models/.");
+            "Install ck globally (see install-global.sh) or set the CK_MODEL_DIR env var.");
     }
 }

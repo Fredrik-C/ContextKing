@@ -19,6 +19,51 @@ public enum SourceMode
 /// </summary>
 public static class MethodSourceExtractor
 {
+    /// <summary>
+    /// Extracts all constructors from a C# file, optionally filtered by containing type name.
+    /// Avoids the "pass class name as member name" requirement of <see cref="Extract"/>.
+    /// </summary>
+    public static IReadOnlyList<MethodSourceResult> ExtractAllConstructors(
+        string filePath,
+        string? typeFilter,
+        SourceMode mode)
+    {
+        var source  = File.ReadAllText(filePath);
+        var tree    = CSharpSyntaxTree.ParseText(source, path: filePath);
+        var root    = tree.GetRoot();
+        var lines   = tree.GetText().Lines;
+        var results = new List<MethodSourceResult>();
+
+        foreach (var c in root.DescendantNodes().OfType<ConstructorDeclarationSyntax>())
+        {
+            var containingType = GetContainingTypeName(c);
+            if (typeFilter is not null &&
+                !containingType.Equals(typeFilter, StringComparison.Ordinal) &&
+                !containingType.EndsWith("." + typeFilter, StringComparison.Ordinal))
+                continue;
+
+            var (content, startChar, endChar) = ExtractContent(c, source, mode);
+            if (content is null) continue;
+
+            var startLine = lines.GetLineFromPosition(startChar).LineNumber + 1;
+            var endLine   = lines.GetLineFromPosition(Math.Max(startChar, endChar - 1)).LineNumber + 1;
+
+            results.Add(new MethodSourceResult(
+                File:           filePath,
+                MemberName:     c.Identifier.Text,
+                ContainingType: containingType,
+                Signature:      BuildSignature(c),
+                Mode:           ModeLabel(mode),
+                StartLine:      startLine,
+                EndLine:        endLine,
+                StartChar:      startChar,
+                EndChar:        endChar,
+                Content:        content));
+        }
+
+        return results;
+    }
+
     public static IReadOnlyList<MethodSourceResult> Extract(
         string filePath,
         string memberName,

@@ -7,7 +7,25 @@ namespace ContextKing.Core.SourceMap;
 // ── Data transfer objects between index and callers ────────────────────────────
 
 /// <summary>Per-folder state stored in the index, used to decide what needs re-embedding.</summary>
-internal record struct StoredFolderState(string FileHashes, string? FilenameSet);
+internal record struct StoredFolderState(string FileHashes, string? FilenameSet, int FileCount, int TokenCount);
+
+/// <summary>A knowledge row ready to be written to the index.</summary>
+internal sealed record KnowledgeRow(
+    string Id,
+    string Content,
+    byte[] Embedding,
+    string? Tags,
+    string? Folders,
+    string? Source,
+    string? CreatedAt);
+
+/// <summary>A knowledge row loaded from the index for scoring.</summary>
+internal sealed record IndexedKnowledge(
+    string Id,
+    string Content,
+    float[] Embedding,
+    string? Tags,
+    string? Folders);
 
 /// <summary>A fully populated folder row ready to be written to the index.</summary>
 internal sealed record FolderRow(
@@ -16,14 +34,18 @@ internal sealed record FolderRow(
     string EmbeddingText,
     byte[] EmbeddingBlob,
     string FileHashes,
-    string FilenameSet);
+    string FilenameSet,
+    int FileCount = 0,
+    int TokenCount = 0);
 
 /// <summary>A folder row loaded from the index for scoring.</summary>
 internal sealed record IndexedFolder(
     string Path,
     float[] Embedding,
     string CombinedTokens,
-    string EmbeddingText);
+    string EmbeddingText,
+    int FileCount,
+    int TokenCount);
 
 // ── Index ──────────────────────────────────────────────────────────────────────
 
@@ -74,7 +96,7 @@ internal sealed class SourceMapIndex(string dbPath)
     {
         using var conn = OpenReadOnly();
         using var cmd  = conn.CreateCommand();
-        cmd.CommandText = "SELECT path, file_hashes, filename_set FROM folders";
+        cmd.CommandText = "SELECT path, file_hashes, filename_set, file_count, token_count FROM folders";
 
         var result = new Dictionary<string, StoredFolderState>(StringComparer.Ordinal);
         using var reader = cmd.ExecuteReader();
@@ -83,7 +105,9 @@ internal sealed class SourceMapIndex(string dbPath)
             var path        = reader.GetString(0);
             var hashes      = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
             var filenameSet = reader.IsDBNull(2) ? null         : reader.GetString(2);
-            result[path]    = new StoredFolderState(hashes, filenameSet);
+            var fileCount   = reader.IsDBNull(3) ? 0            : reader.GetInt32(3);
+            var tokenCount  = reader.IsDBNull(4) ? 0            : reader.GetInt32(4);
+            result[path]    = new StoredFolderState(hashes, filenameSet, fileCount, tokenCount);
         }
         return result;
     }
@@ -97,7 +121,7 @@ internal sealed class SourceMapIndex(string dbPath)
         using var conn = OpenReadOnly();
         using var cmd  = conn.CreateCommand();
         cmd.CommandText =
-            "SELECT path, embedding, combined_tokens, embedding_text FROM folders WHERE embedding IS NOT NULL";
+            "SELECT path, embedding, combined_tokens, embedding_text, file_count, token_count FROM folders WHERE embedding IS NOT NULL";
 
         var result = new List<IndexedFolder>();
         using var reader = cmd.ExecuteReader();
@@ -107,7 +131,9 @@ internal sealed class SourceMapIndex(string dbPath)
             var embedding      = DecodeEmbedding((byte[])reader.GetValue(1));
             var combinedTokens = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
             var embeddingText  = reader.IsDBNull(3) ? combinedTokens : reader.GetString(3);
-            result.Add(new IndexedFolder(path, embedding, combinedTokens, embeddingText));
+            var fileCount      = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+            var tokenCount     = reader.IsDBNull(5) ? CountTokens(combinedTokens) : reader.GetInt32(5);
+            result.Add(new IndexedFolder(path, embedding, combinedTokens, embeddingText, fileCount, tokenCount));
         }
         return result;
     }
@@ -137,30 +163,36 @@ internal sealed class SourceMapIndex(string dbPath)
         using var cmd  = conn.CreateCommand();
         cmd.Transaction = txn;
         cmd.CommandText = """
-            INSERT INTO folders (path, combined_tokens, embedding_text, embedding, file_hashes, filename_set)
-                VALUES ($path, $tokens, $etext, $blob, $hashes, $fs)
+            INSERT INTO folders (path, combined_tokens, embedding_text, embedding, file_hashes, filename_set, file_count, token_count)
+                VALUES ($path, $tokens, $etext, $blob, $hashes, $fs, $file_count, $token_count)
             ON CONFLICT(path) DO UPDATE SET
                 combined_tokens = excluded.combined_tokens,
                 embedding_text  = excluded.embedding_text,
                 embedding       = excluded.embedding,
                 file_hashes     = excluded.file_hashes,
-                filename_set    = excluded.filename_set
+                filename_set    = excluded.filename_set,
+                file_count      = excluded.file_count,
+                token_count     = excluded.token_count
             """;
-        var pPath   = cmd.Parameters.Add("$path",   SqliteType.Text);
-        var pTokens = cmd.Parameters.Add("$tokens", SqliteType.Text);
-        var pEText  = cmd.Parameters.Add("$etext",  SqliteType.Text);
-        var pBlob   = cmd.Parameters.Add("$blob",   SqliteType.Blob);
-        var pHashes = cmd.Parameters.Add("$hashes", SqliteType.Text);
-        var pFs     = cmd.Parameters.Add("$fs",     SqliteType.Text);
+        var pPath       = cmd.Parameters.Add("$path",        SqliteType.Text);
+        var pTokens     = cmd.Parameters.Add("$tokens",      SqliteType.Text);
+        var pEText      = cmd.Parameters.Add("$etext",       SqliteType.Text);
+        var pBlob       = cmd.Parameters.Add("$blob",        SqliteType.Blob);
+        var pHashes     = cmd.Parameters.Add("$hashes",      SqliteType.Text);
+        var pFs         = cmd.Parameters.Add("$fs",          SqliteType.Text);
+        var pFileCount  = cmd.Parameters.Add("$file_count",  SqliteType.Integer);
+        var pTokenCount = cmd.Parameters.Add("$token_count", SqliteType.Integer);
 
         foreach (var row in rows)
         {
-            pPath.Value   = row.Path;
-            pTokens.Value = row.CombinedTokens;
-            pEText.Value  = row.EmbeddingText;
-            pBlob.Value   = row.EmbeddingBlob;
-            pHashes.Value = row.FileHashes;
-            pFs.Value     = row.FilenameSet;
+            pPath.Value       = row.Path;
+            pTokens.Value     = row.CombinedTokens;
+            pEText.Value      = row.EmbeddingText;
+            pBlob.Value       = row.EmbeddingBlob;
+            pHashes.Value     = row.FileHashes;
+            pFs.Value         = row.FilenameSet;
+            pFileCount.Value  = row.FileCount;
+            pTokenCount.Value = row.TokenCount;
             cmd.ExecuteNonQuery();
         }
         txn.Commit();
@@ -217,6 +249,93 @@ internal sealed class SourceMapIndex(string dbPath)
         return floats;
     }
 
+    // ── Knowledge schema + CRUD ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Creates the knowledge table if it does not exist.
+    /// Safe to call repeatedly — all operations are idempotent.
+    /// </summary>
+    public void EnsureKnowledgeSchema()
+    {
+        using var conn = Open();
+        NonQuery(conn, """
+            CREATE TABLE IF NOT EXISTS knowledge (
+                id         TEXT PRIMARY KEY,
+                content    TEXT NOT NULL,
+                embedding  BLOB NOT NULL,
+                tags       TEXT,
+                folders    TEXT,
+                source     TEXT,
+                created_at TEXT
+            )
+            """);
+        // Reuse the existing meta table for knowledge_snippets_hash
+        NonQuery(conn, """
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """);
+    }
+
+    public IReadOnlyList<IndexedKnowledge> LoadKnowledgeRows()
+    {
+        if (!Exists) return [];
+        using var conn = OpenReadOnly();
+        using var cmd  = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, content, embedding, tags, folders FROM knowledge";
+
+        var result = new List<IndexedKnowledge>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new IndexedKnowledge(
+                reader.GetString(0),
+                reader.GetString(1),
+                DecodeEmbedding((byte[])reader.GetValue(2)),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4)));
+        }
+        return result;
+    }
+
+    /// <summary>Replaces all knowledge rows in a single transaction.</summary>
+    public void ReplaceAllKnowledge(IReadOnlyList<KnowledgeRow> rows)
+    {
+        using var conn = Open();
+        NonQuery(conn, "DELETE FROM knowledge");
+
+        if (rows.Count == 0) return;
+
+        using var txn = conn.BeginTransaction();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = txn;
+        cmd.CommandText = """
+            INSERT INTO knowledge (id, content, embedding, tags, folders, source, created_at)
+                VALUES ($id, $content, $blob, $tags, $folders, $source, $created_at)
+            """;
+        var pId  = cmd.Parameters.Add("$id",         SqliteType.Text);
+        var pCnt = cmd.Parameters.Add("$content",    SqliteType.Text);
+        var pBlb = cmd.Parameters.Add("$blob",        SqliteType.Blob);
+        var pTgs = cmd.Parameters.Add("$tags",        SqliteType.Text);
+        var pFld = cmd.Parameters.Add("$folders",     SqliteType.Text);
+        var pSrc = cmd.Parameters.Add("$source",      SqliteType.Text);
+        var pCat = cmd.Parameters.Add("$created_at",  SqliteType.Text);
+
+        foreach (var row in rows)
+        {
+            pId.Value  = row.Id;
+            pCnt.Value = row.Content;
+            pBlb.Value = row.Embedding;
+            pTgs.Value = (object?)row.Tags       ?? DBNull.Value;
+            pFld.Value = (object?)row.Folders    ?? DBNull.Value;
+            pSrc.Value = (object?)row.Source     ?? DBNull.Value;
+            pCat.Value = (object?)row.CreatedAt  ?? DBNull.Value;
+            cmd.ExecuteNonQuery();
+        }
+        txn.Commit();
+    }
+
     // ── Schema helpers ─────────────────────────────────────────────────────────
 
     private static void CreateTables(SqliteConnection conn)
@@ -228,7 +347,9 @@ internal sealed class SourceMapIndex(string dbPath)
                 combined_tokens TEXT,
                 embedding       BLOB,
                 file_hashes     TEXT,
-                filename_set    TEXT
+                filename_set    TEXT,
+                file_count      INTEGER DEFAULT 0,
+                token_count     INTEGER DEFAULT 0
             )
             """);
         NonQuery(conn, """
@@ -244,6 +365,12 @@ internal sealed class SourceMapIndex(string dbPath)
 
         // Migration: add embedding_text to any schema that pre-dates it
         try { NonQuery(conn, "ALTER TABLE folders ADD COLUMN embedding_text TEXT"); }
+        catch { /* column already exists */ }
+
+        // Migration: add folder statistics used by scorer diagnostics and noise penalties.
+        try { NonQuery(conn, "ALTER TABLE folders ADD COLUMN file_count INTEGER DEFAULT 0"); }
+        catch { /* column already exists */ }
+        try { NonQuery(conn, "ALTER TABLE folders ADD COLUMN token_count INTEGER DEFAULT 0"); }
         catch { /* column already exists */ }
     }
 
@@ -315,4 +442,7 @@ internal sealed class SourceMapIndex(string dbPath)
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
     }
+
+    private static int CountTokens(string combinedTokens) =>
+        combinedTokens.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
 }

@@ -1,16 +1,17 @@
 ---
 name: ck-find-scope
-description: Semantic folder search — always the first step. Returns the folders you'll work in for the rest of the task.
+description: Semantic folder search — always step 1 (after ck get-keyword-map). Returns the folders you'll work in for the rest of the task.
 ---
 
 # ck find-scope — Reference
 
-The entry point for all code navigation. Returns ranked folders that become your working scope.
+Step 1 in the navigation protocol — run after `ck get-keyword-map`. Returns ranked folders that
+become the source of truth for all subsequent work in the session.
 
 ## Syntax
 
 ```bash
-.claude/skills/ck/ck find-scope --query "<multi-keyword description>" [--must "<provider>"] [--top <n>] [--min-score <f>]
+.claude/skills/ck/ck find-scope --query "<multi-keyword description>" [--must "<provider>"] [--top <n>] [--min-score <f>] [--explain]
 ```
 
 ## Options
@@ -21,6 +22,8 @@ The entry point for all code navigation. Returns ranked folders that become your
 | `--must <text>` | off | Provider/concept to focus on. Boosts folders containing this term; auto-penalises competing providers detected via embedding similarity — without needing to name them. Repeatable. |
 | `--top <n>` | 10 | Max folders. Use 15–20 for broad tasks, 30 for impact analysis. |
 | `--min-score <f>` | off | Score threshold — returns all above it. Check your range first (typically 0.69–0.82). |
+| `--explain` | off | Adds scoring columns: semantic, exact, must, noise, files, tokens, matched terms, and hint terms. Use when results look broad/noisy. |
+| `--verbose` | off | Prints index build/refresh progress. Default output is quiet for agent token efficiency. |
 | `--repo <path>` | auto | Repo root |
 
 ## Output
@@ -37,10 +40,10 @@ not as absolute confidence measures.
 
 ## What the index contains
 
-Each folder is indexed from three sources: its full path, all source filenames, and all
-public/exported method names. Together they describe what a folder exposes without reading
-any file body. This means your query can include operation-level terms (method names or
-verb phrases) and they will match directly against indexed method names.
+Each folder is indexed from its full path, all source filenames, and public surface symbols:
+type names, methods, constructors, properties/fields, enum members, and exported TypeScript
+declarations. Together they describe what a folder exposes without reading any file body.
+This means your query can include operation-level terms, DTO/property names, and type names.
 
 ## Query tips
 
@@ -59,12 +62,23 @@ verb phrases) and they will match directly against indexed method names.
 
 ## After this step
 
-**Commit to these folders.** Pass them to `.claude/skills/ck/ck signatures <folder>/` to list all members, then use `.claude/skills/ck/ck get-method-source` or `Read` within them. Use grep/rg within these folders freely.
+**Folders returned here are the source of truth for the session.** grep, glob, signatures, and
+file reads all happen within these folders. Do not search outside them. Do not re-run find-scope
+with rephrased queries.
 
-Do not re-run find-scope with rephrased queries. Do not search outside these folders.
+Use `.claude/skills/ck/ck expand-folder --pattern "<2-4 high-signal terms>" <folder>/` while the
+area is still uncharted. grep/rg/glob are also freely allowed within the returned folders. Once a
+concrete file is known, prefer `ck signatures <file>` + `ck get-method-source` and stop using
+`expand-folder` until you explicitly re-scope. Budget: max 3 `expand-folder` calls and max 1
+folder-level `ck signatures` call per direction.
+
+If output starts with `Scope is too broad or ambiguous`, use the printed hints to tighten the
+query with provider + workflow + symbol/DTO words, or add `--must`. The keyword terms from the
+`ck get-keyword-map` call you ran in step 0 are the right source for refinement.
 
 ## Behaviour
 
 - Auto-builds index on first call (~30s for large repos).
 - Reflects live working tree (untracked files included).
-- Large `--top` values are fine — the output is one line per folder.
+- Large `--top` values are okay for impact analysis, but for feature work prefer `--top 10` or `--top 15`.
+- If a top result is a grab-bag folder, rerun with `--explain` and prefer focused folders with lower `files`, lower `tokens`, and lower `noise`.

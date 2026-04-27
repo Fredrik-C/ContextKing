@@ -22,7 +22,7 @@ dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
 mv skills/ck/ContextKing.Cli skills/ck/ck-osx-arm64
 chmod +x skills/ck/ck-osx-arm64 skills/ck/ck
 ```
-Valid RIDs: `osx-arm64`, `osx-x64`, `linux-x64`, `win-x64`
+Valid RIDs: `osx-arm64`, `osx-x64`, `linux-x64`, `linux-arm64`, `win-x64`
 
 **Run CLI locally (from repo root):**
 ```bash
@@ -57,7 +57,7 @@ The solution has three projects:
 
 **`Ast/`** — Live Roslyn analysis (no caching, always reads from disk)
 
-`SignatureExtractor` returns compact one-line signatures for every member in a file. `MethodSourceExtractor` returns the full source of a single named member, including exact `start_line`, `start_char`, `end_line`, `end_char` within the original file. Both use `Microsoft.CodeAnalysis.CSharp` (Roslyn 4.10.0).
+`SignatureExtractor` returns compact one-line signatures for every member in a file. `MethodSourceExtractor` returns the full source of a single named member, including exact `start_line`, `start_char`, `end_line`, `end_char` within the original file. `SymbolSearchCommon` powers `find-symbol` (declaration lookup) and `refs` (call-site lookup) — both walk Roslyn syntax trees across a scoped file set. All use `Microsoft.CodeAnalysis.CSharp` (Roslyn 4.10.0).
 
 **`Git/`** — Working-tree enumeration
 
@@ -65,17 +65,18 @@ The solution has three projects:
 
 ### Deployment artefacts
 
-The `skills/`, `hooks/`, `plugins/`, `rules/`, and `models/` directories at the repo root are what gets deployed into target repos — they are not part of the .NET build. Pre-built binaries (`skills/ck/ck-osx-arm64`, etc.) are committed here and rebuilt by CI on every push to `main` that touches `src/`.
+The `skills/`, `hooks/`, `plugins/`, `rules/`, `agents/`, and `models/` directories at the repo root are what gets installed globally — they are not part of the .NET build. Pre-built binaries (`skills/ck/ck-osx-arm64`, etc.) are committed here and rebuilt by CI on every push to `main` that touches `src/`.
 
-`scripts/deploy.sh` (and `.ps1`) copies these artefacts into a target repo's `.claude/`, `.codex/`, or `.opencode/` directories depending on which are present.
+`scripts/install-global.sh` (and `.ps1`) installs these artefacts globally into `~/.ck/`, `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/`. Per-repo activation is done with `ck init`.
 
-- `hooks/` — shell guard scripts deployed to `.claude/hooks/` (Claude Code PreToolUse hooks)
-- `plugins/` — TypeScript plugin(s) deployed to `.opencode/plugin/` (OpenCode hooks)
-- `rules/` — always-apply rule deployed to `.claude/rules/`
+- `hooks/` — shell guard scripts installed to `~/.claude/hooks/` (Claude Code) and `~/.codex/hooks/` (Codex CLI)
+- `plugins/` — TypeScript plugin installed to `~/.config/opencode/plugins/` (OpenCode)
+- `agents/` — OpenCode agent definitions installed to `~/.config/opencode/agents/`
+- `rules/` — protocol reference installed to `~/.claude/rules/` (Claude Code), `~/.codex/ck-code-search-protocol.md` (Codex), and `~/.config/opencode/ck-code-search-protocol.md` (OpenCode)
 
 ## CI/CD
 
-**`build.yml`** — Triggers on pushes to `main` when `src/` changes. Builds all four platform binaries in parallel, then commits them back to `skills/ck/` via `stefanzweifel/git-auto-commit-action` with `[skip ci]` in the message.
+**`build.yml`** — Triggers on pushes to `main` when `src/` changes. Builds all five platform binaries in parallel (`osx-arm64`, `osx-x64`, `linux-x64`, `linux-arm64`, `win-x64`) and uploads them as GitHub Actions artifacts.
 
 **`release.yml`** — Triggers on `v*` tags. Builds binaries, packages per-platform archives, and creates a GitHub Release. Bump version in `Program.cs` (`PrintHelp` / `PrintVersion`) before tagging.
 

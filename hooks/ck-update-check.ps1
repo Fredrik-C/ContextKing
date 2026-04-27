@@ -30,7 +30,7 @@ if (Test-Path $cacheFile) {
     if ($cacheAge.TotalHours -lt $CacheHours) {
         $cachedLatest = (Get-Content $cacheFile -Raw).Trim()
         if ($cachedLatest -and $cachedLatest -ne $installed) {
-            Write-Output "[Context King] Update available: v${cachedLatest} (installed: v${installed}). Run: irm https://raw.githubusercontent.com/${GithubOwner}/${GithubRepo}/main/scripts/install.ps1 | iex"
+            Write-Output "[Context King] Update available: v${cachedLatest} (installed: v${installed}). Run: irm https://raw.githubusercontent.com/${GithubOwner}/${GithubRepo}/main/scripts/install-global.ps1 | iex"
         }
         exit 0
     }
@@ -50,7 +50,7 @@ if ($latest) { $latest | Set-Content $cacheFile -NoNewline }
 
 # Compare and notify
 if ($latest -and $latest -ne $installed) {
-    Write-Output "[Context King] Update available: v${latest} (installed: v${installed}). Run: irm https://raw.githubusercontent.com/${GithubOwner}/${GithubRepo}/main/scripts/install.ps1 | iex"
+    Write-Output "[Context King] Update available: v${latest} (installed: v${installed}). Run: irm https://raw.githubusercontent.com/${GithubOwner}/${GithubRepo}/main/scripts/install-global.ps1 | iex"
 }
 
 exit 0

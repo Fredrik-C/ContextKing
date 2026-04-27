@@ -86,12 +86,15 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
     }
 
     [Fact]
-    public async Task BuildAsync_CombinedTokensContainPublicMethodNames()
+    public async Task BuildAsync_CombinedTokensContainPublicSurfaceNames()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs", """
             namespace Payment;
+            public enum PaymentType { Sale, Refund }
             public class PaymentService
             {
+                public PaymentService() { }
+                public string PaymentRequest { get; set; }
                 public void ProcessPayment() { }
                 public string CalculateTotal() => "";
                 private void InternalHelper() { }
@@ -106,13 +109,16 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
         folder.CombinedTokens.Should().Contain("process");
         folder.CombinedTokens.Should().Contain("calculate");
         folder.CombinedTokens.Should().Contain("total");
+        folder.CombinedTokens.Should().Contain("request");
+        folder.CombinedTokens.Should().Contain("refund");
         folder.CombinedTokens.Should().NotContain("InternalHelper",
             "private methods should not be included");
         folder.CombinedTokens.Should().NotContain("internal");
 
-        // Embedding text should contain readable method phrases
+        // Embedding text should contain readable symbol phrases
         folder.EmbeddingText.Should().Contain("Process Payment");
         folder.EmbeddingText.Should().Contain("Calculate Total");
+        folder.EmbeddingText.Should().Contain("Payment Request");
     }
 
     [Fact]
