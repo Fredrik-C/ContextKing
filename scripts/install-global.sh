@@ -572,26 +572,108 @@ if [ "$DO_OPENCODE" = true ]; then
   OPENCODE_CFG_JSON="$OPENCODE_HOME/opencode.json"
   if [ -f "$OPENCODE_CFG_JSONC" ]; then
     OPENCODE_CFG="$OPENCODE_CFG_JSONC"
-  else
+  elif [ -f "$OPENCODE_CFG_JSON" ]; then
     OPENCODE_CFG="$OPENCODE_CFG_JSON"
-  fi
-  if [ ! -f "$OPENCODE_CFG" ]; then
+  else
+    # Default to jsonc for new installs. If jsonc already exists, never create json.
+    OPENCODE_CFG="$OPENCODE_CFG_JSONC"
     echo '{}' > "$OPENCODE_CFG"
   fi
-  if command -v jq >/dev/null 2>&1; then
-    if [[ "$OPENCODE_CFG" == *.jsonc ]]; then
-      sed -E ':a;N;$!ba;s@/\*([^*]|\*+[^*/])*\*/@@g' "$OPENCODE_CFG" \
-        | sed -E '/^[[:space:]]*\/\//d' \
-        | sed -E ':a;s/,([[:space:]]*[}\]])/\1/g;ta' \
-        > "$OPENCODE_CFG.clean"
-      mv "$OPENCODE_CFG.clean" "$OPENCODE_CFG.tmp.in"
-      OPENCODE_CFG_INPUT="$OPENCODE_CFG.tmp.in"
-    else
-      OPENCODE_CFG_INPUT="$OPENCODE_CFG"
-    fi
-    # Register plugin + protocol instruction (idempotent).
-    # OpenCode schema expects tools.<name> to be booleans; do not write
-    # legacy object-shaped allowlists such as tools.bash.allow.
+  if [[ "$OPENCODE_CFG" == *.jsonc ]]; then
+    # JSONC path: update in-place so comments are preserved.
+    python3 - "$OPENCODE_CFG" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path, "r", encoding="utf-8").read()
+
+def strip_jsonc(s: str) -> str:
+    out = []
+    i = 0
+    n = len(s)
+    in_string = False
+    escaped = False
+    while i < n:
+        ch = s[i]
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n:
+            nxt = s[i + 1]
+            if nxt == "/":
+                i += 2
+                while i < n and s[i] not in "\r\n":
+                    i += 1
+                continue
+            if nxt == "*":
+                i += 2
+                while i + 1 < n and not (s[i] == "*" and s[i + 1] == "/"):
+                    i += 1
+                i += 2 if i + 1 < n else 0
+                continue
+        out.append(ch)
+        i += 1
+    clean = "".join(out)
+    while True:
+        updated = re.sub(r",\s*([}\]])", r"\1", clean)
+        if updated == clean:
+            break
+        clean = updated
+    return clean
+
+def ensure_array_entry(src: str, key: str, value: str) -> str:
+    # Match the first `"key": [ ... ]` block.
+    pattern = rf'("{re.escape(key)}"\s*:\s*\[)(.*?)(\])'
+    m = re.search(pattern, src, flags=re.S)
+    if not m:
+        # Add missing top-level array property before final `}`.
+        tail = re.search(r"}\s*$", src, flags=re.S)
+        if not tail:
+            return src
+        prefix = src[:tail.start()]
+        suffix = src[tail.start():]
+        has_members = bool(strip_jsonc(prefix[prefix.find("{")+1:]).strip())
+        comma = "," if has_members else ""
+        block = f'{comma}\n  "{key}": [\n    "{value}"\n  ]\n'
+        return prefix + block + suffix
+
+    head, body, close = m.group(1), m.group(2), m.group(3)
+    if re.search(rf'"{re.escape(value)}"', body):
+        return src
+
+    body_rstrip = body.rstrip()
+    indent_match = re.search(r"\n([ \t]*)[^ \t\r\n]", body)
+    item_indent = indent_match.group(1) if indent_match else "    "
+
+    if strip_jsonc(body).strip() == "":
+        new_body = f"\n{item_indent}\"{value}\"\n  "
+    else:
+        sep = "," if not body_rstrip.endswith(",") else ""
+        new_body = body + f"{sep}\n{item_indent}\"{value}\""
+
+    return src[:m.start()] + head + new_body + close + src[m.end():]
+
+updated = ensure_array_entry(text, "plugin", "./plugins/ck-guards.ts")
+updated = ensure_array_entry(updated, "instructions", "./ck-code-search-protocol.md")
+if updated != text:
+    open(path, "w", encoding="utf-8").write(updated)
+PY
+    ok "Registered OpenCode plugin and instructions in $OPENCODE_CFG"
+  elif command -v jq >/dev/null 2>&1; then
+    # Plain JSON path.
     jq '
       if (.tools | type) == "object" and (.tools.bash | type) == "object"
       then .tools.bash = true
@@ -599,8 +681,7 @@ if [ "$DO_OPENCODE" = true ]; then
       end |
       .plugin = ((.plugin // []) + ["./plugins/ck-guards.ts"] | unique) |
       .instructions = ((.instructions // []) + ["./ck-code-search-protocol.md"] | unique)
-    ' "$OPENCODE_CFG_INPUT" > "$OPENCODE_CFG.tmp" && mv "$OPENCODE_CFG.tmp" "$OPENCODE_CFG"
-    rm -f "$OPENCODE_CFG.tmp.in"
+    ' "$OPENCODE_CFG" > "$OPENCODE_CFG.tmp" && mv "$OPENCODE_CFG.tmp" "$OPENCODE_CFG"
     ok "Registered OpenCode plugin and instructions in $OPENCODE_CFG"
   else
     echo "  WARNING: jq not found — OpenCode config merge in $OPENCODE_CFG skipped."

@@ -465,34 +465,92 @@ if (-not $NoOpenCode) {
   # Merge into OpenCode config (idempotent). Prefer opencode.jsonc when present.
   $OpenCodeCfgJsonc = "$OpenCodeHome\opencode.jsonc"
   $OpenCodeCfgJson = "$OpenCodeHome\opencode.json"
-  $OpenCodeCfg = if (Test-Path $OpenCodeCfgJsonc) { $OpenCodeCfgJsonc } else { $OpenCodeCfgJson }
-  if (-not (Test-Path $OpenCodeCfg)) { '{}' | Set-Content $OpenCodeCfg }
+  if (Test-Path $OpenCodeCfgJsonc) {
+    $OpenCodeCfg = $OpenCodeCfgJsonc
+  } elseif (Test-Path $OpenCodeCfgJson) {
+    $OpenCodeCfg = $OpenCodeCfgJson
+  } else {
+    # Default to jsonc for new installs. If jsonc already exists, never create json.
+    $OpenCodeCfg = $OpenCodeCfgJsonc
+    '{}' | Set-Content $OpenCodeCfg
+  }
   try {
     $rawCfg = Get-Content -LiteralPath $OpenCodeCfg -Raw
     if ($OpenCodeCfg.ToLower().EndsWith('.jsonc')) {
-      $rawCfg = [regex]::Replace($rawCfg, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-      $rawCfg = [regex]::Replace($rawCfg, '(?m)^\s*//.*$', '')
-      $rawCfg = [regex]::Replace($rawCfg, ',\s*([}\]])', '$1')
-    }
-    $cfg = $rawCfg | ConvertFrom-Json -AsHashtable
-    if (-not $cfg.ContainsKey('plugin')) { $cfg['plugin'] = @() }
-    if (-not $cfg.ContainsKey('instructions')) { $cfg['instructions'] = @() }
-    if ($cfg.ContainsKey('tools') -and $cfg['tools'] -is [hashtable]) {
-      $tools = $cfg['tools']
-      if ($tools.ContainsKey('bash') -and $tools['bash'] -is [hashtable]) {
-        $tools['bash'] = $true
+      # Keep JSONC comments by patching only target arrays in-place.
+      function Ensure-JsoncArrayEntry {
+        param(
+          [string]$Text,
+          [string]$Key,
+          [string]$Value
+        )
+
+        $pattern = '(?s)("'+ [regex]::Escape($Key) + '"\s*:\s*\[)(.*?)(\])'
+        $m = [regex]::Match($Text, $pattern)
+        if ($m.Success) {
+          if ($m.Groups[2].Value -match ('"' + [regex]::Escape($Value) + '"')) {
+            return $Text
+          }
+
+          $body = $m.Groups[2].Value
+          $itemIndent = '    '
+          $indentMatch = [regex]::Match($body, "`n([ `t]*)[^ `t`r`n]")
+          if ($indentMatch.Success) { $itemIndent = $indentMatch.Groups[1].Value }
+
+          $plainBody = $body
+          $plainBody = [regex]::Replace($plainBody, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          $plainBody = [regex]::Replace($plainBody, '(?m)//.*$', '')
+          $plainBody = $plainBody.Trim()
+
+          if ([string]::IsNullOrWhiteSpace($plainBody)) {
+            $newBody = "`n$itemIndent`"$Value`"`n  "
+          } else {
+            $bodyTrim = $body.TrimEnd()
+            $sep = if ($bodyTrim.EndsWith(',')) { '' } else { ',' }
+            $newBody = "$body$sep`n$itemIndent`"$Value`""
+          }
+
+          return $Text.Substring(0, $m.Index) + $m.Groups[1].Value + $newBody + $m.Groups[3].Value + $Text.Substring($m.Index + $m.Length)
+        }
+
+        $end = [regex]::Match($Text, '}\s*$')
+        if (-not $end.Success) { return $Text }
+        $prefix = $Text.Substring(0, $end.Index)
+        $suffix = $Text.Substring($end.Index)
+        $inside = $prefix
+        $firstBrace = $inside.IndexOf('{')
+        if ($firstBrace -ge 0) { $inside = $inside.Substring($firstBrace + 1) }
+        $inside = [regex]::Replace($inside, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+        $inside = [regex]::Replace($inside, '(?m)//.*$', '')
+        $comma = if ([string]::IsNullOrWhiteSpace($inside.Trim())) { '' } else { ',' }
+        $block = "$comma`n  `"$Key`": [`n    `"$Value`"`n  ]`n"
+        return "$prefix$block$suffix"
       }
+
+      $rawCfg = Ensure-JsoncArrayEntry -Text $rawCfg -Key 'plugin' -Value './plugins/ck-guards.ts'
+      $rawCfg = Ensure-JsoncArrayEntry -Text $rawCfg -Key 'instructions' -Value './ck-code-search-protocol.md'
+      Set-Content -LiteralPath $OpenCodeCfg -Value $rawCfg -Encoding UTF8 -NoNewline
+    } else {
+      $cfg = $rawCfg | ConvertFrom-Json -AsHashtable
+      if (-not $cfg.ContainsKey('plugin')) { $cfg['plugin'] = @() }
+      if (-not $cfg.ContainsKey('instructions')) { $cfg['instructions'] = @() }
+      if ($cfg.ContainsKey('tools') -and $cfg['tools'] -is [hashtable]) {
+        $tools = $cfg['tools']
+        if ($tools.ContainsKey('bash') -and $tools['bash'] -is [hashtable]) {
+          $tools['bash'] = $true
+        }
+      }
+
+      $plugins = @($cfg['plugin'])
+      if ($plugins -notcontains './plugins/ck-guards.ts') { $plugins += './plugins/ck-guards.ts' }
+      $cfg['plugin'] = $plugins
+
+      $instructions = @($cfg['instructions'])
+      if ($instructions -notcontains './ck-code-search-protocol.md') { $instructions += './ck-code-search-protocol.md' }
+      $cfg['instructions'] = $instructions
+
+      $cfg | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OpenCodeCfg -Encoding UTF8
     }
-
-    $plugins = @($cfg['plugin'])
-    if ($plugins -notcontains './plugins/ck-guards.ts') { $plugins += './plugins/ck-guards.ts' }
-    $cfg['plugin'] = $plugins
-
-    $instructions = @($cfg['instructions'])
-    if ($instructions -notcontains './ck-code-search-protocol.md') { $instructions += './ck-code-search-protocol.md' }
-    $cfg['instructions'] = $instructions
-
-    $cfg | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $OpenCodeCfg -Encoding UTF8
     Write-Ok "Registered OpenCode plugin and instructions in $OpenCodeCfg"
   } catch {
     Write-Warning "Could not update $OpenCodeCfg automatically. Merge plugin/instructions manually."
