@@ -462,11 +462,19 @@ if (-not $NoOpenCode) {
     Write-Ok "Protocol installed"
   }
 
-  # Merge into opencode.json (idempotent)
-  $OpenCodeCfg = "$OpenCodeHome\opencode.json"
+  # Merge into OpenCode config (idempotent). Prefer opencode.jsonc when present.
+  $OpenCodeCfgJsonc = "$OpenCodeHome\opencode.jsonc"
+  $OpenCodeCfgJson = "$OpenCodeHome\opencode.json"
+  $OpenCodeCfg = if (Test-Path $OpenCodeCfgJsonc) { $OpenCodeCfgJsonc } else { $OpenCodeCfgJson }
   if (-not (Test-Path $OpenCodeCfg)) { '{}' | Set-Content $OpenCodeCfg }
   try {
-    $cfg = Get-Content -LiteralPath $OpenCodeCfg -Raw | ConvertFrom-Json -AsHashtable
+    $rawCfg = Get-Content -LiteralPath $OpenCodeCfg -Raw
+    if ($OpenCodeCfg.ToLower().EndsWith('.jsonc')) {
+      $rawCfg = [regex]::Replace($rawCfg, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+      $rawCfg = [regex]::Replace($rawCfg, '(?m)^\s*//.*$', '')
+      $rawCfg = [regex]::Replace($rawCfg, ',\s*([}\]])', '$1')
+    }
+    $cfg = $rawCfg | ConvertFrom-Json -AsHashtable
     if (-not $cfg.ContainsKey('plugin')) { $cfg['plugin'] = @() }
     if (-not $cfg.ContainsKey('instructions')) { $cfg['instructions'] = @() }
     if ($cfg.ContainsKey('tools') -and $cfg['tools'] -is [hashtable]) {

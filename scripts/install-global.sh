@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # install-global.sh — Context King global user installer.
 #
+# This script targets macOS/Linux shell environments. For Windows, use
+# scripts/install-global.ps1 (PowerShell).
+#
 # Installs ck as a global user-level tool so it is available in every project
 # without requiring a per-repo deploy step. Per-repo initialization is done with
 # `ck init` after the global install.
@@ -564,12 +567,28 @@ if [ "$DO_OPENCODE" = true ]; then
     ok "Protocol installed"
   fi
 
-  # Merge into opencode.json
-  OPENCODE_CFG="$OPENCODE_HOME/opencode.json"
+  # Merge into OpenCode config. Prefer opencode.jsonc when present.
+  OPENCODE_CFG_JSONC="$OPENCODE_HOME/opencode.jsonc"
+  OPENCODE_CFG_JSON="$OPENCODE_HOME/opencode.json"
+  if [ -f "$OPENCODE_CFG_JSONC" ]; then
+    OPENCODE_CFG="$OPENCODE_CFG_JSONC"
+  else
+    OPENCODE_CFG="$OPENCODE_CFG_JSON"
+  fi
   if [ ! -f "$OPENCODE_CFG" ]; then
     echo '{}' > "$OPENCODE_CFG"
   fi
   if command -v jq >/dev/null 2>&1; then
+    if [[ "$OPENCODE_CFG" == *.jsonc ]]; then
+      sed -E ':a;N;$!ba;s@/\*([^*]|\*+[^*/])*\*/@@g' "$OPENCODE_CFG" \
+        | sed -E '/^[[:space:]]*\/\//d' \
+        | sed -E ':a;s/,([[:space:]]*[}\]])/\1/g;ta' \
+        > "$OPENCODE_CFG.clean"
+      mv "$OPENCODE_CFG.clean" "$OPENCODE_CFG.tmp.in"
+      OPENCODE_CFG_INPUT="$OPENCODE_CFG.tmp.in"
+    else
+      OPENCODE_CFG_INPUT="$OPENCODE_CFG"
+    fi
     # Register plugin + protocol instruction (idempotent).
     # OpenCode schema expects tools.<name> to be booleans; do not write
     # legacy object-shaped allowlists such as tools.bash.allow.
@@ -580,7 +599,8 @@ if [ "$DO_OPENCODE" = true ]; then
       end |
       .plugin = ((.plugin // []) + ["./plugins/ck-guards.ts"] | unique) |
       .instructions = ((.instructions // []) + ["./ck-code-search-protocol.md"] | unique)
-    ' "$OPENCODE_CFG" > "$OPENCODE_CFG.tmp" && mv "$OPENCODE_CFG.tmp" "$OPENCODE_CFG"
+    ' "$OPENCODE_CFG_INPUT" > "$OPENCODE_CFG.tmp" && mv "$OPENCODE_CFG.tmp" "$OPENCODE_CFG"
+    rm -f "$OPENCODE_CFG.tmp.in"
     ok "Registered OpenCode plugin and instructions in $OPENCODE_CFG"
   else
     echo "  WARNING: jq not found — OpenCode config merge in $OPENCODE_CFG skipped."

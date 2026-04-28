@@ -176,6 +176,7 @@ irm https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install
 ```
 
 This installs the `ck` binary to `~/.ck/bin/`, the embedding model to `~/.ck/models/`, and registers skills, hooks, and rules in `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/`. After install, start a new shell or add `~/.ck/bin` to your PATH manually.
+Windows equivalents use `%USERPROFILE%` (for example `%USERPROFILE%\\.ck\\bin\\ck.exe`, `%USERPROFILE%\\.claude\\`, `%USERPROFILE%\\.codex\\`, `%USERPROFILE%\\.agents\\`) and `%APPDATA%\\opencode\\`.
 
 ### 2. Initialize each repository (once per repo)
 
@@ -221,6 +222,14 @@ This detects and removes per-repo artifacts (binary, model, hook scripts, rule f
   plugins/ck-guards.ts                       <- hook plugin
 ~/.agents/skills/ck*/                        <- generic agent skills
 ```
+Windows equivalents:
+```text
+%USERPROFILE%\.ck\
+%USERPROFILE%\.claude\
+%USERPROFILE%\.codex\
+%APPDATA%\opencode\
+%USERPROFILE%\.agents\
+```
 
 **Per-repo (from `ck init`):**
 ```
@@ -238,7 +247,7 @@ Context King enforces the navigation workflow through rules, hooks, and skill in
 
 ### Claude Code
 
-**Always-apply rule** (`~/.claude/rules/ck-code-search-protocol.md`), loaded automatically in every session. Instructs the agent to run `ck find-scope` before any search when the target folder is unknown, scope all work to the returned folders, use filtered `ck expand-folder` before reading source files, and never speculatively open broad files.
+**Always-apply rule** (`~/.claude/rules/ck-code-search-protocol.md`, Windows: `%USERPROFILE%\\.claude\\rules\\ck-code-search-protocol.md`), loaded automatically in every session. Instructs the agent to run `ck find-scope` before any search when the target folder is unknown, scope all work to the returned folders, use filtered `ck expand-folder` before reading source files, and never speculatively open broad files.
 
 **PreToolUse hooks** fire before every tool call:
 
@@ -247,9 +256,9 @@ Context King enforces the navigation workflow through rules, hooks, and skill in
 
 ### Codex CLI / Agents
 
-The full code search protocol is deployed to `~/.codex/ck-code-search-protocol.md`. The inline 4-step workflow is injected into `~/.codex/AGENTS.md` (global, idempotent) so the agent sees it on every session without needing to follow a pointer. The `project_doc_fallback_filenames` entry in `~/.codex/config.toml` ensures per-repo `ck-code-search-protocol.md` files are auto-loaded alongside `AGENTS.md` traversal.
+The full code search protocol is deployed to `~/.codex/ck-code-search-protocol.md` (Windows: `%USERPROFILE%\\.codex\\ck-code-search-protocol.md`). The inline 4-step workflow is injected into `~/.codex/AGENTS.md` (Windows: `%USERPROFILE%\\.codex\\AGENTS.md`) so the agent sees it on every session without needing to follow a pointer. The `project_doc_fallback_filenames` entry in `~/.codex/config.toml` (Windows: `%USERPROFILE%\\.codex\\config.toml`) ensures per-repo `ck-code-search-protocol.md` files are auto-loaded alongside `AGENTS.md` traversal.
 
-Global install registers Codex hooks in `~/.codex/hooks.json`:
+Global install registers Codex hooks in `~/.codex/hooks.json` (Windows: `%USERPROFILE%\\.codex\\hooks.json`):
 - `SessionStart` -> `ck-update-check`
 - `PreToolUse` (`Bash`) -> `ck-bash-guard`
 - `PostToolUse` (`Bash`) -> `ck-scope-hint`
@@ -259,7 +268,7 @@ Codex hook interception is still partial by tool surface and version. For that r
 
 ### OpenCode
 
-A TypeScript plugin (`ck-guards.ts`) is installed to `~/.config/opencode/plugins/` and auto-loaded on session start. It enforces the protocol through both reactive guards and proactive hooks:
+A TypeScript plugin (`ck-guards.ts`) is installed to `~/.config/opencode/plugins/` (Windows: `%APPDATA%\\opencode\\plugins\\`) and auto-loaded on session start. It enforces the protocol through both reactive guards and proactive hooks:
 
 **Reactive guards** (fire before tool execution):
 - Broad `glob` or `grep` on source files (3 or fewer path segments): redirects to `ck find-scope`.

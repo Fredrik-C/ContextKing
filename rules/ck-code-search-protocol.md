@@ -3,8 +3,8 @@
 This codebase is large. Searching without narrowing scope first wastes tokens and reads wrong files.
 CK tools work on both C# and TypeScript/TSX files.
 
-**Command prefix:** `.claude/skills/ck/ck` (per-repo deploy) or `/Users/fredrik.claesson/.ck/bin/ck` (global install).
-Use whichever resolves. If `ck` is in your PATH you may use it directly, but prefer the full path when unsure.
+**Command prefix:** `ck` (if in PATH), `~/.ck/bin/ck` (macOS/Linux fallback), or `%USERPROFILE%\.ck\bin\ck.exe` (Windows fallback).
+Use whichever resolves in your environment.
 
 ### The workflow
 

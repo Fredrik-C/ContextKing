@@ -67,12 +67,12 @@ The solution has three projects:
 
 The `skills/`, `hooks/`, `plugins/`, `rules/`, `agents/`, and `models/` directories at the repo root are what gets installed globally — they are not part of the .NET build. Pre-built binaries (`skills/ck/ck-osx-arm64`, etc.) are committed here and rebuilt by CI on every push to `main` that touches `src/`.
 
-`scripts/install-global.sh` (and `.ps1`) installs these artefacts globally into `~/.ck/`, `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/`. Per-repo activation is done with `ck init`.
+`scripts/install-global.sh` (and `.ps1`) installs these artefacts globally into `~/.ck/`, `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/` (Windows: `%USERPROFILE%\\.ck\\`, `%USERPROFILE%\\.claude\\`, `%USERPROFILE%\\.codex\\`, `%APPDATA%\\opencode\\`, `%USERPROFILE%\\.agents\\`). Per-repo activation is done with `ck init`.
 
-- `hooks/` — shell guard scripts installed to `~/.claude/hooks/` (Claude Code) and `~/.codex/hooks/` (Codex CLI)
-- `plugins/` — TypeScript plugin installed to `~/.config/opencode/plugins/` (OpenCode)
-- `agents/` — OpenCode agent definitions installed to `~/.config/opencode/agents/`
-- `rules/` — protocol reference installed to `~/.claude/rules/` (Claude Code), `~/.codex/ck-code-search-protocol.md` (Codex), and `~/.config/opencode/ck-code-search-protocol.md` (OpenCode)
+- `hooks/` — shell guard scripts installed to `~/.claude/hooks/` and `~/.codex/hooks/` (Windows: `%USERPROFILE%\\.claude\\hooks\\` and `%USERPROFILE%\\.codex\\hooks\\`)
+- `plugins/` — TypeScript plugin installed to `~/.config/opencode/plugins/` (Windows: `%APPDATA%\\opencode\\plugins\\`)
+- `agents/` — OpenCode agent definitions installed to `~/.config/opencode/agents/` (Windows: `%APPDATA%\\opencode\\agents\\`)
+- `rules/` — protocol reference installed to `~/.claude/rules/`, `~/.codex/ck-code-search-protocol.md`, and `~/.config/opencode/ck-code-search-protocol.md` (Windows: `%USERPROFILE%\\.claude\\rules\\`, `%USERPROFILE%\\.codex\\ck-code-search-protocol.md`, `%APPDATA%\\opencode\\ck-code-search-protocol.md`)
 
 ## CI/CD
 
