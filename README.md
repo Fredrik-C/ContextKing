@@ -447,6 +447,36 @@ bash scripts/install-global.sh      # Mac / Linux
 pwsh scripts/install-global.ps1     # Windows
 ```
 
+To force-install a locally published dev binary (recommended for local testing):
+
+```bash
+dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
+  -c Release -r osx-arm64 --self-contained false -v q \
+  -o artifacts/publish/local
+
+bash scripts/install-local-dev.sh
+```
+
+`install-local-dev.sh` first runs `install-global.sh` (baseline release assets), then force-overrides with your local binary. The script prints a version summary:
+- baseline after `install-global.sh`
+- local dev binary source
+- final installed version
+
+---
+
+## Releasing
+
+Use the release helper script to create/push a tag, wait for the GitHub release workflow, and then update release notes after release creation:
+
+```bash
+bash scripts/release.sh --tag v1.7.3 --notes-file RELEASE_NOTES_v1.7.3.md
+```
+
+Notes:
+- Working tree must be clean before running.
+- `--tag` can be omitted to auto-bump the latest patch version.
+- Release notes are intentionally updated after the release object is created.
+
 ---
 
 ## License
