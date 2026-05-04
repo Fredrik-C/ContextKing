@@ -190,9 +190,6 @@ if [ -n "$_self" ] && [ -f "$(dirname "$_self")/install-global.sh" ]; then
     LOCAL_REPO="$_repo_dir"
   fi
 fi
-if [ -z "$LOCAL_REPO" ] && [ -f "$(pwd)/scripts/install-global.sh" ] && [ -f "$(pwd)/skills/ck/ck" ]; then
-  LOCAL_REPO="$(pwd)"
-fi
 
 # ── Acquire platform archive ───────────────────────────────────────────────────
 ASSETS_DIR=""
