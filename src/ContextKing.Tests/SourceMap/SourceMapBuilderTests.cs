@@ -86,6 +86,35 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
     }
 
     [Fact]
+    public async Task BuildAsync_CombinedTokens_ExcludeLowRankNoiseTerms()
+    {
+        _repo.WriteFile("src/Payment/ReservationMapper.cs", """
+            namespace Payment;
+            public class ReservationMapper
+            {
+                public void GetData() { }
+                public void CreateResource() { }
+                public void SaveMapping() { }
+            }
+            """);
+        _repo.StageAndCommit();
+
+        await Builder().BuildAsync(_repo.Root);
+
+        var folder = LoadIndexed().Single(f => f.Path == "src/Payment");
+        var tokens = folder.CombinedTokens.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        tokens.Should().Contain("reservation");
+        tokens.Should().Contain("resource");
+        tokens.Should().Contain("mapping");
+        tokens.Should().NotContain("get");
+        tokens.Should().NotContain("create");
+        tokens.Should().NotContain("save");
+        tokens.Should().NotContain("data");
+        tokens.Should().NotContain("mapper");
+    }
+
+    [Fact]
     public async Task BuildAsync_CombinedTokensContainPublicSurfaceNames()
     {
         _repo.WriteFile("src/Payment/PaymentService.cs", """
@@ -108,9 +137,9 @@ public class SourceMapBuilderTests : IClassFixture<EmbedderFixture>, IDisposable
         // Method names are camelCase-split in combined tokens for exact matching
         folder.CombinedTokens.Should().Contain("process");
         folder.CombinedTokens.Should().Contain("calculate");
-        folder.CombinedTokens.Should().Contain("total");
-        folder.CombinedTokens.Should().Contain("request");
         folder.CombinedTokens.Should().Contain("refund");
+        folder.CombinedTokens.Should().NotContain("total");
+        folder.CombinedTokens.Should().NotContain("request");
         folder.CombinedTokens.Should().NotContain("InternalHelper",
             "private methods should not be included");
         folder.CombinedTokens.Should().NotContain("internal");

@@ -179,6 +179,8 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
 
         void Add(string token)
         {
+            if (!IsUsefulCombinedToken(token))
+                return;
             if (seen.Add(token)) result.Add(token);
         }
 
@@ -197,6 +199,18 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
                 Add(t);
 
         return string.Join(' ', result);
+    }
+
+    private static bool IsUsefulCombinedToken(string token)
+    {
+        if (token.Length < 3 || token.Length > 48)
+            return false;
+        if (!token.Any(char.IsLetter))
+            return false;
+        if (LowRankDictionary.Contains(token))
+            return false;
+
+        return true;
     }
 
     /// <summary>
