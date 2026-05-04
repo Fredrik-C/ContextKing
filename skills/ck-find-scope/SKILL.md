@@ -11,7 +11,7 @@ become the source of truth for all subsequent work in the session.
 ## Syntax
 
 ```bash
-.claude/skills/ck/ck find-scope --query "<multi-keyword description>" [--must "<provider>"] [--top <n>] [--min-score <f>] [--explain]
+.claude/skills/ck/ck find-scope --query "<multi-keyword description>" [--must "<provider>"] [--limit <n>] [--offset <n>] [--max-per-area <n>] [--top <n>] [--min-score <f>] [--explain]
 ```
 
 ## Options
@@ -20,6 +20,9 @@ become the source of truth for all subsequent work in the session.
 |---|---|---|
 | `--query <text>` | required | Multi-keyword description — domain, concept, operation, structural layer |
 | `--must <text>` | off | Provider/concept to focus on. Boosts folders containing this term; auto-penalises competing providers detected via embedding similarity — without needing to name them. Repeatable. |
+| `--limit <n>` | 10 | Page size for returned rows (max 20). |
+| `--offset <n>` | 0 | Page offset into ranked results. |
+| `--max-per-area <n>` | 3 | First-page diversity cap per area (prevents one module dominating page 1). |
 | `--top <n>` | 10 | Max folders. Use 15–20 for broad tasks, 30 for impact analysis. |
 | `--min-score <f>` | off | Score threshold — returns all above it. Check your range first (typically 0.69–0.82). |
 | `--explain` | off | Adds scoring columns: semantic, exact, must, noise, files, tokens, matched terms, and hint terms. Use when results look broad/noisy. |
@@ -28,8 +31,14 @@ become the source of truth for all subsequent work in the session.
 
 ## Output
 
+`stdout` rows:
 ```
 <score>\t<relative-folder-path>
+```
+
+`stderr` pagination metadata:
+```
+[ck find-scope] pagination: offset=<n> limit=<n> returned=<n> total_estimate=<n> has_more=<true|false> [next_offset=<n>]
 ```
 
 The score is a **relevance score** — higher means more relevant. It combines semantic similarity
@@ -51,7 +60,8 @@ This means your query can include operation-level terms, DTO/property names, and
 - Include structural terms: `"Catalog API controllers endpoints"` not just `"Catalog"`
 - Include operation terms when known: `"AllocateReservation inventory"` will match a folder
   that contains a method by that name, even if the folder path says nothing about allocation
-- Synonyms produce the same ranking — never rephrase, change vocabulary instead
+- Query expansion is repository-agnostic and corpus-driven (based on what exists in the index),
+  so avoid provider- or codebase-specific assumptions when refining keywords.
 - Use `--must` when working with one provider in a multi-provider codebase:
   ```
   ck find-scope --query "card-present refund terminal payment" --must "adyen"
@@ -80,5 +90,6 @@ query with provider + workflow + symbol/DTO words, or add `--must`. The keyword 
 
 - Auto-builds index on first call (~30s for large repos).
 - Reflects live working tree (untracked files included).
-- Large `--top` values are okay for impact analysis, but for feature work prefer `--top 10` or `--top 15`.
+- Prefer paged navigation (`--limit 10`, then `--offset 10`, etc.) over large one-shot result sets.
+- Large `--top` values are okay for impact analysis, but for feature work prefer pagination + focused refinement.
 - If a top result is a grab-bag folder, rerun with `--explain` and prefer focused folders with lower `files`, lower `tokens`, and lower `noise`.

@@ -43,9 +43,11 @@ useful to know at the start: routing logic not visible from folder structure, ar
 constraints, cross-module dependencies, or design decisions made. Do not record implementation
 details findable via signatures. If nothing non-obvious was learned, verify this explicitly, then skip.
 
-`ck find-scope` output is `<score>\t<folder-path>`. The score is a **relevance score** —
+`ck find-scope` output rows are `<score>\t<folder-path>`. The score is a **relevance score** —
 higher means more relevant. It is not a percentage; scores are relative values used for
 ranking within a result set. On large codebases they typically cluster between 0.69 and 0.82.
+Pagination metadata is emitted on stderr (`offset`, `limit`, `returned`, `total_estimate`,
+`has_more`, `next_offset`). Prefer paging (`--limit` + `--offset`) over large one-shot lists.
 
 ### Playbook A — Find and read a specific symbol
 
@@ -91,7 +93,9 @@ ck get-method-source <file> RefundPaymentAsync
 
 ```bash
 ck get-keyword-map --query "payment gateway refund async"
-ck find-scope --query "payment gateway refund async" --min-score 0.5 --top 30 --explain
+ck find-scope --query "payment gateway refund async" --min-score 0.5 --top 30 --limit 10 --offset 0 --explain
+# if has_more=true:
+ck find-scope --query "payment gateway refund async" --min-score 0.5 --top 30 --limit 10 --offset 10 --explain
 # returns ALL folders above threshold — may be 15-20 folders, that's fine
 ck signatures <folder1>/
 ck signatures <folder2>/

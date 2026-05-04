@@ -89,17 +89,16 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
         var folders = new SourceMapIndex(dbPath).LoadIndexedFolders();
         if (folders.Count == 0) return [];
 
-        var queryVec   = embedder.Embed(query);
-        var queryTerms = PathTokenizer.TokenizeQuery(query);
         var corpusStats = CorpusTokenStatistics.Build(folders);
+        var queryVec   = embedder.Embed(query);
+        var processedQuery = QueryIntentProcessor.Process(query, corpusStats);
 
         // Strip low-rank terms before computing the exact-match fraction so that
         // generic words (CRUD verbs, stopwords, structural segments, etc.) do not
         // inflate scores for folders that happen to contain them everywhere.
         // Semantic similarity (cosine) still applies to the full query.
-        var highRankTerms = LowRankDictionary.FilterHighRank(queryTerms);
-        var normalizedTerms = QueryTermNormalizer.ExpandMany(highRankTerms);
-        var effectiveTerms = new SparseQueryTermResolver().Resolve(normalizedTerms, corpusStats);
+        var highRankTerms = LowRankDictionary.FilterHighRank(processedQuery.ExpandedTerms);
+        var effectiveTerms = new SparseQueryTermResolver().Resolve(highRankTerms, corpusStats);
         var specificityModel = QueryTermSpecificityModel.Build(corpusStats, effectiveTerms);
 
         // Prepare must-token state when --must is given.

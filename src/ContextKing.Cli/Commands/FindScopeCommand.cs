@@ -24,6 +24,13 @@ internal static class FindScopeCommand
         _ = reader.HasFlag("--quiet"); // Accepted for scripts; find-scope is quiet by default.
         var topKSet   = reader.TryGetInt("--top", out var topK) && topK > 0;
         if (!topKSet) topK = 15;
+        var limitSet  = reader.TryGetInt("--limit", out var limit) && limit > 0;
+        if (!limitSet) limit = 10;
+        if (limit > 20) limit = 20;
+        var offsetSet = reader.TryGetInt("--offset", out var offset) && offset >= 0;
+        if (!offsetSet) offset = 0;
+        var maxPerAreaSet = reader.TryGetInt("--max-per-area", out var maxPerArea) && maxPerArea > 0;
+        if (!maxPerAreaSet) maxPerArea = 3;
 
         var minScoreSet = reader.TryGetFloat("--min-score", out var parsedMin) && parsedMin >= 0f;
         var minScore = minScoreSet ? parsedMin : 0.85f;
@@ -77,27 +84,42 @@ internal static class FindScopeCommand
 
         using var searchEmbedder = ModelLocator.CreateEmbedder();
         var searcher = new SourceMapSearcher(searchEmbedder);
-        var results  = searcher.SearchDetailed(dbPath, query, topK, minScore,
+        var resultCap = Math.Max(topK, offset + limit + 40);
+        if (resultCap < 200) resultCap = 200;
+        var allResults = searcher.SearchDetailed(dbPath, query, resultCap, minScore,
             mustTexts.Count > 0 ? mustTexts : null);
         var sessionAtlas = SessionKeywordAtlasStore.Load(repoRoot);
         var queryTerms = LowRankDictionary.FilterHighRank(PathTokenizer.TokenizeQuery(query));
 
-        if (results.Count == 0)
+        if (allResults.Count == 0)
         {
             Console.Error.WriteLine("[ck find-scope] No results found.");
             PrintGroundingHintsForNoMatch(query, queryTerms, mustTexts, sessionAtlas);
             return 0;
         }
 
-        PrintNarrowingGuidanceIfNeeded(query, queryTerms, topK, results, dbPath, repoRoot, mustTexts, sessionAtlas);
+        PrintNarrowingGuidanceIfNeeded(query, queryTerms, topK, allResults, dbPath, repoRoot, mustTexts, sessionAtlas);
 
-        foreach (var r in results)
+        var pagedResults = ApplyPaging(
+            allResults,
+            offset,
+            limit,
+            diversify: offset == 0,
+            maxPerArea: maxPerArea);
+        var hasMore = offset + pagedResults.Count < allResults.Count;
+        var nextOffset = hasMore ? offset + pagedResults.Count : -1;
+        Console.Error.WriteLine(
+            $"[ck find-scope] pagination: offset={offset} limit={limit} returned={pagedResults.Count} total_estimate={allResults.Count} has_more={hasMore.ToString().ToLowerInvariant()}" +
+            (hasMore ? $" next_offset={nextOffset}" : string.Empty));
+
+        foreach (var r in pagedResults)
         {
             Console.Write($"{r.Score.ToString("F4", CultureInfo.InvariantCulture)}\t{r.Path}");
             if (explain)
             {
                 var terms = r.MatchedTerms.Count == 0 ? "-" : string.Join(',', r.MatchedTerms);
                 var hints = r.UnmatchedFolderTerms.Count == 0 ? "-" : string.Join(',', r.UnmatchedFolderTerms);
+                var reason = BuildMatchReason(r);
                 Console.Write(
                     $"\tsemantic={r.SemanticScore.ToString("F4", CultureInfo.InvariantCulture)}" +
                     $"\texact={r.ExactBonus.ToString("F4", CultureInfo.InvariantCulture)}" +
@@ -106,7 +128,8 @@ internal static class FindScopeCommand
                     $"\tfiles={r.FileCount}" +
                     $"\ttokens={r.TokenCount}" +
                     $"\tmatched={terms}" +
-                    $"\thints={hints}");
+                    $"\thints={hints}" +
+                    $"\treason={reason}");
             }
             Console.WriteLine();
         }
@@ -214,7 +237,6 @@ internal static class FindScopeCommand
         var rewrite1 = queryTerms.Take(1).Concat(groundedCandidates.Take(2)).Distinct(StringComparer.Ordinal).ToArray();
         var rewrite2 = queryTerms.Take(1).Concat(groundedCandidates.Skip(2).Take(2)).Distinct(StringComparer.Ordinal).ToArray();
 
-        Console.WriteLine($"[ck find-scope] no-match-grounding-hints: {FormatList(groundedCandidates)}");
         if (rewrite1.Length > 0)
             Console.WriteLine($"[ck find-scope] no-match-rewrite-1: {string.Join(' ', rewrite1)}");
         if (rewrite2.Length > 0)
@@ -490,6 +512,56 @@ internal static class FindScopeCommand
         return parts.Length <= 3 ? path : string.Join('/', parts.Take(3));
     }
 
+    private static IReadOnlyList<ScoredFolderDetails> ApplyPaging(
+        IReadOnlyList<ScoredFolderDetails> results,
+        int offset,
+        int limit,
+        bool diversify,
+        int maxPerArea)
+    {
+        if (results.Count == 0 || limit <= 0 || offset >= results.Count)
+            return [];
+
+        if (!diversify)
+            return results.Skip(offset).Take(limit).ToArray();
+
+        var selected = new List<ScoredFolderDetails>(offset + limit);
+        var areaCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var overflow = new Queue<ScoredFolderDetails>();
+
+        foreach (var item in results)
+        {
+            var area = AreaKey(item.Path);
+            areaCounts.TryGetValue(area, out var count);
+            if (count < maxPerArea)
+            {
+                areaCounts[area] = count + 1;
+                selected.Add(item);
+            }
+            else
+            {
+                overflow.Enqueue(item);
+            }
+
+            if (selected.Count >= offset + limit)
+                break;
+        }
+
+        while (selected.Count < offset + limit && overflow.Count > 0)
+            selected.Add(overflow.Dequeue());
+
+        return selected.Skip(offset).Take(limit).ToArray();
+    }
+
+    private static string BuildMatchReason(ScoredFolderDetails folder)
+    {
+        var matched = folder.MatchedTerms.Take(3).ToArray();
+        if (matched.Length == 0)
+            return "semantic match";
+
+        return $"matched:{string.Join('+', matched)}";
+    }
+
     private static string FormatList(IReadOnlyList<string> terms)
         => terms.Count == 0 ? "-" : string.Join(", ", terms);
 
@@ -499,7 +571,7 @@ internal static class FindScopeCommand
             ck find-scope — semantic search to find the most relevant folder(s)
 
             Usage:
-              ck find-scope --query <text> [--must <text>] [--repo <path>] [--top <n>] [--min-score <f>] [--explain] [--verbose]
+              ck find-scope --query <text> [--must <text>] [--repo <path>] [--limit <n>] [--offset <n>] [--max-per-area <n>] [--top <n>] [--min-score <f>] [--explain] [--verbose]
 
             Options:
               --query <text>      Natural language description of the code area (required)
@@ -510,6 +582,9 @@ internal static class FindScopeCommand
               --repo <path>       Path to git repo root (default: git rev-parse from cwd)
               --top <n>           Hard cap on result count (default: 15; ignored when
                                   --min-score is set without --top)
+              --limit <n>         Page size for returned rows (default: 10, max: 20)
+              --offset <n>        Page offset into ranked results (default: 0)
+              --max-per-area <n>  First-page diversity cap per area key (default: 3)
               --min-score <f>     Exclude folders with score below this threshold (0.0–1.15,
                                   default: 0.85).
                                   When specified without --top, returns ALL folders above the
@@ -525,6 +600,7 @@ internal static class FindScopeCommand
             Output (stdout):
               <score>\t<relative-folder-path>
               One line per result, score is cosine similarity [0..1] + exact-match bonus (≤0.30).
+              Pagination metadata is printed to stderr (offset, limit, returned, total_estimate, has_more, next_offset).
               If the result set is broad or ambiguous, a narrowing diagnostic is printed first
               with matched query terms, unmatched query terms, and keyword hints from the wide scope.
 

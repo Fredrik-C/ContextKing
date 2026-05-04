@@ -25,7 +25,7 @@ It shows which files contain relevant members without dumping everything.
 ## Command
 
 ```bash
-.claude/skills/ck/ck expand-folder [--pattern <regex>] [--all] <folder>
+.claude/skills/ck/ck expand-folder [--pattern <regex>] [--limit <n>] [--offset <n>] [--max-signatures <n>] [--all] <folder>
 ```
 
 ## Options
@@ -33,6 +33,9 @@ It shows which files contain relevant members without dumping everything.
 | Option | Default | Description |
 |---|---|---|
 | `--pattern <regex>` | show all for small folders only | Case-insensitive regex matched against `containingType`, `memberName`, and `signature` text. Files with zero matches are excluded from output. Broad matches are refused with keyword hints. Use 2-4 high-signal terms, not a single generic word. |
+| `--limit <n>` | 20 | Page size for matched files (max 50). |
+| `--offset <n>` | 0 | Page offset into ranked matched files. |
+| `--max-signatures <n>` | 25 | Max signatures printed per file (`0` = unlimited). |
 | `--all` | off | Allow broad output intentionally. Do not use this as a workaround for an imprecise pattern. |
 
 If the command says `Pattern is too broad`, do not pipe or truncate the output. Rerun with more precision using the printed `add-keyword-hints`, for example provider + workflow + DTO/type/member words.
@@ -52,6 +55,11 @@ Budget rule: use at most 3 `expand-folder` calls per direction. After that, eith
 ```
 
 One block per file. Files with no matching signatures are omitted entirely.
+Pagination metadata is printed to stderr:
+
+```
+[ck expand-folder] pagination: offset=<n> limit=<n> returned=<n> total_estimate=<n> has_more=<true|false> [next_offset=<n>]
+```
 
 ## Examples
 

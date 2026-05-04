@@ -296,12 +296,14 @@ Initializes Context King in the current git repository. Creates `.ck.json`, adds
 ### `ck find-scope`
 
 ```
-ck find-scope --query "<multi-keyword description>" [--must <text>] [--top <n>] [--min-score <f>] [--explain] [--verbose] [--repo <path>]
+ck find-scope --query "<multi-keyword description>" [--must <text>] [--limit <n>] [--offset <n>] [--max-per-area <n>] [--top <n>] [--min-score <f>] [--explain] [--verbose] [--repo <path>]
 ```
 
-Output: `<score>\t<relative-folder-path>`, one line per result, sorted by score descending. Default `--top 10`. Auto-builds the index on first call.
+Output rows: `<score>\t<relative-folder-path>`, sorted by score descending. Default page size is `--limit 10` (max 20). Auto-builds the index on first call.
+Pagination metadata is emitted on stderr (`offset`, `limit`, `returned`, `total_estimate`, `has_more`, `next_offset`).
 
 When the top results are too broad or ambiguous, `find-scope` prints a narrowing instruction before the folder list. The diagnostic includes query keywords that matched, query keywords that did not match, and grouped hints from the too-wide scope: exact symbol candidates first, then provider/workflow buckets, then generic leftovers. Treat that as a request to rerun with more precise provider, workflow, DTO/type, or method words instead of expanding every returned folder.
+Query expansion is repository-agnostic and corpus-driven: it only expands into terms present in the indexed corpus (no repository-specific hardcoded synonym tables).
 
 ### `ck get-keyword-map`
 
@@ -314,10 +316,10 @@ Builds a keyword neighborhood map from the top semantic folders for your query. 
 ### `ck expand-folder`
 
 ```
-ck expand-folder [--pattern <regex>] [--all] <folder> [--repo <path>]
+ck expand-folder [--pattern <regex>] [--limit <n>] [--offset <n>] [--max-signatures <n>] [--all] <folder> [--repo <path>]
 ```
 
-Enumerates every `.cs`, `.ts`, and `.tsx` file under `<folder>` recursively, extracts signatures, and filters to only files with a matching signature when `--pattern` is given. `\|` in the pattern is normalised to `|` automatically. Broad unfiltered folders and broad pattern matches are refused unless `--all` is passed intentionally; refusal output includes keyword hints for making the pattern more precise.
+Enumerates every `.cs`, `.ts`, and `.tsx` file under `<folder>` recursively, extracts signatures, and filters to only files with a matching signature when `--pattern` is given. `\|` in the pattern is normalised to `|` automatically. Results are paged (`--limit`, `--offset`) and include pagination metadata on stderr. `--max-signatures` limits signatures printed per file (`0` = unlimited). Broad matches return a paged shortlist with narrowing hints; use `--all` only when broad output is intentional.
 
 ### `ck signatures`
 

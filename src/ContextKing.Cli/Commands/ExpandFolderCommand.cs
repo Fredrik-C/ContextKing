@@ -17,6 +17,9 @@ internal static class ExpandFolderCommand
     private const int MaxFilesWithoutPattern = 30;
     private const int MaxMatchedFiles = 8;
     private const int MaxMatchedSignatures = 50;
+    private const int DefaultLimit = 20;
+    private const int MaxLimit = 50;
+    private const int DefaultMaxSignaturesPerFile = 25;
 
     internal static Task<int> RunAsync(string[] args)
     {
@@ -29,6 +32,13 @@ internal static class ExpandFolderCommand
 
         var pattern     = reader.GetString("--pattern");
         var allowBroad  = reader.HasFlag("--all");
+        var limitSet = reader.TryGetInt("--limit", out var limit) && limit > 0;
+        if (!limitSet) limit = DefaultLimit;
+        if (limit > MaxLimit) limit = MaxLimit;
+        var offsetSet = reader.TryGetInt("--offset", out var offset) && offset >= 0;
+        if (!offsetSet) offset = 0;
+        var maxSignaturesSet = reader.TryGetInt("--max-signatures", out var maxSignaturesPerFile) && maxSignaturesPerFile >= 0;
+        if (!maxSignaturesSet) maxSignaturesPerFile = DefaultMaxSignaturesPerFile;
         var positionals = reader.RemainingPositionals();
         var folderPath  = positionals.Count > 0 ? positionals[0] : null;
 
@@ -152,12 +162,11 @@ internal static class ExpandFolderCommand
             allFiles.Count > 40 &&
             patternTerms.Count < 2)
         {
-            Console.WriteLine("[ck expand-folder] Pattern is under-specified for this folder size.");
-            Console.WriteLine($"[ck expand-folder] matched-pattern-keywords: {FormatList(patternTerms)}");
+            Console.Error.WriteLine("[ck expand-folder] Pattern is under-specified for this folder size; returning paged shortlist.");
+            Console.Error.WriteLine($"[ck expand-folder] matched-pattern-keywords: {FormatList(patternTerms)}");
             var atlasHints = AtlasKeywordHints(atlas, patternTerms, 16);
-            Console.WriteLine($"[ck expand-folder] add-keyword-hints: {FormatList(atlasHints)}");
-            Console.WriteLine("[ck expand-folder] Use at least two precise terms (for example concept + workflow, or provider + symbol).");
-            return Task.FromResult(1);
+            Console.Error.WriteLine($"[ck expand-folder] add-keyword-hints: {FormatList(atlasHints)}");
+            Console.Error.WriteLine("[ck expand-folder] Use at least two precise terms (for example concept + workflow, or provider + symbol).");
         }
 
         var matchedByFile = new List<(string File, List<SignatureEntry> Entries)>();
@@ -195,28 +204,41 @@ internal static class ExpandFolderCommand
         }
 
         var matchedSignatureCount = matchedByFile.Sum(x => x.Entries.Count);
-        if (!allowBroad && IsTooBroad(pattern, patternTerms, allFiles.Count, matchedByFile.Count, matchedSignatureCount))
+        var tooBroad = !allowBroad && IsTooBroad(pattern, patternTerms, allFiles.Count, matchedByFile.Count, matchedSignatureCount);
+        if (tooBroad)
         {
-            Console.WriteLine("[ck expand-folder] Pattern is too broad for safe expansion. Output suppressed.");
-            Console.WriteLine($"[ck expand-folder] matched-files={matchedByFile.Count} matched-signatures={matchedSignatureCount} scanned-files={allFiles.Count}");
-            Console.WriteLine($"[ck expand-folder] matched-pattern-keywords: {FormatList(patternTerms)}");
+            Console.Error.WriteLine("[ck expand-folder] Pattern is too broad for safe expansion. Returning paged shortlist.");
+            Console.Error.WriteLine($"[ck expand-folder] matched-files={matchedByFile.Count} matched-signatures={matchedSignatureCount} scanned-files={allFiles.Count}");
+            Console.Error.WriteLine($"[ck expand-folder] matched-pattern-keywords: {FormatList(patternTerms)}");
             var hints = KeywordHints(matchedByFile.SelectMany(x => x.Entries), patternTerms);
             var mergedHints = MergeHints(hints, AtlasKeywordHints(atlas, patternTerms, 20), 24);
-            Console.WriteLine($"[ck expand-folder] add-keyword-hints: {FormatList(mergedHints)}");
-            Console.WriteLine("[ck expand-folder] Rerun with a more precise --pattern, for example combine provider + workflow + DTO/method term. Use --all only when broad output is intentional.");
-            return Task.FromResult(1);
+            Console.Error.WriteLine($"[ck expand-folder] add-keyword-hints: {FormatList(mergedHints)}");
+            Console.Error.WriteLine("[ck expand-folder] Rerun with a more precise --pattern, for example combine provider + workflow + DTO/method term. Use --all only when broad output is intentional.");
         }
 
-        // Emit results in file-enumeration order.
+        var rankedMatches = RankMatches(matchedByFile, patternTerms);
+        var page = rankedMatches.Skip(offset).Take(limit).ToArray();
+        var hasMore = offset + page.Length < rankedMatches.Count;
+        var nextOffset = hasMore ? offset + page.Length : -1;
+        Console.Error.WriteLine(
+            $"[ck expand-folder] pagination: offset={offset} limit={limit} returned={page.Length} total_estimate={rankedMatches.Count} has_more={hasMore.ToString().ToLowerInvariant()}" +
+            (hasMore ? $" next_offset={nextOffset}" : string.Empty));
+
+        // Emit results in ranked order.
         bool anyOutput = false;
-        foreach (var (normalized, matched) in matchedByFile)
+        foreach (var (normalized, matched) in page)
         {
             if (anyOutput)
                 Console.WriteLine();
 
             Console.WriteLine(normalized);
-            foreach (var (lineNo, rest) in matched)
+            var entries = maxSignaturesPerFile == 0
+                ? matched
+                : matched.Take(maxSignaturesPerFile).ToList();
+            foreach (var (lineNo, rest) in entries)
                 Console.WriteLine($"  {lineNo}\t{rest}");
+            if (maxSignaturesPerFile > 0 && matched.Count > maxSignaturesPerFile)
+                Console.WriteLine($"  ... +{matched.Count - maxSignaturesPerFile} signatures (use --max-signatures 0 for full per-file output)");
 
             anyOutput = true;
         }
@@ -343,13 +365,35 @@ internal static class ExpandFolderCommand
 
     private readonly record struct SignatureEntry(int lineNo, string rest);
 
+    private static List<(string File, List<SignatureEntry> Entries)> RankMatches(
+        List<(string File, List<SignatureEntry> Entries)> matches,
+        IReadOnlyList<string> patternTerms)
+    {
+        var queryTerms = patternTerms.ToHashSet(StringComparer.Ordinal);
+
+        return matches
+            .Select(match =>
+            {
+                var combined = string.Join(' ', match.Entries.Select(e => e.rest));
+                var tokens = PathTokenizer.TokenizeQuery(combined).ToHashSet(StringComparer.Ordinal);
+                var overlap = queryTerms.Count == 0 ? 0 : queryTerms.Count(t => tokens.Contains(t));
+                var overlapRatio = queryTerms.Count == 0 ? 0f : overlap / (float)queryTerms.Count;
+                var score = overlapRatio * 2.5f + MathF.Min(1.5f, MathF.Log2(match.Entries.Count + 1));
+                return (match, score);
+            })
+            .OrderByDescending(x => x.score)
+            .ThenBy(x => x.match.File, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.match)
+            .ToList();
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("""
             ck expand-folder — list files in a folder with their matching signatures
 
             Usage:
-              ck expand-folder [--pattern <regex>] <folder>
+              ck expand-folder [--pattern <regex>] [--limit <n>] [--offset <n>] [--max-signatures <n>] [--all] <folder>
 
             Arguments:
               <folder>            Path to the folder to expand (recursive)
@@ -361,6 +405,9 @@ internal static class ExpandFolderCommand
                                   If omitted, all signatures in all files are shown only for small folders.
                                   Broad matches are refused with keyword hints.
               --all               Allow broad output intentionally.
+              --limit <n>         Page size for matched files (default: 20, max: 50)
+              --offset <n>        Page offset into ranked matched files (default: 0)
+              --max-signatures <n>  Max signatures per file (default: 25, 0 = unlimited)
               --help, -h          Show this help
 
             Output (stdout):
@@ -368,6 +415,7 @@ internal static class ExpandFolderCommand
                 <line>  <containingType>  <memberName>  <signature>
 
               One block per file that has at least one matching signature.
+              Pagination metadata is printed to stderr.
 
             Examples:
               ck expand-folder src/Modules/Payment/Adyen/
