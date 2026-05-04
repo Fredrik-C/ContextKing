@@ -96,8 +96,14 @@ internal static class GetKeywordMapCommand
             .RankScopedHints(results, queryTerms, Math.Max(24, perKeyword * 2))
             .Select(x => x.Term)
             .ToArray();
+        var advice = KeywordIntentAdvisor.BuildAdvice(
+            dbPath,
+            queryTerms,
+            matchedTerms,
+            mustTexts,
+            globalHints);
 
-        PersistSessionAtlas(repoRoot, query, queryTerms, mustTexts, matchedTerms, unmatchedTerms, globalHints, map);
+        PersistSessionAtlas(repoRoot, query, queryTerms, mustTexts, matchedTerms, unmatchedTerms, globalHints, map, advice);
 
         Console.WriteLine($"[ck get-keyword-map] matched-query-keywords: {FormatList(matchedTerms)}");
         Console.WriteLine($"[ck get-keyword-map] unmatched-query-keywords: {FormatList(unmatchedTerms)}");
@@ -106,6 +112,32 @@ internal static class GetKeywordMapCommand
 
         foreach (var (seed, terms) in map)
             Console.WriteLine($"[ck get-keyword-map]   {seed}: {FormatList(terms)}");
+
+        var anchorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Anchor).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
+        var discriminatorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Discriminator).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
+        var workflowTerms = advice.Terms.Where(t => t.Role == KeywordRole.Workflow).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
+        var noiseTerms = advice.Terms.Where(t => t.Role == KeywordRole.Noise).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
+
+        Console.WriteLine($"[ck get-keyword-map] role-anchor: {FormatList(anchorTerms)}");
+        Console.WriteLine($"[ck get-keyword-map] role-discriminator: {FormatList(discriminatorTerms)}");
+        Console.WriteLine($"[ck get-keyword-map] role-workflow: {FormatList(workflowTerms)}");
+        Console.WriteLine($"[ck get-keyword-map] role-noise: {FormatList(noiseTerms)}");
+        Console.WriteLine("[ck get-keyword-map] term-evidence:");
+        foreach (var term in advice.Terms.Take(16))
+        {
+            Console.WriteLine(
+                $"[ck get-keyword-map]   {term.Term}: role={term.Role.ToString().ToLowerInvariant()} " +
+                $"df={term.GlobalDocumentFrequency} " +
+                $"dfp={term.DocumentFrequencyPercentile:F3} " +
+                $"lift={term.LocalLiftScore:F3} " +
+                $"conc={term.ScopeConcentrationScore:F3} " +
+                $"broad={term.BroadRiskScore:F3} " +
+                $"matched={(term.IsMatchedQueryTerm ? "yes" : "no")}");
+        }
+        Console.WriteLine($"[ck get-keyword-map] suggested-must: {advice.SuggestedMust ?? "-"}");
+        for (var i = 0; i < advice.SuggestedQueries.Count; i++)
+            Console.WriteLine($"[ck get-keyword-map] suggested-query-{i + 1}: {advice.SuggestedQueries[i]}");
+        Console.WriteLine($"[ck get-keyword-map] suggested-next-step: {advice.SuggestedNextCommand}");
 
         return 0;
     }
@@ -207,9 +239,16 @@ internal static class GetKeywordMapCommand
         IReadOnlyList<string> matchedTerms,
         IReadOnlyList<string> unmatchedTerms,
         IReadOnlyList<string> globalHints,
-        IReadOnlyList<KeywordMapEntry> keywordMap)
+        IReadOnlyList<KeywordMapEntry> keywordMap,
+        QueryCompositionAdvice advice)
     {
-        var highValue = globalHints
+        var roleGrounded = advice.Terms
+            .Where(t => t.Role is KeywordRole.Anchor or KeywordRole.Discriminator or KeywordRole.Workflow)
+            .Where(t => t.BroadRiskScore <= 0.85f)
+            .Select(t => t.Term);
+
+        var highValue = roleGrounded
+            .Concat(globalHints)
             .Concat(keywordMap.SelectMany(x => x.Related))
             .Distinct(StringComparer.Ordinal)
             .Take(300)

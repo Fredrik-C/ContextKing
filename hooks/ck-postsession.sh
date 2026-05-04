@@ -30,13 +30,13 @@ elif [ -x "$HOME/.ck/bin/ck" ]; then
   CK="$HOME/.ck/bin/ck"
 elif [ -x "${CODEX_HOME:-$HOME/.codex}/skills/ck/ck" ]; then
   CK="${CODEX_HOME:-$HOME/.codex}/skills/ck/ck"
-elif [ -x "$REPO_ROOT/.claude/skills/ck/ck" ]; then
-  CK="$REPO_ROOT/.claude/skills/ck/ck"
+elif [ -x "$REPO_ROOT/ck" ]; then
+  CK="$REPO_ROOT/ck"
 fi
 [ -n "$CK" ] || exit 0
 
 # For global install, only fire in repos initialized with `ck init` (have .ck-knowledge/).
-if [ ! -x "$REPO_ROOT/.claude/skills/ck/ck" ]; then
+if [ ! -x "$REPO_ROOT/ck" ]; then
   [ -d "$REPO_ROOT/.ck-knowledge" ] || exit 0
 fi
 

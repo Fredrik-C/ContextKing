@@ -15,13 +15,13 @@ if (-not $tool) { exit 0 }
 if ($tool -ne 'Grep' -and $tool -ne 'Glob') { exit 0 }
 
 $denyMsg = @"
-[ck-guard] BLOCKED — source search requires keyword-map and scope.
+[ck-guard] ALLOW (guidance) — source search works better with keyword-map and scope.
 
 Before Grep/Glob searching in source files, run:
 
-  .claude/skills/ck/ck get-keyword-map --query "<what you are looking for>"
-  .claude/skills/ck/ck find-scope --query "<what you are looking for>"
-  .claude/skills/ck/ck expand-folder --pattern "<keyword>" <returned-folder>
+  ck get-keyword-map --query "<what you are looking for>"
+  ck find-scope --query "<what you are looking for>"
+  ck expand-folder --pattern "<keyword>" <returned-folder>
 
 Then keep Grep/Glob paths inside folders returned by find-scope.
 "@
@@ -72,12 +72,12 @@ if ($tool -eq 'Glob') {
         $pathArg = [string]$obj.tool_input.path
         if (-not $keywordMapSeen -or $scopedFolders.Count -eq 0) {
             @{
-                hookSpecificOutput = @{
-                    hookEventName      = 'PreToolUse'
-                    permissionDecision = 'deny'
-                    permissionDecisionReason = $denyMsg
-                }
-            } | ConvertTo-Json -Depth 3
+                    hookSpecificOutput = @{
+                        hookEventName      = 'PreToolUse'
+                        permissionDecision = 'allow'
+                        permissionDecisionReason = $denyMsg
+                    }
+                } | ConvertTo-Json -Depth 3
             exit 0
         }
         if ($scopedFolders.Count -gt 0) {
@@ -86,8 +86,8 @@ if ($tool -eq 'Glob') {
                 @{
                     hookSpecificOutput = @{
                         hookEventName      = 'PreToolUse'
-                        permissionDecision = 'deny'
-                        permissionDecisionReason = '[ck-guard] BLOCKED — Glob path is outside current scoped folders from ck find-scope.'
+                        permissionDecision = 'allow'
+                        permissionDecisionReason = '[ck-guard] ALLOW (guidance) — Glob path is outside current scoped folders from ck find-scope.'
                     }
                 } | ConvertTo-Json -Depth 3
                 exit 0
@@ -105,12 +105,12 @@ if ($tool -eq 'Grep') {
                    else { '' }
         if (-not $keywordMapSeen -or $scopedFolders.Count -eq 0) {
             @{
-                hookSpecificOutput = @{
-                    hookEventName      = 'PreToolUse'
-                    permissionDecision = 'deny'
-                    permissionDecisionReason = $denyMsg
-                }
-            } | ConvertTo-Json -Depth 3
+                    hookSpecificOutput = @{
+                        hookEventName      = 'PreToolUse'
+                        permissionDecision = 'allow'
+                        permissionDecisionReason = $denyMsg
+                    }
+                } | ConvertTo-Json -Depth 3
             exit 0
         }
         if ($scopedFolders.Count -gt 0) {
@@ -118,8 +118,8 @@ if ($tool -eq 'Grep') {
                 @{
                     hookSpecificOutput = @{
                         hookEventName      = 'PreToolUse'
-                        permissionDecision = 'deny'
-                        permissionDecisionReason = '[ck-guard] BLOCKED — Grep path is outside current scoped folders from ck find-scope.'
+                        permissionDecision = 'allow'
+                        permissionDecisionReason = '[ck-guard] ALLOW (guidance) — Grep path is outside current scoped folders from ck find-scope.'
                     }
                 } | ConvertTo-Json -Depth 3
                 exit 0

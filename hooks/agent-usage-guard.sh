@@ -25,7 +25,7 @@ CONTEXT="$(printf '## Code Search Protocol (mandatory)
 
 %s
 
-The ck binary is at: .claude/skills/ck/ck
+The ck binary is at: ck
 Use ck find-scope, ck expand-folder --pattern, and ck get-method-source instead of broad grep/glob.' "$PROTOCOL")"
 
 jq -n --arg ctx "$CONTEXT" '{

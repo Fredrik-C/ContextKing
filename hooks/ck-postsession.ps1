@@ -20,9 +20,9 @@ if (-not $repoRoot) { exit 0 }
 
 # Find CK binary: prefer project-local (Claude Code), fall back to Codex global.
 $ck = $null
-$ckLocal = Join-Path $repoRoot ".claude\skills\ck\ck.cmd"
+$ckLocal = Join-Path $repoRoot "ck"
 if (Test-Path $ckLocal) {
-    $ck = ".claude\skills\ck\ck.cmd"
+    $ck = "ck"
 } else {
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
     $ckCodex = Join-Path $codexHome "skills\ck\ck.cmd"

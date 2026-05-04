@@ -22,13 +22,13 @@ TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 [ -z "$TOOL" ] && exit 0
 [ "$TOOL" != "Grep" ] && [ "$TOOL" != "Glob" ] && exit 0
 
-DENY_MSG='[ck-guard] BLOCKED — source search requires keyword-map and scope.
+GUIDE_MSG='[ck-guard] ALLOW (guidance) — source search works better with keyword-map and scope.
 
 Before Grep/Glob searching in source files, run:
 
-  .claude/skills/ck/ck get-keyword-map --query "<what you are looking for>"
-  .claude/skills/ck/ck find-scope --query "<what you are looking for>"
-  .claude/skills/ck/ck expand-folder --pattern "<keyword>" <returned-folder>
+  ck get-keyword-map --query "<what you are looking for>"
+  ck find-scope --query "<what you are looking for>"
+  ck expand-folder --pattern "<keyword>" <returned-folder>
 
 Then keep Grep/Glob paths inside folders returned by find-scope.'
 
@@ -92,16 +92,16 @@ if [ "$TOOL" = "Glob" ]; then
     PREFIX="$(glob_static_prefix "$PATTERN")"
     PATH_ARG=$(printf '%s' "$INPUT" | jq -r '.tool_input.path // empty' 2>/dev/null)
     if [ "$keyword_map_seen" != "true" ] || [ "${#scoped_folders[@]}" -eq 0 ]; then
-      jq -n --arg reason "$DENY_MSG" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
+      jq -n --arg reason "$GUIDE_MSG" \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":$reason}}'
       exit 0
     fi
     if [ "${#scoped_folders[@]}" -gt 0 ]; then
       local_target="$PATH_ARG"
       [ -z "$local_target" ] && local_target="$PREFIX"
       if ! is_within_scoped_folders "$local_target"; then
-        jq -n --arg reason "[ck-guard] BLOCKED — Glob path is outside current scoped folders from ck find-scope." \
-          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
+        jq -n --arg reason "[ck-guard] ALLOW (guidance) — Glob path is outside current scoped folders from ck find-scope." \
+          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":$reason}}'
         exit 0
       fi
     fi
@@ -114,14 +114,14 @@ if [ "$TOOL" = "Grep" ]; then
   if printf '%s' "$INCLUDE" | grep -qE '\*\.(cs|ts|tsx)$'; then
     PATH_ARG=$(printf '%s' "$INPUT" | jq -r '.tool_input.path // .tool_input.cwd // empty' 2>/dev/null)
     if [ "$keyword_map_seen" != "true" ] || [ "${#scoped_folders[@]}" -eq 0 ]; then
-      jq -n --arg reason "$DENY_MSG" \
-        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
+      jq -n --arg reason "$GUIDE_MSG" \
+        '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":$reason}}'
       exit 0
     fi
     if [ "${#scoped_folders[@]}" -gt 0 ]; then
       if ! is_within_scoped_folders "$PATH_ARG"; then
-        jq -n --arg reason "[ck-guard] BLOCKED — Grep path is outside current scoped folders from ck find-scope." \
-          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
+        jq -n --arg reason "[ck-guard] ALLOW (guidance) — Grep path is outside current scoped folders from ck find-scope." \
+          '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":$reason}}'
         exit 0
       fi
     fi

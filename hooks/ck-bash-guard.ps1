@@ -130,21 +130,21 @@ function GetGitTreeFingerprint([string]$root) {
 }
 
 if ($state.pendingKeywordMap -and
-    $command -match 'ck\s+(find-scope|expand-folder)\b' -and
+    $command -match 'ck\s+expand-folder\b' -and
     $command -notmatch 'ck\s+get-keyword-map\b') {
     $pendingQuery = if ([string]::IsNullOrWhiteSpace([string]$state.pendingQuery)) { "<same query>" } else { [string]$state.pendingQuery }
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — previous ck find-scope was broad/ambiguous.
+[ck-guard] ALLOW (guidance) — previous ck find-scope was broad/ambiguous.
 
-Run keyword mapping before more scope/explore calls:
+Run keyword mapping before more expand-folder calls:
 
-  .claude/skills/ck/ck get-keyword-map --query "$pendingQuery"
+  ck get-keyword-map --query "$pendingQuery"
 
-Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-scope once.
+Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-scope with refined terms.
 "@
         }
     } | ConvertTo-Json -Depth 3
@@ -155,12 +155,12 @@ if ($command -match 'ck\s+find-scope\b' -and $command -eq $state.lastFindScopeCo
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — repeated identical ck find-scope command.
+[ck-guard] ALLOW (guidance) — repeated identical ck find-scope command.
 
 Do not rerun the same scope command unchanged. If previous output was broad:
-  .claude/skills/ck/ck get-keyword-map --query "<same query>"
+  ck get-keyword-map --query "<same query>"
 Then rerun find-scope with refined terms.
 "@
         }
@@ -218,11 +218,11 @@ Known target from $knownTargetFrom:
   $knownTargetFile
 
 Next step in this direction:
-  .claude/skills/ck/ck signatures "$knownTargetFile"
-  .claude/skills/ck/ck get-method-source "$knownTargetFile" <MemberName>
+  ck signatures "$knownTargetFile"
+  ck get-method-source "$knownTargetFile" <MemberName>
 
 If your direction changed, reset scope explicitly with:
-  .claude/skills/ck/ck find-scope --query "<new direction query>"
+  ck find-scope --query "<new direction query>"
 "@
         }
     } | ConvertTo-Json -Depth 3
@@ -240,12 +240,12 @@ if ($command -match 'ck\s+expand-folder\b' -and
 [ck-guard] BLOCKED — expand-folder map-building budget reached (3 calls for this direction).
 
 Use targeted reads now:
-  .claude/skills/ck/ck signatures <file.cs>
-  .claude/skills/ck/ck get-method-source <file.cs> <MemberName>
+  ck signatures <file.cs>
+  ck get-method-source <file.cs> <MemberName>
 
 If still uncharted, reset direction first:
-  .claude/skills/ck/ck get-keyword-map --query "<same query>"
-  .claude/skills/ck/ck find-scope --query "<refined query>"
+  ck get-keyword-map --query "<same query>"
+  ck find-scope --query "<refined query>"
 "@
         }
     } | ConvertTo-Json -Depth 3
@@ -259,15 +259,15 @@ if ($command -match '\.claude/projects/.*/tool-results/' -and
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — do not grep saved Claude tool-result files.
+[ck-guard] ALLOW (guidance) — avoid grepping saved Claude tool-result files.
 
 Filtering tool-result files rehydrates previous large outputs and wastes context.
 Use the CK command with a narrower pattern instead:
 
-  .claude/skills/ck/ck expand-folder --pattern "<keyword>" <folder>
-  .claude/skills/ck/ck get-method-source <file> <MemberName>
+  ck expand-folder --pattern "<keyword>" <folder>
+  ck get-method-source <file> <MemberName>
 "@
         }
     } | ConvertTo-Json -Depth 3
@@ -283,9 +283,9 @@ if ($hasCk -and $hasPipe) {
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — do not pipe ck find-scope through grep, sort, or awk.
+[ck-guard] ALLOW (guidance) — avoid piping ck find-scope through grep/sort/awk.
 
 ck find-scope output is already ranked by relevance score. Filtering or sorting
 destroys that structure. Instead:
@@ -307,15 +307,15 @@ if ($hasExpand -and $hasExpandPipe) {
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — do not pipe ck expand-folder output.
+[ck-guard] ALLOW (guidance) — avoid piping ck expand-folder output.
 
 ck expand-folder now refuses broad output and provides keyword hints. Filtering
 or truncating the output hides that guidance and wastes context. Rerun directly
 with a more precise pattern:
 
-  .claude/skills/ck/ck expand-folder --pattern "<provider>|<workflow>|<symbol>" <folder>
+  ck expand-folder --pattern "<provider>|<workflow>|<symbol>" <folder>
 "@
         }
     } | ConvertTo-Json -Depth 3
@@ -328,13 +328,13 @@ if ($command -match '(^|[;&|\s])dotnet\s+build\b' -and
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — dotnet build output is being post-filtered via shell pipes.
+[ck-guard] ALLOW (guidance) — dotnet build output is being post-filtered.
 
 Use compact build diagnostics directly:
 
-  .claude/skills/ck/ck build-check <project.csproj>
+  ck build-check <project.csproj>
 
 This runs dotnet build -v q and emits concise error/warning summaries without tail/grep churn.
 "@
@@ -351,13 +351,13 @@ if ($command -match '(^|[;&|\s])dotnet\s+build\b' -and
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — use ck build-check as the default verification command.
+[ck-guard] ALLOW (guidance) — prefer ck build-check as the default verification command.
 
 Raw dotnet build often creates duplicate verification loops. Prefer:
 
-  .claude/skills/ck/ck build-check <project.csproj>
+  ck build-check <project.csproj>
 
 If you explicitly need full MSBuild output (fallback only), rerun once with:
 
@@ -388,8 +388,8 @@ if ($command -match '(^|[;&|\s])(grep|rg|find)\b') {
 
 Switch to targeted symbol search instead:
 
-  .claude/skills/ck/ck find-symbol "$tokenFamily"
-  .claude/skills/ck/ck refs "$tokenFamily"
+  ck find-symbol "$tokenFamily"
+  ck refs "$tokenFamily"
 
 This avoids repeated broad text search churn.
 "@
@@ -407,13 +407,13 @@ if ((-not $keywordMapSeen -or $scopedFolders.Count -eq 0) -and $isSourceSearch) 
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — source search requires keyword-map and scope.
+[ck-guard] ALLOW (guidance) — source search works better with keyword-map and scope.
 
 Before grep/glob/find-style searching, run:
-  .claude/skills/ck/ck get-keyword-map --query "<domain concept operation>"
-  .claude/skills/ck/ck find-scope --query "<refined query from keyword-map>"
+  ck get-keyword-map --query "<domain concept operation>"
+  ck find-scope --query "<refined query from keyword-map>"
 
 Then keep all searches inside returned folders.
 "@
@@ -442,7 +442,7 @@ if ($command -match 'ck\s+build-check\b') {
 
 Prefer delta verification:
 
-  .claude/skills/ck/ck build-check --delta <project.csproj>
+  ck build-check --delta <project.csproj>
 
 or continue coding before rerunning build-check.
 "@
@@ -468,8 +468,8 @@ Active scope was set by the latest successful ck find-scope call. Keep signature
   $($scopedFolders -join ' ')
 
 If direction changed, run:
-  .claude/skills/ck/ck get-keyword-map --query "<new direction>"
-  .claude/skills/ck/ck find-scope --query "<new direction>"
+  ck get-keyword-map --query "<new direction>"
+  ck find-scope --query "<new direction>"
 "@
                     }
                 } | ConvertTo-Json -Depth 3
@@ -492,8 +492,8 @@ Keep grep/rg/find inside folders returned by the latest successful ck find-scope
   $($scopedFolders -join ' ')
 
 If this is a new direction, refresh scope first:
-  .claude/skills/ck/ck get-keyword-map --query "<new direction>"
-  .claude/skills/ck/ck find-scope --query "<new direction>"
+  ck get-keyword-map --query "<new direction>"
+  ck find-scope --query "<new direction>"
 "@
                     }
                 } | ConvertTo-Json -Depth 3
@@ -513,14 +513,14 @@ if ($isBroadRecursiveGrep) {
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — broad recursive grep over source/module root.
+[ck-guard] ALLOW (guidance) — broad recursive grep over source/module root may be noisy.
 
 Recursive grep from src/ or a module root scans too much. Use CK to narrow first:
 
-  .claude/skills/ck/ck find-scope --query "<domain concept operation>" --explain
-  .claude/skills/ck/ck expand-folder --pattern "<keyword>" <returned-folder>
+  ck find-scope --query "<domain concept operation>" --explain
+  ck expand-folder --pattern "<keyword>" <returned-folder>
 
 If you already have focused folders, grep only those exact folders.
 "@
@@ -537,14 +537,14 @@ if ($isBroadSourceFind) {
     @{
         hookSpecificOutput = @{
             hookEventName = 'PreToolUse'
-            permissionDecision = 'deny'
+            permissionDecision = 'allow'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — use ck tools instead of broad find over source folders.
+[ck-guard] ALLOW (guidance) — broad find over source folders may flood context.
 
 Plain find across src/ returns unranked paths and often floods context. Use:
 
-  .claude/skills/ck/ck find-scope --query "<domain concept operation>"
-  .claude/skills/ck/ck expand-folder --pattern "<keyword>" <returned-folder>
+  ck find-scope --query "<domain concept operation>"
+  ck expand-folder --pattern "<keyword>" <returned-folder>
 
 If you already know the exact narrow folder, run find inside that folder only.
 "@
@@ -566,8 +566,8 @@ if ($isFindExecCat) {
 
 Bulk-reading source files via find bypasses targeted reads. Use:
 
-  .claude/skills/ck/ck signatures <folder>/              # list all members in a folder
-  .claude/skills/ck/ck get-method-source <file> <Name>   # read one method
+  ck signatures <folder>/              # list all members in a folder
+  ck get-method-source <file> <Name>   # read one method
 
 These return structured output with exact line spans.
 "@

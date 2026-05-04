@@ -15,7 +15,7 @@ find_ck_bin() {
   local hook_dir; hook_dir="$(cd "$(dirname "$0")" && pwd)"
   local rel="$hook_dir/../skills/ck/ck"; [ -x "$rel" ] && { echo "$rel"; return; }
   local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null || true)
-  [ -n "$repo" ] && [ -x "$repo/.claude/skills/ck/ck" ] && echo "$repo/.claude/skills/ck/ck"
+  [ -n "$repo" ] && [ -x "$repo/ck" ] && echo "$repo/ck"
 }
 CK_BIN=$(find_ck_bin)
 

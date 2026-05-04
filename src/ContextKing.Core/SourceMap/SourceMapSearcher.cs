@@ -91,12 +91,16 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
 
         var queryVec   = embedder.Embed(query);
         var queryTerms = PathTokenizer.TokenizeQuery(query);
+        var corpusStats = CorpusTokenStatistics.Build(folders);
 
         // Strip low-rank terms before computing the exact-match fraction so that
         // generic words (CRUD verbs, stopwords, structural segments, etc.) do not
         // inflate scores for folders that happen to contain them everywhere.
         // Semantic similarity (cosine) still applies to the full query.
         var highRankTerms = LowRankDictionary.FilterHighRank(queryTerms);
+        var normalizedTerms = QueryTermNormalizer.ExpandMany(highRankTerms);
+        var effectiveTerms = new SparseQueryTermResolver().Resolve(normalizedTerms, corpusStats);
+        var specificityModel = QueryTermSpecificityModel.Build(corpusStats, effectiveTerms);
 
         // Prepare must-token state when --must is given.
         float[]? mustEmbedding = null;
@@ -108,12 +112,12 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
         foreach (var folder in folders)
         {
             var semantic     = CosineSimilarity(queryVec, folder.Embedding);
-            var matchedTerms = MatchedTerms(highRankTerms, folder.CombinedTokens);
-            var exactBonus   = highRankTerms.Count == 0 ? 0f : ExactMatchBonus * matchedTerms.Count / highRankTerms.Count;
+            var matchedTerms = MatchedTerms(effectiveTerms, folder.CombinedTokens);
+            var exactBonus   = ExactMatchBonus * specificityModel.ExactMatchFraction(matchedTerms);
             var mustAdjust   = mustEmbedding is not null && mustTermSet is not null
                 ? MustAdjustment(folder, mustEmbedding, mustTermSet)
                 : 0f;
-            var noisePenalty = NoisePenalty(folder, highRankTerms);
+            var noisePenalty = NoisePenalty(folder, effectiveTerms);
             var score        = semantic + exactBonus + mustAdjust - noisePenalty;
 
             scored.Add(new ScoredFolderDetails(
@@ -126,16 +130,19 @@ public sealed class SourceMapSearcher(BgeEmbedder embedder)
                 folder.FileCount,
                 folder.TokenCount,
                 matchedTerms,
-                TopUnmatchedFolderTerms(folder.CombinedTokens, highRankTerms),
+                TopUnmatchedFolderTerms(folder.CombinedTokens, effectiveTerms),
                 folder.CombinedTokens));
         }
 
         scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        var reranked = new ScopeConcentrationReranker().Rerank(scored, effectiveTerms);
 
         if (minScore > 0f)
-            scored.RemoveAll(s => s.Score < minScore);
+            return reranked.Where(s => s.Score >= minScore)
+                .Take(topK)
+                .ToArray();
 
-        return scored.Count <= topK ? scored : scored[..topK];
+        return reranked.Count <= topK ? reranked : reranked.Take(topK).ToArray();
     }
 
     // ── Must-token helpers ────────────────────────────────────────────────────

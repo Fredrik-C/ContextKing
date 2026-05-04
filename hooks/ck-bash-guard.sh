@@ -19,6 +19,21 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '
 
 [ -z "$COMMAND" ] && exit 0
 
+emit_guard_json() {
+  local decision="$1"
+  local reason="$2"
+  jq -n \
+    --arg decision "$decision" \
+    --arg reason "$reason" \
+    '{
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": $decision,
+        "permissionDecisionReason": $reason
+      }
+    }'
+}
+
 # ── Stateful anti-loop guards ───────────────────────────────────────────────
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 [ -f "$REPO_ROOT/.ck.json" ] || exit 0
@@ -132,42 +147,25 @@ git_tree_fingerprint() {
 }
 
 if [ "$pending_keyword_map" = "true" ] && \
-   printf '%s' "$COMMAND" | grep -qE 'ck\s+(find-scope|expand-folder)\b' && \
+   printf '%s' "$COMMAND" | grep -qE 'ck\s+expand-folder\b' && \
    ! printf '%s' "$COMMAND" | grep -qE 'ck\s+get-keyword-map\b'; then
   [ -z "$pending_query" ] && pending_query="<same query>"
-  jq -n \
-    --arg q "$pending_query" \
-    --arg reason "[ck-guard] BLOCKED — previous ck find-scope was broad/ambiguous.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — previous ck find-scope was broad/ambiguous.
 
-Run keyword mapping before more scope/explore calls:
+Run keyword mapping before more expand-folder calls:
 
-  .claude/skills/ck/ck get-keyword-map --query \"$pending_query\"
+  ck get-keyword-map --query \"$pending_query\"
 
-Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-scope once." \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-scope with refined terms."
   exit 0
 fi
 
 if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' && [ "$COMMAND" = "$last_find_scope" ]; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — repeated identical ck find-scope command.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — repeated identical ck find-scope command.
 
 Do not rerun the same scope command unchanged. If previous output was broad:
-  .claude/skills/ck/ck get-keyword-map --query \"<same query>\"
-Then rerun find-scope with refined terms." \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+  ck get-keyword-map --query \"<same query>\"
+Then rerun find-scope with refined terms."
   exit 0
 fi
 
@@ -214,11 +212,11 @@ Known target from $known_target_from:
   $known_target_file
 
 Next step in this direction:
-  .claude/skills/ck/ck signatures \"$known_target_file\"
-  .claude/skills/ck/ck get-method-source \"$known_target_file\" <MemberName>
+  ck signatures \"$known_target_file\"
+  ck get-method-source \"$known_target_file\" <MemberName>
 
 If your direction changed, reset scope explicitly with:
-  .claude/skills/ck/ck find-scope --query \"<new direction query>\"" \
+  ck find-scope --query \"<new direction query>\"" \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -236,12 +234,12 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+expand-folder\b' && \
     --arg reason "[ck-guard] BLOCKED — expand-folder map-building budget reached (3 calls for this direction).
 
 Use targeted reads now:
-  .claude/skills/ck/ck signatures <file.cs>
-  .claude/skills/ck/ck get-method-source <file.cs> <MemberName>
+  ck signatures <file.cs>
+  ck get-method-source <file.cs> <MemberName>
 
 If still uncharted, reset direction first:
-  .claude/skills/ck/ck get-keyword-map --query \"<same query>\"
-  .claude/skills/ck/ck find-scope --query \"<refined query>\"" \
+  ck get-keyword-map --query \"<same query>\"
+  ck find-scope --query \"<refined query>\"" \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -258,21 +256,13 @@ fi
 # the structured CK result already in context.
 if printf '%s' "$COMMAND" | grep -qE '\.claude/projects/.*/tool-results/' && \
    printf '%s' "$COMMAND" | grep -qE '\|\s*(grep|rg|awk|sed|head|tail|less|more)\b'; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — do not grep saved Claude tool-result files.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — avoid grepping saved Claude tool-result files.
 
 Filtering tool-result files rehydrates previous large outputs and wastes context.
 Use the CK command with a narrower pattern instead:
 
-  .claude/skills/ck/ck expand-folder --pattern \"<keyword>\" <folder>
-  .claude/skills/ck/ck get-method-source <file> <MemberName>" \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+  ck expand-folder --pattern \"<keyword>\" <folder>
+  ck get-method-source <file> <MemberName>"
   exit 0
 fi
 
@@ -282,22 +272,14 @@ fi
 # Block: grep, tail, sort, awk, sed, cut — filter or reorder scored results.
 if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' && \
    printf '%s' "$COMMAND" | grep -qE '\|\s*(tail|grep|sort|awk|sed|cut|less|more)\b'; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — do not pipe ck find-scope through grep, sort, or awk.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — avoid piping ck find-scope through grep/sort/awk.
 
 ck find-scope output is already ranked by relevance score. Filtering or sorting
 destroys that structure. Instead:
 
   • Reduce output with --top <n> or --min-score <f>
 
-Remove the pipe and re-run the ck command directly." \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+Remove the pipe and re-run the ck command directly."
   exit 0
 fi
 
@@ -305,21 +287,13 @@ fi
 # filtering, the pattern was too broad and should be refined at the source.
 if printf '%s' "$COMMAND" | grep -qE 'ck\s+expand-folder\b' && \
    printf '%s' "$COMMAND" | grep -qE '\|\s*(head|tail|grep|rg|sort|awk|sed|cut|less|more|wc)\b'; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — do not pipe ck expand-folder output.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — avoid piping ck expand-folder output.
 
 ck expand-folder now refuses broad output and provides keyword hints. Filtering
 or truncating the output hides that guidance and wastes context. Rerun directly
 with a more precise pattern:
 
-  .claude/skills/ck/ck expand-folder --pattern \"<provider>|<workflow>|<symbol>\" <folder>" \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+  ck expand-folder --pattern \"<provider>|<workflow>|<symbol>\" <folder>"
   exit 0
 fi
 
@@ -328,21 +302,13 @@ fi
 # Prefer compact build-check summaries.
 if printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])dotnet[[:space:]]+build\b' && \
    printf '%s' "$COMMAND" | grep -qE '\|\s*(tail|grep|sed|awk|head)\b'; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — dotnet build output is being post-filtered via shell pipes.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — dotnet build output is being post-filtered.
 
 Use compact build diagnostics directly:
 
-  .claude/skills/ck/ck build-check <project.csproj>
+  ck build-check <project.csproj>
 
-This runs dotnet build -v q and emits concise error/warning summaries without tail/grep churn." \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+This runs dotnet build -v q and emits concise summaries."
   exit 0
 fi
 
@@ -351,23 +317,15 @@ fi
 # explicit fallback by prefixing the command with CK_ALLOW_RAW_BUILD=1.
 if printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])dotnet[[:space:]]+build\b' && \
    ! printf '%s' "$COMMAND" | grep -qE 'CK_ALLOW_RAW_BUILD=1'; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — use ck build-check as the default verification command.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — prefer ck build-check as default verification.
 
 Raw dotnet build often creates duplicate verification loops. Prefer:
 
-  .claude/skills/ck/ck build-check <project.csproj>
+  ck build-check <project.csproj>
 
 If you explicitly need full MSBuild output (fallback only), rerun once with:
 
-  CK_ALLOW_RAW_BUILD=1 dotnet build <project.csproj> -v q" \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+  CK_ALLOW_RAW_BUILD=1 dotnet build <project.csproj> -v q"
   exit 0
 fi
 
@@ -385,8 +343,8 @@ if printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])(grep|rg|find)\b'; then
 
 Switch to targeted symbol search instead:
 
-  .claude/skills/ck/ck find-symbol \"$token\"
-  .claude/skills/ck/ck refs \"$token\"
+  ck find-symbol \"$token\"
+  ck refs \"$token\"
 
 This avoids repeated broad text search churn." \
       '{
@@ -419,22 +377,13 @@ if { [ "$keyword_map_seen" != "true" ] || [ "${#scoped_folders[@]}" -eq 0 ]; } &
     done < <(extract_command_paths "$COMMAND")
   fi
   if [ "$_p24_has_non_file" = true ]; then
-    jq -n \
-      --arg reason "[ck-guard] BLOCKED — source search requires keyword-map and scope.
+    emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — source search works better with keyword-map and scope.
 
 Before grep/glob/find-style searching, run:
-  .claude/skills/ck/ck get-keyword-map --query \"<domain concept operation>\"
-  .claude/skills/ck/ck find-scope --query \"<refined query from keyword-map>\"
+  ck get-keyword-map --query \"<domain concept operation>\"
+  ck find-scope --query \"<refined query from keyword-map>\"
 
-Then keep all searches inside returned folders.
-Note: grep on a specific .cs/.ts/.tsx file is allowed — use an absolute or relative file path, not a directory." \
-      '{
-        "hookSpecificOutput": {
-          "hookEventName": "PreToolUse",
-          "permissionDecision": "deny",
-          "permissionDecisionReason": $reason
-        }
-      }'
+Then keep searches inside returned folders for cleaner sessions."
     exit 0
   fi
 fi
@@ -453,8 +402,8 @@ Active scope was set by the latest successful ck find-scope call. Keep signature
   ${scoped_folders[*]}
 
 If direction changed, run:
-  .claude/skills/ck/ck get-keyword-map --query \"<new direction>\"
-  .claude/skills/ck/ck find-scope --query \"<new direction>\"" \
+  ck get-keyword-map --query \"<new direction>\"
+  ck find-scope --query \"<new direction>\"" \
           '{
             "hookSpecificOutput": {
               "hookEventName": "PreToolUse",
@@ -479,8 +428,8 @@ Keep grep/rg/find inside folders returned by the latest successful ck find-scope
   ${scoped_folders[*]}
 
 If this is a new direction, refresh scope first:
-  .claude/skills/ck/ck get-keyword-map --query \"<new direction>\"
-  .claude/skills/ck/ck find-scope --query \"<new direction>\"" \
+  ck get-keyword-map --query \"<new direction>\"
+  ck find-scope --query \"<new direction>\"" \
           '{
             "hookSpecificOutput": {
               "hookEventName": "PreToolUse",
@@ -507,7 +456,7 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+build-check\b'; then
 
 Prefer delta verification:
 
-  .claude/skills/ck/ck build-check --delta <project.csproj>
+  ck build-check --delta <project.csproj>
 
 or continue coding before rerunning build-check." \
       '{
@@ -526,22 +475,14 @@ if printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])(grep|rg)\b' && \
    printf '%s' "$COMMAND" | grep -qE '(^|[[:space:]])-[A-Za-z]*r[A-Za-z]*\b|\b-rn\b|\b--recursive\b|\brg\b' && \
    printf '%s' "$COMMAND" | grep -qE '(^|[[:space:]])(src|\./src|src/Modules|src/Modules/[^/[:space:]]+|src/Hosts|src/Hosts/[^/[:space:]]+)(/)?([[:space:]]|$)' && \
    printf '%s' "$COMMAND" | grep -qE '(--include=.*\.(cs|ts|tsx)|\.(cs|ts|tsx)\b|grep|rg)'; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — broad recursive grep over source/module root.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — broad recursive grep over source/module root may be noisy.
 
 Recursive grep from src/ or a module root scans too much. Use CK to narrow first:
 
-  .claude/skills/ck/ck find-scope --query \"<domain concept operation>\" --explain
-  .claude/skills/ck/ck expand-folder --pattern \"<keyword>\" <returned-folder>
+  ck find-scope --query \"<domain concept operation>\" --explain
+  ck expand-folder --pattern \"<keyword>\" <returned-folder>
 
-If you already have focused folders, grep only those exact folders." \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+If you already have focused folders, grep those exact folders."
   exit 0
 fi
 
@@ -550,22 +491,14 @@ fi
 # semantic scope step. Allow narrow finds inside already-specific folders.
 if printf '%s' "$COMMAND" | grep -qE '\bfind\s+([^|;]*\s)?(src|\./src|src/Modules|src/Hosts)(\s|/)' && \
    printf '%s' "$COMMAND" | grep -qE '(-name\s+|--name\s+|\-type\s+[fd])'; then
-  jq -n \
-    --arg reason "[ck-guard] BLOCKED — use ck tools instead of broad find over source folders.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — broad find over source folders may flood context.
 
 Plain find across src/ returns unranked paths and often floods context. Use:
 
-  .claude/skills/ck/ck find-scope --query \"<domain concept operation>\"
-  .claude/skills/ck/ck expand-folder --pattern \"<keyword>\" <returned-folder>
+  ck find-scope --query \"<domain concept operation>\"
+  ck expand-folder --pattern \"<keyword>\" <returned-folder>
 
-If you already know the exact narrow folder, run find inside that folder only." \
-    '{
-      "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": $reason
-      }
-    }'
+If you already know the exact narrow folder, run find inside that folder only."
   exit 0
 fi
 
@@ -579,8 +512,8 @@ if printf '%s' "$COMMAND" | grep -qE '\bfind\b' && \
 
 Bulk-reading source files via find bypasses targeted reads. Use:
 
-  .claude/skills/ck/ck signatures <folder>/              # list all members in a folder
-  .claude/skills/ck/ck get-method-source <file> <Name>   # read one method
+  ck signatures <folder>/              # list all members in a folder
+  ck get-method-source <file> <Name>   # read one method
 
 These return structured output with exact line spans." \
     '{

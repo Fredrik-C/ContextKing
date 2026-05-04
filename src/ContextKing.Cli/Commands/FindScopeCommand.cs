@@ -79,14 +79,17 @@ internal static class FindScopeCommand
         var searcher = new SourceMapSearcher(searchEmbedder);
         var results  = searcher.SearchDetailed(dbPath, query, topK, minScore,
             mustTexts.Count > 0 ? mustTexts : null);
+        var sessionAtlas = SessionKeywordAtlasStore.Load(repoRoot);
+        var queryTerms = LowRankDictionary.FilterHighRank(PathTokenizer.TokenizeQuery(query));
 
         if (results.Count == 0)
         {
             Console.Error.WriteLine("[ck find-scope] No results found.");
+            PrintGroundingHintsForNoMatch(query, queryTerms, mustTexts, sessionAtlas);
             return 0;
         }
 
-        PrintNarrowingGuidanceIfNeeded(query, topK, results, dbPath, repoRoot, mustTexts);
+        PrintNarrowingGuidanceIfNeeded(query, queryTerms, topK, results, dbPath, repoRoot, mustTexts, sessionAtlas);
 
         foreach (var r in results)
         {
@@ -113,11 +116,13 @@ internal static class FindScopeCommand
 
     private static void PrintNarrowingGuidanceIfNeeded(
         string query,
+        IReadOnlyList<string> queryTerms,
         int topK,
         IReadOnlyList<ScoredFolderDetails> results,
         string dbPath,
         string repoRoot,
-        IReadOnlyList<string> mustTexts)
+        IReadOnlyList<string> mustTexts,
+        SessionKeywordAtlas? sessionAtlas)
     {
         if (results.Count < 5 || topK < 5) return;
 
@@ -129,17 +134,31 @@ internal static class FindScopeCommand
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
 
-        var queryTerms   = LowRankDictionary.FilterHighRank(PathTokenizer.TokenizeQuery(query));
         var matchedTerms = checkedResults.SelectMany(r => r.MatchedTerms).Distinct(StringComparer.Ordinal).ToArray();
         var unmatchedQuery = queryTerms.Where(t => !matchedTerms.Contains(t, StringComparer.Ordinal)).ToArray();
         var rankingEngine = new KeywordRankingEngine(dbPath);
         var hintGroups = SelectKeywordHintGroups(checkedResults, queryTerms, 16, rankingEngine);
+        var advice = KeywordIntentAdvisor.BuildAdvice(
+            dbPath,
+            queryTerms,
+            matchedTerms,
+            mustTexts,
+            hintGroups.All);
+        var grounding = CalculateGroundingScore(queryTerms, matchedTerms, sessionAtlas);
 
         var weakQueryCoverage = queryTerms.Count >= 4 && matchedTerms.Length < Math.Min(3, queryTerms.Count);
-        var tooBroad          = scoreSpread <= 0.10f || highNoiseCount >= 3 || (distinctAreas >= 4 && weakQueryCoverage);
+        var spreadWide = scoreSpread <= 0.10f;
+        var noisyWide = highNoiseCount >= 3;
+        var fragmentedWide = distinctAreas >= 4 && weakQueryCoverage;
+        var ambiguitySignals =
+            (spreadWide ? 1 : 0) +
+            (noisyWide ? 1 : 0) +
+            (fragmentedWide ? 1 : 0);
+        var tooBroad = ambiguitySignals >= 2;
         if (!tooBroad) return;
 
         Console.WriteLine("[ck find-scope] Scope is too broad or ambiguous. Do not expand all returned folders.");
+        Console.WriteLine("[ck find-scope] Use a top-5 shortlist from results below, then rerun with refined keywords.");
         Console.WriteLine("[ck find-scope] Rerun with more precise domain, provider, type, workflow, or symbol keywords, or add --must for the required provider/concept.");
         Console.WriteLine($"[ck find-scope] matched-query-keywords: {FormatList(matchedTerms)}");
         Console.WriteLine($"[ck find-scope] unmatched-query-keywords: {FormatList(unmatchedQuery)}");
@@ -148,8 +167,17 @@ internal static class FindScopeCommand
         PrintHintGroup("workflow-hints", hintGroups.Workflows);
         PrintHintGroup("other-hints", hintGroups.Other);
         Console.WriteLine($"[ck find-scope] keyword-hints-from-wide-scope: {FormatList(hintGroups.All)}");
+        if (advice.SuggestedQueries.Count > 0)
+        {
+            for (var i = 0; i < advice.SuggestedQueries.Count; i++)
+                Console.WriteLine($"[ck find-scope] suggested-query-{i + 1}: {advice.SuggestedQueries[i]}");
+        }
+        Console.WriteLine($"[ck find-scope] suggested-next-step: {advice.SuggestedNextCommand}");
+        Console.WriteLine($"[ck find-scope] grounding-score: {grounding.Score:F2} ({grounding.OverlapCount}/{grounding.TotalCount} query terms grounded)");
+        if (grounding.Score < 0.50f && advice.SuggestedQueries.Count > 0)
+            Console.WriteLine($"[ck find-scope] low-grounding-rewrite: {advice.SuggestedQueries[0]}");
 
-        var atlas = SessionKeywordAtlasStore.Load(repoRoot);
+        var atlas = sessionAtlas;
         if (atlas is not null && !SessionKeywordAtlasStore.IsDirectionShift(atlas, query, mustTexts, TimeSpan.FromHours(2)))
         {
             var atlasHints = atlas.HighValueTerms
@@ -164,7 +192,54 @@ internal static class FindScopeCommand
             Console.WriteLine("[ck find-scope] no active session keyword atlas. Run ck get-keyword-map early and reuse it as your keyword source of truth until direction shifts.");
         }
 
-        Console.WriteLine("[ck find-scope] top-folders-below are for choosing a narrower query, not for bulk expansion.");
+        Console.WriteLine("[ck find-scope] top-folders-below are for choosing a narrower top-5 query shortlist, not for bulk expansion.");
+    }
+
+    private static void PrintGroundingHintsForNoMatch(
+        string query,
+        IReadOnlyList<string> queryTerms,
+        IReadOnlyList<string> mustTerms,
+        SessionKeywordAtlas? atlas)
+    {
+        if (atlas is null || SessionKeywordAtlasStore.IsDirectionShift(atlas, query, mustTerms, TimeSpan.FromHours(2)))
+            return;
+
+        var groundedCandidates = atlas.HighValueTerms
+            .Where(t => !queryTerms.Contains(t, StringComparer.Ordinal))
+            .Take(12)
+            .ToArray();
+        if (groundedCandidates.Length == 0)
+            return;
+
+        var rewrite1 = queryTerms.Take(1).Concat(groundedCandidates.Take(2)).Distinct(StringComparer.Ordinal).ToArray();
+        var rewrite2 = queryTerms.Take(1).Concat(groundedCandidates.Skip(2).Take(2)).Distinct(StringComparer.Ordinal).ToArray();
+
+        Console.WriteLine($"[ck find-scope] no-match-grounding-hints: {FormatList(groundedCandidates)}");
+        if (rewrite1.Length > 0)
+            Console.WriteLine($"[ck find-scope] no-match-rewrite-1: {string.Join(' ', rewrite1)}");
+        if (rewrite2.Length > 0)
+            Console.WriteLine($"[ck find-scope] no-match-rewrite-2: {string.Join(' ', rewrite2)}");
+    }
+
+    private static (float Score, int OverlapCount, int TotalCount) CalculateGroundingScore(
+        IReadOnlyList<string> queryTerms,
+        IReadOnlyList<string> matchedTerms,
+        SessionKeywordAtlas? atlas)
+    {
+        if (queryTerms.Count == 0)
+            return (1f, 0, 0);
+
+        var grounded = new HashSet<string>(matchedTerms, StringComparer.Ordinal);
+        if (atlas is not null)
+        {
+            foreach (var term in atlas.HighValueTerms)
+                grounded.Add(term);
+            foreach (var term in atlas.MatchedTerms)
+                grounded.Add(term);
+        }
+
+        var overlap = queryTerms.Count(t => grounded.Contains(t));
+        return ((float)overlap / queryTerms.Count, overlap, queryTerms.Count);
     }
 
     internal static HintGroups SelectKeywordHintGroups(
