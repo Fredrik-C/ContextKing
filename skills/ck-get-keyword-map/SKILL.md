@@ -1,12 +1,12 @@
 ---
 name: ck-get-keyword-map
-description: Build a seed-to-related keyword map from indexed results. Always the first step — establishes the keyword source of truth before ck find-scope.
+description: Build a seed-to-related keyword map from indexed results. Use when file-first retrieval is weak/noisy and you need fallback folder scoping with ck find-files.
 ---
 
 # ck get-keyword-map — Query Precision Helper
 
-**Always run this first** — before `ck find-scope`. It establishes the keyword source of truth
-for the session. Use the precision terms it returns in the `find-scope` query that follows.
+Use this for the **fallback scope path**, not as the default first step.
+Default discovery is `ck find-files`; run `ck get-keyword-map` when you need to pivot to `ck find-files`.
 
 ## Syntax
 
@@ -34,6 +34,7 @@ for the session. Use the precision terms it returns in the `find-scope` query th
 
 ## Usage pattern
 
-1. Run `ck get-keyword-map --query "..."` — keywords from output are source of truth
-2. Run `ck find-scope --query "..."` using the precision terms from step 1
-3. Folders from `find-scope` are source of truth — all subsequent work stays within them
+1. Run `ck find-files --query "..."` first
+2. If file-first results are weak/noisy, run `ck get-keyword-map --query "..."`
+3. Then run `ck find-files --query "..."` using precision terms from step 2
+4. Folders from `find-files` are source of truth for fallback exploration

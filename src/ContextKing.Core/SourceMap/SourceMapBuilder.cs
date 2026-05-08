@@ -3,6 +3,9 @@ using ContextKing.Core.Ast;
 using ContextKing.Core.Ast.TypeScript;
 using ContextKing.Core.Embedding;
 using ContextKing.Core.Git;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace ContextKing.Core.SourceMap;
 
@@ -11,10 +14,10 @@ namespace ContextKing.Core.SourceMap;
 /// Responsibility: orchestrate git enumeration → token generation → embedding → index storage.
 /// All SQLite access is delegated to <see cref="SourceMapIndex"/>.
 /// </summary>
-public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegments = null)
+public sealed class SourceMapBuilder(string[]? excludeSegments = null)
 {
     private static readonly string[] DefaultExclusions = ["Test", "Tests", "Specs"];
-    private const string SchemaVersion = "2";
+    private const string SchemaVersion = "3";
     private readonly string[] _excludeSegments = excludeSegments ?? DefaultExclusions;
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -74,91 +77,148 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
         var index = new SourceMapIndex(dbPath);
         index.EnsureSchema();
 
-        if (forceRebuild) index.ClearAllFolders();
+        if (forceRebuild)
+        {
+            index.ClearAllFolders();
+            index.ClearAllFiles();
+        }
 
         var gitFolders = GitTracker.ListSourceFilesByFolder(repoRoot, _excludeSegments);
         progress?.Report($"Found {gitFolders.Count} leaf folders to index.");
+        var totalSw = Stopwatch.StartNew();
+        var scanSw = Stopwatch.StartNew();
 
-        // ── Classify each folder: re-embed or skip ────────────────────────────
+        // ── Classify each folder: refresh changed files only ──────────────────
+        var existingFiles = index.LoadFileStates();
 
-        var existing = index.LoadFolderStates();
-
-        // Snapshot folder list for parallel processing
+        // Snapshot folder list for changed-file discovery
         var folderEntries = gitFolders.ToArray();
-        var results       = new FolderRow?[folderEntries.Length];
         int skipped       = 0;
         int embedded      = 0;
-        int degree        = Math.Max(1, Environment.ProcessorCount);
+        int parsed        = 0;
+        var fileRows = new ConcurrentBag<FileRow>();
+        var changedFiles = new List<ChangedFileWorkItem>(capacity: Math.Max(256, existingFiles.Count));
 
-        // ── Parallel: classify → tokenize → Roslyn extract → embed ───────────
-        // All four steps are independent per folder and safe to run concurrently.
-        // File I/O, Roslyn parsing, and ONNX inference all benefit from parallelism.
+        foreach (var (folderPath, files) in folderEntries)
+        {
+            var folderUpdated = false;
+            foreach (var (fileName, fileHash) in files)
+            {
+                var relPath = folderPath == "."
+                    ? fileName
+                    : $"{folderPath}/{fileName}";
+                if (!forceRebuild
+                    && existingFiles.TryGetValue(relPath, out var storedFile)
+                    && storedFile.FileHash == fileHash)
+                    continue;
+
+                folderUpdated = true;
+                changedFiles.Add(new ChangedFileWorkItem(folderPath, relPath, fileHash));
+            }
+
+            if (!folderUpdated)
+                skipped++;
+        }
+        scanSw.Stop();
+
+        progress?.Report($"Found {changedFiles.Count} changed files to index.");
+
+        // ── Parallel two-stage pipeline: parse → embed ────────────────────────
+        // Stage A (parse) and stage B (embed) are decoupled via a bounded queue,
+        // which keeps embedders saturated while avoiding unbounded memory growth.
+
+        var parseDegree = Math.Max(1, Environment.ProcessorCount);
+        var embedWorkers = Math.Max(1, Environment.ProcessorCount / 2);
+        var parsedQueue = new BlockingCollection<ParsedFileDoc>(boundedCapacity: 2048);
+        var pipelineSw = Stopwatch.StartNew();
+        long parseTicks = 0;
+        long embedTicks = 0;
+
+        var embedTasks = Enumerable.Range(0, embedWorkers)
+            .Select(workerIndex => Task.Run(() =>
+            {
+                foreach (var doc in parsedQueue.GetConsumingEnumerable(ct))
+                {
+                    var embedItemSw = Stopwatch.StartNew();
+                    try
+                    {
+                        fileRows.Add(new FileRow(
+                            doc.RelPath,
+                            doc.FolderPath,
+                            doc.EmbeddingText,
+                            doc.FileHash,
+                            doc.TypeNames,
+                            doc.MethodNames,
+                            doc.TypeCount,
+                            doc.SignatureCount));
+
+                        var doneFiles = Interlocked.Increment(ref embedded);
+                        if (doneFiles % 500 == 0)
+                            progress?.Report($"  {doneFiles} files embedded ({Volatile.Read(ref parsed)} parsed).");
+                    }
+                    catch
+                    {
+                        // Skip malformed or transiently failing files and continue indexing.
+                    }
+                    finally
+                    {
+                        embedItemSw.Stop();
+                        Interlocked.Add(ref embedTicks, embedItemSw.ElapsedTicks);
+                    }
+                }
+            }, ct))
+            .ToArray();
 
         await Task.Run(() =>
         {
-            Parallel.For(0, folderEntries.Length,
-                new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = ct },
-                i =>
+            Parallel.ForEach(
+                changedFiles,
+                new ParallelOptions { MaxDegreeOfParallelism = parseDegree, CancellationToken = ct },
+                item =>
                 {
-                    var (folderPath, files) = folderEntries[i];
-                    var fileHashesJson = SerialiseHashes(files);
-
-                    if (!forceRebuild && existing.TryGetValue(folderPath, out var stored)
-                        && stored.FileHashes == fileHashesJson
-                        && stored.FileCount > 0
-                        && stored.TokenCount > 0)
+                    var parseItemSw = Stopwatch.StartNew();
+                    if (TryExtractFileDoc(repoRoot, item, out var doc))
                     {
-                        Interlocked.Increment(ref skipped);
-                        return;
+                        parsedQueue.Add(doc, ct);
+                        var doneParsed = Interlocked.Increment(ref parsed);
+                        if (doneParsed % 500 == 0)
+                            progress?.Report($"  {doneParsed} files parsed.");
                     }
-
-                    var filenameSetKey = FilenameSetKey(files);
-                    var pathTokens     = PathTokenizer.TokenizePath(folderPath);
-
-                    // Extract public surface names from all source files (Roslyn/tree-sitter parse — CPU + I/O).
-                    // This intentionally includes DTO properties/type names, not just methods, so semantic
-                    // folder search can find property-heavy request/response folders before the agent knows filenames.
-                    var symbolNames  = ExtractPublicSymbolNames(repoRoot, folderPath, files.Keys);
-
-                    // Match tokens: lowercase, globally deduplicated across path + filenames + method words.
-                    // Deduplication prevents a token that appears in both the folder path and a filename
-                    // from being double-counted in the exact-match fraction.
-                    var combined = BuildDistinctTokens(pathTokens, files.Keys, symbolNames);
-
-                    // Embedding text: readable phrase for BGE semantic embedding.
-                    // Preserves casing and word structure for better embedding quality.
-                    var pathPhrase   = PathTokenizer.PathToPhrase(folderPath);
-                    var filePhrase   = string.Join(", ", files.Keys.Select(PathTokenizer.FileNameToPhrase));
-                    var symbolPhrase = symbolNames.Count > 0
-                        ? ". Symbols: " + string.Join(", ", symbolNames.Select(PathTokenizer.MethodNameToPhrase))
-                        : string.Empty;
-                    var embeddingText = $"{pathPhrase}. Files: {filePhrase}{symbolPhrase}".Trim();
-                    var tokenCount = combined.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
-
-                    var blob     = SourceMapIndex.EncodeEmbedding(embedder.Embed(embeddingText));
-                    results[i]   = new FolderRow(folderPath, combined, embeddingText, blob, fileHashesJson, filenameSetKey, files.Count, tokenCount);
-
-                    int done = Interlocked.Increment(ref embedded);
-                    if (done % 50 == 0 || done == folderEntries.Length - Volatile.Read(ref skipped))
-                        progress?.Report(
-                            $"  {Volatile.Read(ref skipped) + done}/{gitFolders.Count} folders indexed " +
-                            $"({done} updated, {Volatile.Read(ref skipped)} unchanged).");
+                    parseItemSw.Stop();
+                    Interlocked.Add(ref parseTicks, parseItemSw.ElapsedTicks);
                 });
         }, ct);
+        parsedQueue.CompleteAdding();
+        await Task.WhenAll(embedTasks);
+        pipelineSw.Stop();
 
         // ── Persist results ───────────────────────────────────────────────────
+        var persistSw = Stopwatch.StartNew();
 
-        var rows = results.Where(r => r is not null).ToArray()!;
-        index.UpsertFolders(rows!);
-        index.DeleteFolders(gitFolders.Keys.ToHashSet(StringComparer.Ordinal));
+        // File-first mode: do not maintain folder rows.
+        index.ClearAllFolders();
+        index.UpsertFiles(fileRows.ToArray());
+        var filePathsToKeep = gitFolders
+            .SelectMany(kvp => kvp.Value.Keys.Select(file => kvp.Key == "." ? file : $"{kvp.Key}/{file}"))
+            .ToHashSet(StringComparer.Ordinal);
+        index.DeleteFiles(filePathsToKeep);
 
         var stateKey = StateKey.Compute(GitTracker.GetBranch(repoRoot), gitFolders);
         index.WriteMeta("index_state_key", stateKey);
         index.WriteMeta("git_head",        GitTracker.GetHead(repoRoot));
         index.WriteMeta("indexed_at",      DateTime.UtcNow.ToString("O"));
         index.WriteMeta("source_map_schema_version", SchemaVersion);
+        persistSw.Stop();
+        totalSw.Stop();
+        var parseMs = (long)(parseTicks * 1000.0 / Stopwatch.Frequency);
+        var embedMs = (long)(embedTicks * 1000.0 / Stopwatch.Frequency);
 
-        progress?.Report($"Index complete: {embedded} updated, {skipped} unchanged.");
+        progress?.Report($"Index complete: {embedded} files updated, {skipped} folders unchanged.");
+        progress?.Report(
+            $"Timing: scan={scanSw.ElapsedMilliseconds}ms, " +
+            $"parse+embed={pipelineSw.ElapsedMilliseconds}ms, " +
+            $"parse={parseMs}ms, embed={embedMs}ms, " +
+            $"persist={persistSw.ElapsedMilliseconds}ms, total={totalSw.ElapsedMilliseconds}ms.");
     }
 
     // ── Pure computation helpers ──────────────────────────────────────────────
@@ -257,4 +317,76 @@ public sealed class SourceMapBuilder(BgeEmbedder embedder, string[]? excludeSegm
     /// <summary>Sorted pipe-delimited list of filenames — the re-embed trigger key.</summary>
     private static string FilenameSetKey(Dictionary<string, string> files)
         => string.Join('|', files.Keys.Order(StringComparer.OrdinalIgnoreCase));
+
+    private static bool TryExtractFileDoc(
+        string repoRoot,
+        ChangedFileWorkItem item,
+        out ParsedFileDoc doc)
+    {
+        doc = default;
+        try
+        {
+            var absPath = Path.Combine(repoRoot, item.RelPath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(absPath))
+                return false;
+
+            IReadOnlyList<string> distinctMethodNames;
+            IReadOnlyList<string> distinctTypeNames;
+            if (SupportedLanguages.IsTypeScript(absPath))
+            {
+                var extracted = TsSignatureExtractor.ExtractTypeAndMethodNames(absPath);
+                distinctTypeNames = extracted.TypeNames;
+                distinctMethodNames = extracted.MethodNames;
+            }
+            else if (SupportedLanguages.IsCSharp(absPath))
+            {
+                var extracted = SignatureExtractor.ExtractTypeAndMethodNames(absPath);
+                distinctTypeNames = extracted.TypeNames;
+                distinctMethodNames = extracted.MethodNames;
+            }
+            else
+            {
+                return false;
+            }
+            var typeCount = distinctTypeNames.Count;
+            var signatureCount = distinctMethodNames.Count;
+            if (typeCount == 0 && signatureCount == 0)
+                return false;
+
+            var fileName = Path.GetFileNameWithoutExtension(item.RelPath);
+            var pathContext = item.FolderPath == "." ? "<root>" : item.FolderPath.Replace('\\', '/');
+            var joinedTypeNames = string.Join(';', distinctTypeNames);
+            var joinedMethodNames = string.Join(';', distinctMethodNames);
+            var embeddingText = $"Path: {pathContext}. File: {fileName}.";
+            doc = new ParsedFileDoc(
+                item.RelPath,
+                item.FolderPath,
+                item.FileHash,
+                embeddingText,
+                joinedTypeNames,
+                joinedMethodNames,
+                typeCount,
+                signatureCount);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private readonly record struct ChangedFileWorkItem(
+        string FolderPath,
+        string RelPath,
+        string FileHash);
+
+    private readonly record struct ParsedFileDoc(
+        string RelPath,
+        string FolderPath,
+        string FileHash,
+        string EmbeddingText,
+        string TypeNames,
+        string MethodNames,
+        int TypeCount,
+        int SignatureCount);
 }

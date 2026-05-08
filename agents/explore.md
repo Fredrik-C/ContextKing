@@ -11,7 +11,7 @@ When Context King is initialized in the repo (`.ck.json` present), use `bash` wi
 
 ```
 ck get-keyword-map --query "<user query terms>"       ← ALWAYS FIRST
-ck find-scope --query "<refined terms from step 0>"   ← ALWAYS SECOND
+ck find-files --query "<refined terms from step 0>"   ← ALWAYS SECOND
 ```
 
 Never skip these two steps before grep/rg/find/glob or broad exploration. Never jump straight to `ck signatures` or `ck expand-folder` without establishing scope first.
@@ -31,7 +31,7 @@ or a targeted CK read for that same file (`ck get-method-source`, `ck get-type-s
 
 ```
 0. ck get-keyword-map --query "..."            → extract precision keywords (search path)
-1. ck find-scope --query "..."                 → establish folder scope (search path)
+1. ck find-files --query "..."                 → establish folder scope (search path)
 2. ck expand-folder --pattern "<kw>" <folder>  → explore (preferred when you have a keyword)
    ck signatures <folder>/                     → when no keyword; smart-ranked for large folders
    grep -rn "<kw>" <folder>/                   → allowed freely within scoped folders only
@@ -55,8 +55,8 @@ or a targeted CK read for that same file (`ck get-method-source`, `ck get-type-s
 - Exception: when a concrete file path is already known, start directly with `ck read-full-file` or targeted reads for that file.
 - Native `read` is allowed only as a pre-edit step on a known target file. Do not use native `read` for exploration.
 - Step 2.5 is mandatory once you have confirmed the folder you will work in — before any `ck get-method-source` call.
-- grep/rg/find are allowed only within folders returned by `ck find-scope`. Never from repo root.
-- Never repeat identical `ck find-scope` or `ck expand-folder` calls unchanged.
+- grep/rg/find are allowed only within folders returned by `ck find-files`. Never from repo root.
+- Never repeat identical `ck find-files` or `ck expand-folder` calls unchanged.
 - After 3 `ck expand-folder` calls with no match, stop expanding and re-scope.
 - `ck learn` is mandatory at the end if any CK tool was used. Record routing logic and cross-module dependencies — not implementation details.
 - CK binary: use the path written into this agent's config by the installer.

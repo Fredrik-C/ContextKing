@@ -21,7 +21,7 @@ internal static class SymbolSearchCommon
 
         Console.Error.WriteLine(
             "[ck] Error: no search roots resolved. " +
-            "Pass --path <folder> or run ck find-scope first.");
+            "Pass --path <folder> or run ck find-files first.");
         return [];
     }
 

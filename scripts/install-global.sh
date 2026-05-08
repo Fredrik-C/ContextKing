@@ -255,7 +255,7 @@ if [ -d "$ASSETS_DIR/models/bge-small-en-v1.5" ]; then
   cp -r "$ASSETS_DIR/models/bge-small-en-v1.5" "$CK_MODEL_DIR/"
   ok "Model installed: $CK_MODEL_DIR/bge-small-en-v1.5"
 else
-  echo "  WARNING: model not found in assets — embedding commands (find-scope, get-keyword-map, recall --query) will not work."
+  echo "  WARNING: model not found in assets — embedding commands (find-files, get-keyword-map, recall --query) will not work."
   echo "  Set CK_MODEL_DIR env var or run from a local clone that has models/bge-small-en-v1.5/."
 fi
 
@@ -431,13 +431,15 @@ This codebase uses Context King (CK) for source navigation. Follow this protocol
 ### Mandatory workflow
 
 \`\`\`
-0. ck get-keyword-map --query "<domain concept operation>"   ← FIRST — always before any search
-1. ck find-scope --query "<refined terms>"                   ← SECOND — establishes folder scope
-2. ck expand-folder --pattern "<keyword>" <folder>           ← explore within scoped folders
-   ck signatures <folder>/                                   ← when no keyword available
-2.5 ck recall --folder <confirmed-folder>                    ← before reading any method body
-3. ck find-symbol "<name>" --path <folder>                   ← locate declaration
-   ck refs "<name>" --path <folder>                          ← find call-sites
+0. ck get-keyword-map --query "<domain concept operation>"   ← FIRST — keyword grounding
+1. ck find-files --query "<domain concept operation>"        ← SECOND — primary file-level retrieval
+2. ck recall --folder <confirmed-folder>                     ← before reading any method body
+3. ck find-symbol "<name>" --path <folder-or-file>           ← locate declaration
+   ck refs "<name>" --path <folder-or-file>                  ← find call-sites
+3.5 Fallback only when file-first results are weak/noisy:
+    ck find-files --query "<refined terms>"
+    ck expand-folder --pattern "<keyword>" <folder>
+    ck signatures <folder>/                                  ← when no keyword available
 4. ck get-method-source <file> <Member>                      ← read one method (prefer over full file)
    ck get-type-source <file> <TypeName>                      ← read one type/record/interface
    ck get-constructors <file>                                ← constructor(s)
@@ -449,9 +451,10 @@ This codebase uses Context King (CK) for source navigation. Follow this protocol
 \`\`\`
 
 ### Rules
-- Steps 0 and 1 are **mandatory** before grep, rg, glob, or find on source files
+- Step 0 (`get-keyword-map`) is mandatory first; step 1 (`find-files`) is the default file-level retrieval
+- Use `find-files` only as fallback when file-first retrieval is weak/noisy
 - When any other search tool (CallGraph, etc.) returns empty results, use CK tools next — **never fall back directly to grep**
-- grep/rg/glob are only allowed within folders returned by \`ck find-scope\`
+- grep/rg/glob are only allowed within explicit `--path` boundaries or folders returned by fallback \`ck find-files\`
 - **You MUST run \`ck learn\` before ending the session if CK tools were used.** Record architectural insights, cross-module constraints, and non-obvious WHYs — not implementation details findable via signatures.
 
 Full protocol reference: \`${CODEX_HOME}/ck-code-search-protocol.md\`

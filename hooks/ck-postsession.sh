@@ -5,7 +5,7 @@
 # the new portion of the session transcript for codebase exploration signals.
 #
 # Signal thresholds (evaluated against tool_use entries only, not raw JSONL):
-#   Strong (any one → fire):   ck find-scope · ck signatures · ck get-method-source
+#   Strong (any one → fire):   ck find-files · ck find-files · ck signatures · ck get-method-source
 #   Moderate (need ≥2 → fire): source Read call (.cs/.ts/.tsx) · Edit/Write · ck recall
 #   Large-session fallback:     many source reads and/or many edits in this turn window
 #
@@ -108,7 +108,8 @@ READ_PATHS=$(printf '%s\n' "$SIGNALS" | sed -n 's/^READ://p')
 TOOL_NAMES=$(printf '%s\n' "$SIGNALS" | sed -n 's/^TOOL://p')
 
 # Strong signals: CK code-search tool usage (Bash commands only)
-printf '%s' "$BASH_CMDS" | grep -qF 'find-scope'        && STRONG=1
+printf '%s' "$BASH_CMDS" | grep -qF 'find-files'        && STRONG=1
+printf '%s' "$BASH_CMDS" | grep -qF 'find-files'        && STRONG=1
 printf '%s' "$BASH_CMDS" | grep -qF 'ck signatures'     && STRONG=1
 printf '%s' "$BASH_CMDS" | grep -qF 'get-method-source' && STRONG=1
 

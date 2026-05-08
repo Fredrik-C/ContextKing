@@ -13,7 +13,7 @@ is there, *what it shouldn't do*, and *what the team spent three weeks debugging
 
 **CK Brain is the institutional knowledge layer on top of CK's navigation layer.**
 
-Where `ck find-scope` answers *"where is the code?"*, CK Brain answers *"what do we know about
+Where `ck find-files` answers *"where is the code?"*, CK Brain answers *"what do we know about
 that code?"* — domain explanations, architectural decisions, gotchas, cross-module relationships,
 and anything else a senior developer would tell a new joiner on their first day.
 
@@ -55,7 +55,7 @@ pays no token cost for knowledge it won't use.
 
 Loading all accumulated knowledge into every session context would add tokens to every task,
 including simple ones that don't need it. Instead, knowledge is surfaced on-demand: when the
-agent navigates to a folder via `ck find-scope`, relevant knowledge snippets for those folders
+agent navigates to a folder via `ck find-files`, relevant knowledge snippets for those folders
 are automatically appended to the navigation result. The agent gets institutional knowledge at
 the moment it starts working in a module — not front-loaded for tasks that never touch it.
 
@@ -186,9 +186,9 @@ Prints the new snippet ID on stdout.
 
 ### Hook Integration
 
-**PostToolUse: knowledge surfacing piggybacked on `ck find-scope`**
+**PostToolUse: knowledge surfacing piggybacked on `ck find-files`**
 
-The existing `ck-scope-hint` hook already fires after `ck find-scope`. Extend it to also run
+The existing `ck-scope-hint` hook already fires after `ck find-files`. Extend it to also run
 `ck recall` scoped to the returned folders. If relevant snippets exist, append them to the hint
 output block with a `## Knowledge` header. The agent gets navigation results and institutional
 knowledge in a single hook response, with no extra commands required.
@@ -248,7 +248,7 @@ session when they discover something worth preserving.
 
 `rules/ck-code-search-protocol.md` gains a **Knowledge** section:
 
-- Knowledge snippets are automatically surfaced after `ck find-scope` via the scope-hint hook.
+- Knowledge snippets are automatically surfaced after `ck find-files` via the scope-hint hook.
   Read them before proceeding to signatures.
 - Use `ck recall --query "..."` explicitly when encountering unfamiliar domain concepts or
   behaviour that isn't explained by the code structure alone.
@@ -274,7 +274,7 @@ Developer A works on Adyen terminal refunds
   → Team pulls → all developers now have the Interac knowledge
 
 Developer B starts a new session on the same module
-  → runs ck find-scope --query "adyen terminal refund"
+  → runs ck find-files --query "adyen terminal refund"
   → PostToolUse hook surfaces Developer A's snippets automatically
   → Developer B starts informed, not as a day-one developer
 ```
@@ -294,7 +294,7 @@ with the codebase, reviewed by the same people, under the same process.
 - SKILL.md files for both commands
 
 **Phase 2 — Hook integration**
-- Extend `ck-scope-hint` to append knowledge after `ck find-scope`
+- Extend `ck-scope-hint` to append knowledge after `ck find-files`
 - `ck-postsession` hook for AI-extracted capture
 - Deploy script updates
 - Protocol rule updates

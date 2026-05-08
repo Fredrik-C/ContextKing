@@ -9,6 +9,20 @@ namespace ContextKing.Core.Ast.TypeScript;
 /// </summary>
 public static class TsSignatureExtractor
 {
+    public static (IReadOnlyList<string> TypeNames, IReadOnlyList<string> MethodNames) ExtractTypeAndMethodNames(string path)
+    {
+        var source = File.ReadAllText(path);
+        using var parser = new Parser();
+        var tree = parser.ParseString(source);
+        var root = tree.root_node();
+
+        var typeNames = new HashSet<string>(StringComparer.Ordinal);
+        var methodNames = new HashSet<string>(StringComparer.Ordinal);
+
+        VisitForNames(root, source, typeNames, methodNames);
+        return (typeNames.ToArray(), methodNames.ToArray());
+    }
+
     /// <summary>
     /// Extracts all member signatures from each file in <paramref name="filePaths"/>
     /// and writes them to <paramref name="writer"/> in the same tab-separated format as
@@ -128,6 +142,45 @@ public static class TsSignatureExtractor
     {
         for (uint i = 0; i < node.child_count(); i++)
             Visit(node.child(i), source, path, containingType, writer);
+    }
+
+    private static void VisitForNames(
+        TSNode node,
+        string source,
+        HashSet<string> typeNames,
+        HashSet<string> methodNames)
+    {
+        var type = node.type();
+
+        switch (type)
+        {
+            case "class_declaration":
+            case "interface_declaration":
+                {
+                    var name = GetFieldText(node, "name", source);
+                    if (!string.IsNullOrWhiteSpace(name))
+                        typeNames.Add(name);
+                    break;
+                }
+            case "method_definition":
+            case "method_signature":
+            case "function_declaration":
+                {
+                    var name = GetFieldText(node, "name", source);
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        // tree-sitter constructor methods may omit "name" field.
+                        if (type == "method_definition")
+                            name = "constructor";
+                    }
+                    if (!string.IsNullOrWhiteSpace(name))
+                        methodNames.Add(name);
+                    break;
+                }
+        }
+
+        for (uint i = 0; i < node.child_count(); i++)
+            VisitForNames(node.child(i), source, typeNames, methodNames);
     }
 
     // ── Signature builders ───────────────────────────────────────────────────

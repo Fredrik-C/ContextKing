@@ -52,7 +52,7 @@ internal static class RecallCommand
         var dbPath = SourceMapBuilder.GetDbPath(repoRoot);
         if (!File.Exists(dbPath))
         {
-            Console.Error.WriteLine("[ck recall] No source-map index found — run ck find-scope first to build it.");
+            Console.Error.WriteLine("[ck recall] No source-map index found — run ck index or ck find-files first to build it.");
             return 1;
         }
 

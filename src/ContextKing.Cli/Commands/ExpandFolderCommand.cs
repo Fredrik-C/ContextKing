@@ -89,7 +89,7 @@ internal static class ExpandFolderCommand
         }
 
         // Guard against accidentally passing a top-level or very broad folder.
-        // At this scale, ck find-scope is the right starting point.
+        // At this scale, ck find-files is the right starting point.
         if (allFiles.Count > 300)
         {
             Console.Error.WriteLine(
@@ -98,8 +98,8 @@ internal static class ExpandFolderCommand
             if (pattern is null && !allowBroad)
             {
                 Console.Error.WriteLine(
-                    "[ck expand-folder] Run 'ck find-scope --query \"<what you are looking for>\"' " +
-                    "to narrow to a relevant sub-folder first, then expand that sub-folder.");
+                    "[ck expand-folder] Run 'ck find-files \"<what you are looking for>\" --path src/' " +
+                    "to narrow to relevant files/folders first, then expand a focused folder.");
                 return Task.FromResult(1);
             }
             if (!allowBroad)
@@ -113,7 +113,7 @@ internal static class ExpandFolderCommand
                 $"[ck expand-folder] Refusing unfiltered expansion of {allFiles.Count} files in '{folderPath}'.");
             Console.Error.WriteLine(
                 "[ck expand-folder] Add --pattern with at least one precise symbol/domain word, " +
-                "or rerun ck find-scope with a narrower query. Use --all only when broad output is intentional.");
+                "or rerun ck find-files with a narrower query/path. Use --all only when broad output is intentional.");
             return Task.FromResult(1);
         }
 

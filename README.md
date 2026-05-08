@@ -30,7 +30,8 @@ Context King installs these commands into your AI CLI tool:
 
 | Command | What it does |
 |---|---|
-| `ck find-scope` | Semantic search over the folder tree, returning the most relevant folders |
+| `ck find-files` | Semantic file search over source files using type/class names and signatures |
+| `ck find-files` | Semantic search over the folder tree, returning the most relevant folders |
 | `ck get-keyword-map` | Returns a seed→related keyword map from indexed results to refine broad queries |
 | `ck expand-folder` | Scoped folder browser: enumerates source files and extracts signatures, with an optional regex filter |
 | `ck signatures` | Live AST extraction. Lists every method/property signature in a set of files |
@@ -47,26 +48,20 @@ Context King installs these commands into your AI CLI tool:
 | `ck learn` | Records a knowledge snippet to `.ck-knowledge/snippets.jsonl` |
 | `ck forget` | Removes a stale snippet by ID |
 
-The four steps in practice:
+The file-first flow in practice:
 
 ```
-1. ck find-scope  --query "order reservation inventory allocation"
-      -> 0.91  src/Modules/Inventory/Reservations/
-         0.84  src/Modules/Inventory/Allocations/
-         0.79  src/Modules/Orders/Fulfilment/
+1. ck find-files --query "order reservation inventory allocation" --top 20 --path src/
+      -> 0.71  src/Modules/Inventory/Reservations/InventoryReservationService.cs
+         0.69  src/Modules/Inventory/Allocations/AllocationService.cs
 
-2. ck expand-folder  --pattern "Reserv"  src/Modules/Inventory/Reservations/
-      -> InventoryReservationService.cs
-           AllocateReservation(ReservationRequest request): Task<ReservationResult>
-           ReleaseReservation(Guid reservationId): Task
-
-3. ck get-method-source  InventoryReservationService.cs  AllocateReservation
+2. ck get-method-source  src/Modules/Inventory/Reservations/InventoryReservationService.cs  AllocateReservation
       -> just that method body, with exact start_line / start_char / end_char
 
-4. Edit
+3. Edit
 ```
 
-`ck signatures <folder>` is an alternative to step 2 only for small folders or when broad output is intentional (`--all`). For large folders it uses adaptive relevance ranking by default; pass `--all` to force full output. Prefer `ck expand-folder --pattern` when you have any keyword.
+Fallback when file-first results are weak/noisy: `ck get-keyword-map` -> `ck find-files` -> `ck expand-folder`.
 
 The biggest savings come during investigation: answering "where does X live?", tracing cross-module behaviour, scoping a refactor. A typical end-to-end task that mixes investigation and implementation saves around 30% in tokens overall.
 
@@ -80,7 +75,7 @@ The biggest savings come during investigation: answering "where does X live?", t
 |---|---|---|
 | `.cs` files read in full | **1** | 43 |
 | Repo-wide Glob/Grep/Bash searches | 0 | 7 |
-| `ck find-scope` calls | 1 | - |
+| `ck find-files` calls | 1 | - |
 | `ck signatures` calls | 2 | - |
 | `ck get-method-source` calls | 3 | - |
 | Total tool calls | 11 | 54 |
@@ -95,13 +90,13 @@ The no-CK session delegated navigation to an Explore sub-agent, which internally
 |---|---|---|
 | `.cs` files read in full | **0** | 9 |
 | Repo-wide Glob/Grep searches | 0 | 2 |
-| `ck find-scope` calls | 2 | - |
+| `ck find-files` calls | 2 | - |
 | `ck signatures` calls | 2 | - |
 | Total tool calls | 5 | 20 |
 | New tokens processed | **22,280** | 234,842 |
 | Ratio | 1x | **10.5x more** |
 
-The CK session read zero `.cs` files in full. Two `ck find-scope` passes identified the relevant folders; two `ck signatures` passes confirmed member lists without opening any file body.
+The CK session read zero `.cs` files in full. Two `ck find-files` passes identified the relevant folders; two `ck signatures` passes confirmed member lists without opening any file body.
 
 ---
 
@@ -138,9 +133,9 @@ Semantic similarity is the primary driver. The exact-match bonus (capped at 0.30
 
 Navigation solves one problem: getting to the right code fast. But it doesn't help an agent understand what it finds. Every session starts from zero — no knowledge of why the code is structured the way it is, which modules are tricky, what was tried and rejected, what a domain concept actually means, or how two modules interact above the method level. An agent that can find the right file quickly is still slower than one that also knows what the team spent three weeks debugging in it.
 
-CK Brain is the knowledge layer on top of the navigation layer. Where `ck find-scope` answers "where is the code?", CK Brain answers "what do we know about that code?" — domain rules, architectural decisions, gotchas, cross-module relationships, anything a senior developer would tell a new joiner.
+CK Brain is the knowledge layer on top of the navigation layer. Where `ck find-files` answers "where is the code?", CK Brain answers "what do we know about that code?" — domain rules, architectural decisions, gotchas, cross-module relationships, anything a senior developer would tell a new joiner.
 
-**How knowledge accumulates.** The brain starts empty and grows automatically. A hook runs after every agent turn and scans the new portion of the session transcript for code exploration signals: use of `ck find-scope`, `ck signatures`, or `ck get-method-source` are strong signals; reading `.cs`/`.ts`/`.tsx` files, writing code, and running `ck recall` are moderate ones. Large investigation/edit windows can also trigger capture even without a strong signal. When enough signals are present, the hook injects a knowledge-capture prompt asking the agent to reflect on what it just discovered. The agent then calls `ck learn` to record the insight as a short snippet (2-4 sentences) in `.ck-knowledge/snippets.jsonl` — a plain-text file in the repository, git tracked and shared across the team like any other source file. Turns that involve no meaningful code exploration never trigger the prompt. No manual curation required.
+**How knowledge accumulates.** The brain starts empty and grows automatically. A hook runs after every agent turn and scans the new portion of the session transcript for code exploration signals: use of `ck find-files`, `ck signatures`, or `ck get-method-source` are strong signals; reading `.cs`/`.ts`/`.tsx` files, writing code, and running `ck recall` are moderate ones. Large investigation/edit windows can also trigger capture even without a strong signal. When enough signals are present, the hook injects a knowledge-capture prompt asking the agent to reflect on what it just discovered. The agent then calls `ck learn` to record the insight as a short snippet (2-4 sentences) in `.ck-knowledge/snippets.jsonl` — a plain-text file in the repository, git tracked and shared across the team like any other source file. Turns that involve no meaningful code exploration never trigger the prompt. No manual curation required.
 
 After a dozen sessions on an active module, the brain holds the kind of contextual depth that normally takes months to accumulate, and it's available to every agent on every machine from the moment they pull the repo.
 
@@ -247,11 +242,11 @@ Context King enforces the navigation workflow through rules, hooks, and skill in
 
 ### Claude Code
 
-**Always-apply rule** (`~/.claude/rules/ck-code-search-protocol.md`, Windows: `%USERPROFILE%\\.claude\\rules\\ck-code-search-protocol.md`), loaded automatically in every session. Instructs the agent to run `ck find-scope` before any search when the target folder is unknown, scope all work to the returned folders, use filtered `ck expand-folder` before reading source files, and never speculatively open broad files.
+**Always-apply rule** (`~/.claude/rules/ck-code-search-protocol.md`, Windows: `%USERPROFILE%\\.claude\\rules\\ck-code-search-protocol.md`), loaded automatically in every session. Instructs the agent to run `ck find-files` first for source discovery, then use folder-scope workflow (`get-keyword-map`/`find-files`/`expand-folder`) only as fallback.
 
 **PreToolUse hooks** fire before every tool call:
 
-- `ck-bash-guard`: blocks piping `ck find-scope` output through head/grep/tail (which destroys folder scores), and blocks running `grep` on known source files when `ck get-method-source` should be used instead.
+- `ck-bash-guard`: blocks piping `ck find-files` output through head/grep/tail (which destroys folder scores), and blocks running `grep` on known source files when `ck get-method-source` should be used instead.
 - `agent-usage-guard`: injects the full CK code search protocol into every sub-agent's context via `additionalContext`, so sub-agents use CK tools natively instead of broad searches.
 
 ### Codex CLI / Agents
@@ -271,10 +266,10 @@ Codex hook interception is still partial by tool surface and version. For that r
 A TypeScript plugin (`ck-guards.ts`) is installed to `~/.config/opencode/plugins/` (Windows: `%APPDATA%\\opencode\\plugins\\`) and auto-loaded on session start. It enforces the protocol through both reactive guards and proactive hooks:
 
 **Reactive guards** (fire before tool execution):
-- Broad `glob` or `grep` on source files (3 or fewer path segments): redirects to `ck find-scope`.
+- Broad `glob` or `grep` on source files (3 or fewer path segments): redirects to `ck find-files` first (with `find-files` fallback guidance when needed).
 - `bash cat` on source files: redirects to `ck get-method-source` or `ck read-full-file`.
 - `bash grep` on source files: redirects to the three-step protocol.
-- `bash` pipe on `ck find-scope` output: blocks to preserve folder scores and structure.
+- `bash` pipe on `ck find-files` output: blocks to preserve folder scores and structure.
 
 **Proactive hooks** (shape the agent's behaviour before guards are needed):
 - `tool.definition`: rewrites the descriptions of `grep` and `glob` that the model sees, prepending the CK protocol mandate so the model prefers CK tools without being blocked first.
@@ -293,17 +288,26 @@ ck init [--force] [--quiet] [--migrate]
 
 Initializes Context King in the current git repository. Creates `.ck.json`, adds `.ck-index/` to `.gitignore`, and creates `.ck-knowledge/`. Use `--migrate` to remove legacy per-repo deploy artifacts and clean up `settings.json`.
 
-### `ck find-scope`
+### `ck find-files`
 
 ```
-ck find-scope --query "<multi-keyword description>" [--must <text>] [--limit <n>] [--offset <n>] [--max-per-area <n>] [--top <n>] [--min-score <f>] [--explain] [--verbose] [--repo <path>]
+ck find-files --query "<multi-keyword description>" [--must <text>] [--limit <n>] [--offset <n>] [--max-per-area <n>] [--top <n>] [--min-score <f>] [--explain] [--verbose] [--repo <path>]
 ```
 
 Output rows: `<score>\t<relative-folder-path>`, sorted by score descending. Default page size is `--limit 10` (max 20). Auto-builds the index on first call.
 Pagination metadata is emitted on stderr (`offset`, `limit`, `returned`, `total_estimate`, `has_more`, `next_offset`).
 
-When the top results are too broad or ambiguous, `find-scope` prints a narrowing instruction before the folder list. The diagnostic includes query keywords that matched, query keywords that did not match, and grouped hints from the too-wide scope: exact symbol candidates first, then provider/workflow buckets, then generic leftovers. Treat that as a request to rerun with more precise provider, workflow, DTO/type, or method words instead of expanding every returned folder.
+When the top results are too broad or ambiguous, `find-files` prints a narrowing instruction before the folder list. The diagnostic includes query keywords that matched, query keywords that did not match, and grouped hints from the too-wide scope: exact symbol candidates first, then provider/workflow buckets, then generic leftovers. Treat that as a request to rerun with more precise provider, workflow, DTO/type, or method words instead of expanding every returned folder.
 Query expansion is repository-agnostic and corpus-driven: it only expands into terms present in the indexed corpus (no repository-specific hardcoded synonym tables).
+
+### `ck find-files`
+
+```
+ck find-files "<query>" [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--explain]
+```
+
+Semantic file retrieval using per-file embeddings composed from type/class names and extracted member signatures. Output rows are `<score>\t<relative-file-path>`, optionally with `types=<n> signatures=<n>` when `--explain` is set.
+Use this as the default discovery step; use `find-files` as fallback when file-level ranking is weak/noisy or broad impact coverage is needed.
 
 ### `ck get-keyword-map`
 
@@ -369,7 +373,7 @@ ck find-symbol <symbol> [--path <folder-or-file>] [--kind type|member] [--top <n
 ck find-symbol <symbol> <folder-or-file> [more paths...]
 ```
 
-Finds type or member declarations in C# and TypeScript/TSX files. Uses `--path` roots when provided; otherwise falls back to scoped folders from the latest `ck find-scope`. Output: `<score>\t<file:line>\t<kind>\t<symbol>\t<container>\t<signature>`. Works on live disk content (uncommitted edits included).
+Finds type or member declarations in C# and TypeScript/TSX files. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries (from `find-files` or fallback `find-files`). Output: `<score>\t<file:line>\t<kind>\t<symbol>\t<container>\t<signature>`. Works on live disk content (uncommitted edits included).
 
 ### `ck refs`
 
@@ -378,7 +382,7 @@ ck refs <symbol> [--path <folder-or-file>] [--top <n>] [--ignore-case]
 ck refs <symbol> <folder-or-file> [more paths...]
 ```
 
-Finds textual references (call-sites) for a symbol in C# and TypeScript/TSX files. Uses identifier-boundary matching on the symbol's right-most segment. Uses `--path` roots when provided; otherwise falls back to scoped folders from the latest `ck find-scope`. Output: `<score>\t<file:line>\t<line snippet>`. Works on live disk content.
+Finds textual references (call-sites) for a symbol in C# and TypeScript/TSX files. Uses identifier-boundary matching on the symbol's right-most segment. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries (from `find-files` or fallback `find-files`). Output: `<score>\t<file:line>\t<line snippet>`. Works on live disk content.
 
 ### `ck build-check`
 
@@ -394,7 +398,7 @@ Runs `dotnet build -v q` and prints compact error/warning summaries.
 ck index [--status] [--force] [--repo <path>]
 ```
 
-`--status` prints `fresh`, `stale`, or `missing`. Normally not needed since `ck find-scope` triggers an incremental update automatically.
+`--status` prints `fresh`, `stale`, or `missing`. Normally not needed since `ck find-files` triggers an incremental update automatically.
 
 ### `ck recall`
 

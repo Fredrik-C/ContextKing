@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ck-bash-guard: PreToolUse hook for the Bash tool.
 # Enforces the CK navigation protocol by blocking repo-wide search anti-patterns
-# and enforcing the keyword-map + find-scope workflow.
+# and enforcing CK workflow boundaries (file-first by default).
 #
-# grep/rg/glob are allowed freely within scoped folders returned by find-scope.
+# grep/rg/glob are allowed freely within boundaries from find-files.
 # Blocked: piping ck output through filters, broad recursive grep/find from source
 # roots, full-file bulk reads (find -exec cat), and repeated/premature scope calls.
 
@@ -64,7 +64,7 @@ if [ -f "$STATE_FILE" ]; then
   pending_keyword_map=$(jq -r '.pendingKeywordMap // false' "$STATE_FILE" 2>/dev/null)
   keyword_map_seen=$(jq -r '.keywordMapSeen // false' "$STATE_FILE" 2>/dev/null)
   pending_query=$(jq -r '.pendingQuery // ""' "$STATE_FILE" 2>/dev/null)
-  last_find_scope=$(jq -r '.lastFindScopeCommand // ""' "$STATE_FILE" 2>/dev/null)
+  last_find_scope=$(jq -r '.lastFindFilesCommand // ""' "$STATE_FILE" 2>/dev/null)
   last_expand_folder=$(jq -r '.lastExpandFolderCommand // ""' "$STATE_FILE" 2>/dev/null)
   no_match_folder=$(jq -r '.noMatchFolder // ""' "$STATE_FILE" 2>/dev/null)
   no_match_count=$(jq -r '.noMatchCount // 0' "$STATE_FILE" 2>/dev/null)
@@ -150,22 +150,22 @@ if [ "$pending_keyword_map" = "true" ] && \
    printf '%s' "$COMMAND" | grep -qE 'ck\s+expand-folder\b' && \
    ! printf '%s' "$COMMAND" | grep -qE 'ck\s+get-keyword-map\b'; then
   [ -z "$pending_query" ] && pending_query="<same query>"
-  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — previous ck find-scope was broad/ambiguous.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — previous ck find-files was broad/ambiguous.
 
 Run keyword mapping before more expand-folder calls:
 
   ck get-keyword-map --query \"$pending_query\"
 
-Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-scope with refined terms."
+Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-files with refined terms."
   exit 0
 fi
 
-if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' && [ "$COMMAND" = "$last_find_scope" ]; then
-  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — repeated identical ck find-scope command.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-files\b' && [ "$COMMAND" = "$last_find_scope" ]; then
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — repeated identical ck find-files command.
 
 Do not rerun the same scope command unchanged. If previous output was broad:
   ck get-keyword-map --query \"<same query>\"
-Then rerun find-scope with refined terms."
+Then rerun find-files with refined terms."
   exit 0
 fi
 
@@ -191,7 +191,7 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+expand-folder\b' && \
     --arg reason "[ck-guard] BLOCKED — this folder already had 2 consecutive expand-folder no-match results.
 
 Stop expanding the same folder. Either:
-  1) run ck get-keyword-map + refined ck find-scope, or
+  1) run ck get-keyword-map + refined ck find-files, or
   2) switch to another scoped folder." \
     '{
       "hookSpecificOutput": {
@@ -216,7 +216,7 @@ Next step in this direction:
   ck get-method-source \"$known_target_file\" <MemberName>
 
 If your direction changed, reset scope explicitly with:
-  ck find-scope --query \"<new direction query>\"" \
+  ck find-files --query \"<new direction query>\"" \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -239,7 +239,7 @@ Use targeted reads now:
 
 If still uncharted, reset direction first:
   ck get-keyword-map --query \"<same query>\"
-  ck find-scope --query \"<refined query>\"" \
+  ck find-files --query \"<refined query>\"" \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -266,15 +266,15 @@ Use the CK command with a narrower pattern instead:
   exit 0
 fi
 
-# ── Pattern 1: ck find-scope piped through content-filtering tools ───────────
-# Block content-filtering pipes on find-scope (destroys folder scores and grouping).
+# ── Pattern 1: ck find-files piped through content-filtering tools ───────────
+# Block content-filtering pipes on find-files (destroys folder scores and grouping).
 # Allow: head, wc — output truncation/counting, harmless.
 # Block: grep, tail, sort, awk, sed, cut — filter or reorder scored results.
-if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b' && \
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-files\b' && \
    printf '%s' "$COMMAND" | grep -qE '\|\s*(tail|grep|sort|awk|sed|cut|less|more)\b'; then
-  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — avoid piping ck find-scope through grep/sort/awk.
+  emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — avoid piping ck find-files through grep/sort/awk.
 
-ck find-scope output is already ranked by relevance score. Filtering or sorting
+ck find-files output is already ranked by relevance score. Filtering or sorting
 destroys that structure. Instead:
 
   • Reduce output with --top <n> or --min-score <f>
@@ -358,11 +358,11 @@ This avoids repeated broad text search churn." \
   fi
 fi
 
-# ── Pattern 2.4: source search requires established scope ───────────────────
+# ── Pattern 2.4: source search requires established boundaries ──────────────
 # Exception: grep/rg on a specific .cs/.ts/.tsx file (known file, not navigation)
 # is allowed without scope. Block only when the target is a directory or uses
 # --include=*.cs / --include=*.ts (broad search indicators).
-if { [ "$keyword_map_seen" != "true" ] || [ "${#scoped_folders[@]}" -eq 0 ]; } && \
+if [ "${#scoped_folders[@]}" -eq 0 ] && \
    printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])(grep|rg|find)\b' && \
    printf '%s' "$COMMAND" | grep -qE '(^|[[:space:]])(src|\.\/src|src/Modules|src/Hosts)(/)?([[:space:]]|$)|\.(cs|ts|tsx)\b|--include=.*\.(cs|ts|tsx)'; then
   _p24_has_non_file=false
@@ -377,18 +377,22 @@ if { [ "$keyword_map_seen" != "true" ] || [ "${#scoped_folders[@]}" -eq 0 ]; } &
     done < <(extract_command_paths "$COMMAND")
   fi
   if [ "$_p24_has_non_file" = true ]; then
-    emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — source search works better with keyword-map and scope.
+    emit_guard_json "allow" "[ck-guard] ALLOW (guidance) — source search works better with file-first boundaries.
 
 Before grep/glob/find-style searching, run:
   ck get-keyword-map --query \"<domain concept operation>\"
-  ck find-scope --query \"<refined query from keyword-map>\"
+  ck find-files --query \"<domain concept operation>\" --path src/
 
-Then keep searches inside returned folders for cleaner sessions."
+If results are weak/noisy, fallback to:
+  ck get-keyword-map --query \"<domain concept operation>\"
+  ck find-files --query \"<refined query from keyword-map>\"
+
+Then keep searches inside returned boundaries."
     exit 0
   fi
 fi
 
-# ── Pattern 2.5: strict scope lock when scope exists ─────────────────────────
+# ── Pattern 2.5: strict boundary lock when boundaries exist ───────────────────
 if [ "${#scoped_folders[@]}" -gt 0 ]; then
   # Enforce scoped paths for ck signatures folder/file targets.
   if printf '%s' "$COMMAND" | grep -qE 'ck\s+signatures\b'; then
@@ -396,14 +400,14 @@ if [ "${#scoped_folders[@]}" -gt 0 ]; then
       [ -z "$path" ] && continue
       if ! is_within_scoped_folders "$path"; then
         jq -n \
-          --arg reason "[ck-guard] BLOCKED — ck signatures path is outside current scoped folders.
+          --arg reason "[ck-guard] BLOCKED — ck signatures path is outside current CK boundaries.
 
-Active scope was set by the latest successful ck find-scope call. Keep signatures inside:
+Active boundaries were set by latest ck find-files. Keep signatures inside:
   ${scoped_folders[*]}
 
 If direction changed, run:
   ck get-keyword-map --query \"<new direction>\"
-  ck find-scope --query \"<new direction>\"" \
+  ck find-files --query \"<new direction>\"" \
           '{
             "hookSpecificOutput": {
               "hookEventName": "PreToolUse",
@@ -422,14 +426,14 @@ If direction changed, run:
       [ -z "$path" ] && continue
       if ! is_within_scoped_folders "$path"; then
         jq -n \
-          --arg reason "[ck-guard] BLOCKED — source search path is outside current scoped folders.
+          --arg reason "[ck-guard] BLOCKED — source search path is outside current CK boundaries.
 
-Keep grep/rg/find inside folders returned by the latest successful ck find-scope:
+Keep grep/rg/find inside boundaries from latest ck find-files:
   ${scoped_folders[*]}
 
 If this is a new direction, refresh scope first:
   ck get-keyword-map --query \"<new direction>\"
-  ck find-scope --query \"<new direction>\"" \
+  ck find-files --query \"<new direction>\"" \
           '{
             "hookSpecificOutput": {
               "hookEventName": "PreToolUse",
@@ -479,8 +483,10 @@ if printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])(grep|rg)\b' && \
 
 Recursive grep from src/ or a module root scans too much. Use CK to narrow first:
 
-  ck find-scope --query \"<domain concept operation>\" --explain
-  ck expand-folder --pattern \"<keyword>\" <returned-folder>
+  ck find-files --query \"<domain concept operation>\" --path src/
+
+Fallback if needed:
+  ck find-files --query \"<domain concept operation>\" --explain
 
 If you already have focused folders, grep those exact folders."
   exit 0
@@ -495,8 +501,10 @@ if printf '%s' "$COMMAND" | grep -qE '\bfind\s+([^|;]*\s)?(src|\./src|src/Module
 
 Plain find across src/ returns unranked paths and often floods context. Use:
 
-  ck find-scope --query \"<domain concept operation>\"
-  ck expand-folder --pattern \"<keyword>\" <returned-folder>
+  ck find-files --query \"<domain concept operation>\" --path src/
+
+Fallback if needed:
+  ck find-files --query \"<domain concept operation>\"
 
 If you already know the exact narrow folder, run find inside that folder only."
   exit 0

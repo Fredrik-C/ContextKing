@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # ck-search-guard: PreToolUse hook for the built-in Grep and Glob tools (PowerShell version).
 # Enforces CK search prerequisites for source-file Grep/Glob:
-# keyword-map must be created and scope must be established first.
+# boundaries must come from find-files (default) or find-files (fallback).
 #
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -15,15 +15,18 @@ if (-not $tool) { exit 0 }
 if ($tool -ne 'Grep' -and $tool -ne 'Glob') { exit 0 }
 
 $denyMsg = @"
-[ck-guard] ALLOW (guidance) — source search works better with keyword-map and scope.
+[ck-guard] ALLOW (guidance) — source search works better with file-first boundaries.
 
 Before Grep/Glob searching in source files, run:
 
   ck get-keyword-map --query "<what you are looking for>"
-  ck find-scope --query "<what you are looking for>"
-  ck expand-folder --pattern "<keyword>" <returned-folder>
+  ck find-files --query "<what you are looking for>" --path src/
 
-Then keep Grep/Glob paths inside folders returned by find-scope.
+If results are weak/noisy, fallback to:
+  ck get-keyword-map --query "<what you are looking for>"
+  ck find-files --query "<what you are looking for>"
+
+Then keep Grep/Glob paths inside those returned paths/folders.
 "@
 
 $repoRoot = (& git rev-parse --show-toplevel 2>$null)
@@ -32,12 +35,10 @@ if (-not (Test-Path (Join-Path $repoRoot '.ck.json'))) { exit 0 }
 
 $stateFile = Join-Path $repoRoot ".ck-index/.ck-guard-state.json"
 $scopedFolders = @()
-$keywordMapSeen = $false
 if (Test-Path $stateFile) {
     try {
         $state = Get-Content $stateFile -Raw | ConvertFrom-Json
         if ($state.scopedFolders) { $scopedFolders = @($state.scopedFolders) }
-        if ($state.keywordMapSeen -eq $true) { $keywordMapSeen = $true }
     } catch { }
 }
 
@@ -70,7 +71,7 @@ if ($tool -eq 'Glob') {
     if ($pattern -match '\.(cs|ts|tsx)$') {
         $prefix  = GlobStaticPrefix $pattern
         $pathArg = [string]$obj.tool_input.path
-        if (-not $keywordMapSeen -or $scopedFolders.Count -eq 0) {
+        if ($scopedFolders.Count -eq 0) {
             @{
                     hookSpecificOutput = @{
                         hookEventName      = 'PreToolUse'
@@ -87,7 +88,7 @@ if ($tool -eq 'Glob') {
                     hookSpecificOutput = @{
                         hookEventName      = 'PreToolUse'
                         permissionDecision = 'allow'
-                        permissionDecisionReason = '[ck-guard] ALLOW (guidance) — Glob path is outside current scoped folders from ck find-scope.'
+                        permissionDecisionReason = '[ck-guard] ALLOW (guidance) — Glob path is outside current CK boundaries (find-files).'
                     }
                 } | ConvertTo-Json -Depth 3
                 exit 0
@@ -103,7 +104,7 @@ if ($tool -eq 'Grep') {
         $pathArg = if ($obj.tool_input.path) { [string]$obj.tool_input.path }
                    elseif ($obj.tool_input.cwd) { [string]$obj.tool_input.cwd }
                    else { '' }
-        if (-not $keywordMapSeen -or $scopedFolders.Count -eq 0) {
+        if ($scopedFolders.Count -eq 0) {
             @{
                     hookSpecificOutput = @{
                         hookEventName      = 'PreToolUse'
@@ -119,7 +120,7 @@ if ($tool -eq 'Grep') {
                     hookSpecificOutput = @{
                         hookEventName      = 'PreToolUse'
                         permissionDecision = 'allow'
-                        permissionDecisionReason = '[ck-guard] ALLOW (guidance) — Grep path is outside current scoped folders from ck find-scope.'
+                        permissionDecisionReason = '[ck-guard] ALLOW (guidance) — Grep path is outside current CK boundaries (find-files).'
                     }
                 } | ConvertTo-Json -Depth 3
                 exit 0

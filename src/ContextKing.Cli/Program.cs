@@ -31,7 +31,7 @@ return args[0] switch
 {
     "init"               => await InitCommand.RunAsync(args[1..]),
     "index"              => await IndexCommand.RunAsync(args[1..]),
-    "find-scope"         => await FindScopeCommand.RunAsync(args[1..]),
+    "find-files"         => await FindFilesCommand.RunAsync(args[1..]),
     "get-keyword-map"    => await GetKeywordMapCommand.RunAsync(args[1..]),
     "expand-folder"      => await ExpandFolderCommand.RunAsync(args[1..]),
     "signatures"         => await SignaturesCommand.RunAsync(args[1..]),
@@ -120,7 +120,7 @@ static void PrintHelp()
         Commands:
           ck init                Initialize Context King in the current git repository
           ck index               Build or update the semantic source-map index
-          ck find-scope          Semantic search to find the most relevant folder(s)
+          ck find-files          Semantic search to find the most relevant source files
           ck get-keyword-map     Inspect related indexed keywords for each query term
           ck expand-folder       List files in a folder with filtered signatures
           ck signatures          Extract method signatures from C#/TypeScript files (always live)
@@ -159,5 +159,5 @@ static int PrintError(string message)
 // ── Version constant (single source of truth) ─────────────────────────────────
 static partial class Program
 {
-    internal const string Version = "1.7.4";
+    internal const string Version = "1.8.0";
 }

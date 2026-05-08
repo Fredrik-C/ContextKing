@@ -30,7 +30,7 @@ public class KeywordIntentAdvisorTests
             .Should().BeTrue();
         if (advice.SuggestedMust is not null)
             new[] { "stripe", "payouts" }.Should().Contain(advice.SuggestedMust);
-        advice.SuggestedNextCommand.Should().Contain("ck find-scope --query");
+        advice.SuggestedNextCommand.Should().Contain("ck find-files");
         advice.Terms.Should().Contain(t => t.Role == KeywordRole.Discriminator);
         advice.Terms.Should().Contain(t => t.Term == "stripe" && t.Role == KeywordRole.Anchor);
     }
@@ -52,7 +52,7 @@ public class KeywordIntentAdvisorTests
             globalHints: ["gateway", "provider"]);
 
         advice.SuggestedMust.Should().Be("adyen");
-        advice.SuggestedNextCommand.Should().Contain("--must \"adyen\"");
+        advice.SuggestedNextCommand.Should().Contain("adyen");
     }
 
     private static string CreateTestDb(IReadOnlyList<IndexedFolder> folders)

@@ -1,0 +1,182 @@
+namespace ContextKing.Core.SourceMap;
+
+public readonly record struct ScoredFile(
+    string Path,
+    float Score,
+    int TypeCount,
+    int SignatureCount,
+    string EmbeddingText,
+    string MethodNames);
+
+public sealed class FileMapSearcher
+{
+    public IReadOnlyList<ScoredFile> Search(
+        string dbPath,
+        string query,
+        int topK = 20,
+        float minScore = 0f,
+        IReadOnlyList<string>? allowedFolders = null,
+        IReadOnlyList<string>? mustTerms = null)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return [];
+
+        var index = new SourceMapIndex(dbPath);
+        if (!index.Exists)
+            return [];
+
+        var files = index.LoadIndexedFiles();
+        if (files.Count == 0)
+            return [];
+
+        HashSet<string>? allowed = null;
+        if (allowedFolders is { Count: > 0 })
+            allowed = allowedFolders
+                .Select(NormalizePath)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var queryTerms = PathTokenizer.TokenizeQuery(query)
+            .Where(t => t.Length >= 3)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (queryTerms.Length == 0)
+            return [];
+        var docFreq = BuildDocumentFrequency(files);
+        var totalDocs = Math.Max(1, files.Count);
+        var scored = new List<ScoredFile>(Math.Min(topK, files.Count));
+
+        foreach (var file in files)
+        {
+            if (allowed is not null && !IsAllowed(file.Path, file.FolderPath, allowed))
+                continue;
+
+            var score = LexicalScore(file, queryTerms, docFreq, totalDocs, mustTerms);
+            if (score < minScore)
+                continue;
+
+            scored.Add(new ScoredFile(
+                file.Path,
+                score,
+                file.TypeCount,
+                file.SignatureCount,
+                file.EmbeddingText,
+                file.MethodNames));
+        }
+
+        return scored
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
+            .Take(topK)
+            .ToArray();
+    }
+
+    private static bool IsAllowed(string path, string folderPath, HashSet<string> allowed)
+    {
+        var normPath = NormalizePath(path);
+        var normFolder = NormalizePath(folderPath);
+        foreach (var root in allowed)
+        {
+            if (normPath.Equals(root, StringComparison.OrdinalIgnoreCase)
+                || normPath.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)
+                || normFolder.Equals(root, StringComparison.OrdinalIgnoreCase)
+                || normFolder.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizePath(string p) => p.Replace('\\', '/').TrimStart('.').TrimStart('/').TrimEnd('/');
+
+    private static Dictionary<string, int> BuildDocumentFrequency(IReadOnlyList<IndexedFile> files)
+    {
+        var df = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var f in files)
+        {
+            var terms = BuildTermSet(f);
+            foreach (var term in terms)
+                df[term] = df.TryGetValue(term, out var c) ? c + 1 : 1;
+        }
+        return df;
+    }
+
+    private static HashSet<string> BuildTermSet(IndexedFile file)
+    {
+        var terms = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in PathTokenizer.TokenizePath(file.FolderPath).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            if (t.Length >= 3) terms.Add(t);
+        foreach (var t in PathTokenizer.TokenizeFileName(Path.GetFileName(file.Path)).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            if (t.Length >= 3) terms.Add(t);
+        foreach (var t in SplitLex(file.TypeNames))
+            if (t.Length >= 3) terms.Add(t);
+        foreach (var t in SplitLex(file.MethodNames))
+            if (t.Length >= 3) terms.Add(t);
+        return terms;
+    }
+
+    private static IEnumerable<string> SplitLex(string text)
+    {
+        var tokens = text.Split([';', ',', '.', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        foreach (var token in tokens)
+        {
+            foreach (var part in PathTokenizer.MethodNameToPhrase(token).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                yield return part;
+        }
+    }
+
+    private static float LexicalScore(
+        IndexedFile file,
+        IReadOnlyList<string> queryTerms,
+        IReadOnlyDictionary<string, int> docFreq,
+        int totalDocs,
+        IReadOnlyList<string>? mustTerms)
+    {
+        var pathText = file.FolderPath.ToLowerInvariant();
+        var fileText = Path.GetFileName(file.Path).ToLowerInvariant();
+        var typeText = file.TypeNames.ToLowerInvariant();
+        var methodText = file.MethodNames.ToLowerInvariant();
+
+        float score = 0f;
+        var matched = 0;
+        foreach (var term in queryTerms)
+        {
+            var idf = docFreq.TryGetValue(term, out var df)
+                ? MathF.Log(1f + (float)totalDocs / (1f + df))
+                : MathF.Log(1f + totalDocs);
+            var termHit = 0f;
+            if (methodText.Contains(term, StringComparison.Ordinal)) termHit += 3.5f;
+            if (typeText.Contains(term, StringComparison.Ordinal)) termHit += 2.5f;
+            if (fileText.Contains(term, StringComparison.Ordinal)) termHit += 2.0f;
+            if (pathText.Contains(term, StringComparison.Ordinal)) termHit += 1.2f;
+            if (termHit > 0f) matched++;
+            score += termHit * idf;
+        }
+
+        if (matched > 0)
+            score += 1.5f * ((float)matched / queryTerms.Count);
+
+        if (mustTerms is { Count: > 0 })
+        {
+            var mustMatches = 0;
+            foreach (var must in mustTerms)
+            {
+                if (string.IsNullOrWhiteSpace(must))
+                    continue;
+                var m = must.ToLowerInvariant();
+                if (pathText.Contains(m, StringComparison.Ordinal)
+                    || fileText.Contains(m, StringComparison.Ordinal)
+                    || typeText.Contains(m, StringComparison.Ordinal)
+                    || methodText.Contains(m, StringComparison.Ordinal))
+                {
+                    mustMatches++;
+                }
+            }
+
+            if (mustMatches > 0)
+                score += 6.0f * ((float)mustMatches / mustTerms.Count);
+        }
+
+        return score;
+    }
+}

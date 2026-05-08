@@ -38,8 +38,7 @@ internal static class IndexCommand
 
         Console.Error.WriteLine($"[ck index] Repo: {repoRoot}");
 
-        using var embedder = ModelLocator.CreateEmbedder();
-        var builder  = new SourceMapBuilder(embedder);
+        var builder  = new SourceMapBuilder();
         var progress = new Progress<string>(msg => Console.Error.WriteLine($"[ck index] {msg}"));
 
         await builder.BuildAsync(repoRoot, force, progress);

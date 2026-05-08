@@ -49,4 +49,4 @@ When the user asks for `ck init`:
 ## After init
 
 Commit `.ck.json` and `.ck-knowledge/` to the repository. The `.ck-index/` directory
-is gitignored and will be built automatically on the first `ck find-scope` call.
+is gitignored and will be built automatically on the first `ck find-files` call.

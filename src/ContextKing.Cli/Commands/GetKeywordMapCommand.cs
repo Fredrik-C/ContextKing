@@ -25,7 +25,7 @@ internal static class GetKeywordMapCommand
         if (!topFoldersSet) topFolders = 12;
 
         var perKeywordSet = reader.TryGetInt("--per-keyword", out var perKeyword) && perKeyword > 0;
-        if (!perKeywordSet) perKeyword = 50;
+        if (!perKeywordSet) perKeyword = 12;
 
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -56,8 +56,7 @@ internal static class GetKeywordMapCommand
                         : "[ck get-keyword-map] Index is stale — refreshing...");
             }
 
-            using var buildEmbedder = ModelLocator.CreateEmbedder();
-            var builder = new SourceMapBuilder(buildEmbedder);
+            var builder = new SourceMapBuilder();
             var progress = verbose
                 ? new Progress<string>(msg => Console.Error.WriteLine($"[ck get-keyword-map] {msg}"))
                 : null;
@@ -65,14 +64,13 @@ internal static class GetKeywordMapCommand
         }
 
         var dbPath = SourceMapBuilder.GetDbPath(repoRoot);
-        using var searchEmbedder = ModelLocator.CreateEmbedder();
-        var searcher = new SourceMapSearcher(searchEmbedder);
-        var results = searcher.SearchDetailed(
+        var searcher = new FileMapSearcher();
+        var results = searcher.Search(
             dbPath,
             query,
             topFolders,
             minScore: 0f,
-            mustTexts.Count > 0 ? mustTexts : null);
+            mustTerms: mustTexts.Count > 0 ? mustTexts : null);
 
         if (results.Count == 0)
         {
@@ -81,8 +79,8 @@ internal static class GetKeywordMapCommand
         }
 
         var queryTerms = LowRankDictionary.FilterHighRank(PathTokenizer.TokenizeQuery(query));
-        var matchedTerms = results
-            .SelectMany(r => r.MatchedTerms)
+        var matchedTerms = queryTerms
+            .Where(term => results.Any(r => FileTerms(r).Contains(term)))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var unmatchedTerms = queryTerms
@@ -90,12 +88,8 @@ internal static class GetKeywordMapCommand
             .ToArray();
         var seedTerms = matchedTerms.Length > 0 ? matchedTerms : queryTerms.ToArray();
 
-        var ranker = new KeywordRankingEngine(dbPath);
-        var map = BuildKeywordMap(results, seedTerms, queryTerms, perKeyword, ranker);
-        var globalHints = ranker
-            .RankScopedHints(results, queryTerms, Math.Max(24, perKeyword * 2))
-            .Select(x => x.Term)
-            .ToArray();
+        var map = BuildKeywordMap(results, seedTerms, queryTerms, perKeyword);
+        var globalHints = BuildGlobalHints(results, queryTerms, Math.Max(24, perKeyword * 2));
         var advice = KeywordIntentAdvisor.BuildAdvice(
             dbPath,
             queryTerms,
@@ -107,23 +101,23 @@ internal static class GetKeywordMapCommand
 
         Console.WriteLine($"[ck get-keyword-map] matched-query-keywords: {FormatList(matchedTerms)}");
         Console.WriteLine($"[ck get-keyword-map] unmatched-query-keywords: {FormatList(unmatchedTerms)}");
-        Console.WriteLine($"[ck get-keyword-map] global-keyword-hints: {FormatList(globalHints)}");
+        Console.WriteLine($"[ck get-keyword-map] global-keyword-hints: {FormatList(globalHints.Take(24).ToArray())}");
         Console.WriteLine("[ck get-keyword-map] keyword-map:");
 
         foreach (var (seed, terms) in map)
-            Console.WriteLine($"[ck get-keyword-map]   {seed}: {FormatList(terms)}");
+            Console.WriteLine($"[ck get-keyword-map]   {seed}: {FormatList(terms.Take(12).ToArray())}");
 
-        var anchorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Anchor).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
-        var discriminatorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Discriminator).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
-        var workflowTerms = advice.Terms.Where(t => t.Role == KeywordRole.Workflow).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
-        var noiseTerms = advice.Terms.Where(t => t.Role == KeywordRole.Noise).Select(t => t.Term).Distinct(StringComparer.Ordinal).ToArray();
+        var anchorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Anchor).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(6).ToArray();
+        var discriminatorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Discriminator).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(12).ToArray();
+        var workflowTerms = advice.Terms.Where(t => t.Role == KeywordRole.Workflow).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(12).ToArray();
+        var noiseTerms = advice.Terms.Where(t => t.Role == KeywordRole.Noise).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(12).ToArray();
 
         Console.WriteLine($"[ck get-keyword-map] role-anchor: {FormatList(anchorTerms)}");
         Console.WriteLine($"[ck get-keyword-map] role-discriminator: {FormatList(discriminatorTerms)}");
         Console.WriteLine($"[ck get-keyword-map] role-workflow: {FormatList(workflowTerms)}");
         Console.WriteLine($"[ck get-keyword-map] role-noise: {FormatList(noiseTerms)}");
         Console.WriteLine("[ck get-keyword-map] term-evidence:");
-        foreach (var term in advice.Terms.Take(16))
+        foreach (var term in advice.Terms.Take(10))
         {
             Console.WriteLine(
                 $"[ck get-keyword-map]   {term.Term}: role={term.Role.ToString().ToLowerInvariant()} " +
@@ -142,19 +136,11 @@ internal static class GetKeywordMapCommand
         return 0;
     }
 
-    internal static IReadOnlyList<KeywordMapEntry> BuildKeywordMap(
-        IReadOnlyList<ScoredFolderDetails> results,
+    private static IReadOnlyList<KeywordMapEntry> BuildKeywordMap(
+        IReadOnlyList<ScoredFile> results,
         IReadOnlyList<string> seedTerms,
         IReadOnlyCollection<string> excludedTerms,
         int perKeyword)
-        => BuildKeywordMap(results, seedTerms, excludedTerms, perKeyword, ranker: null);
-
-    private static IReadOnlyList<KeywordMapEntry> BuildKeywordMap(
-        IReadOnlyList<ScoredFolderDetails> results,
-        IReadOnlyList<string> seedTerms,
-        IReadOnlyCollection<string> excludedTerms,
-        int perKeyword,
-        KeywordRankingEngine? ranker)
     {
         if (results.Count == 0 || seedTerms.Count == 0 || perKeyword <= 0)
             return [];
@@ -163,21 +149,7 @@ internal static class GetKeywordMapCommand
 
         foreach (var seed in seedTerms.Distinct(StringComparer.Ordinal))
         {
-            IReadOnlyList<string> related;
-
-            if (ranker is not null)
-            {
-                related = ranker
-                    .RankRelatedTerms(results, seed, excludedTerms, perKeyword)
-                    .Select(r => r.Term)
-                    .ToArray();
-            }
-            else
-            {
-                // Fallback used by unit tests that call this helper directly.
-                related = BuildFallbackRelatedTerms(results, seed, excludedTerms, perKeyword);
-            }
-
+            var related = BuildFallbackRelatedTerms(results, seed, excludedTerms, perKeyword);
             map.Add(new KeywordMapEntry(seed, related));
         }
 
@@ -185,7 +157,7 @@ internal static class GetKeywordMapCommand
     }
 
     private static IReadOnlyList<string> BuildFallbackRelatedTerms(
-        IReadOnlyList<ScoredFolderDetails> results,
+        IReadOnlyList<ScoredFile> results,
         string seed,
         IReadOnlyCollection<string> excludedTerms,
         int perKeyword)
@@ -197,14 +169,15 @@ internal static class GetKeywordMapCommand
 
         foreach (var (result, index) in ranked.Select((r, i) => (r, i)))
         {
-            if (!result.MatchedTerms.Contains(seed, StringComparer.Ordinal))
+            var fileTerms = FileTerms(result);
+            if (!fileTerms.Contains(seed))
                 continue;
 
             var folderWeight = Math.Max(0.10f, result.Score - lowestScore + 0.20f);
             var rankWeight = 1f / (index + 1);
             var seenInFolder = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var term in FullFolderTerms(result))
+            foreach (var term in fileTerms)
             {
                 if (!IsUsefulKeyword(term, excludedTerms, seenInFolder))
                     continue;
@@ -227,6 +200,46 @@ internal static class GetKeywordMapCommand
             .ThenByDescending(kvp => kvp.Key.Length)
             .ThenBy(kvp => StableHash(kvp.Key))
             .Take(perKeyword)
+            .Select(kvp => kvp.Key)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> BuildGlobalHints(
+        IReadOnlyList<ScoredFile> results,
+        IReadOnlyCollection<string> excludedTerms,
+        int maxHints)
+    {
+        if (results.Count == 0 || maxHints <= 0)
+            return [];
+
+        var ranked = results.Take(Math.Min(12, results.Count)).ToArray();
+        var lowestScore = ranked[^1].Score;
+        var stats = new Dictionary<string, HintStats>(StringComparer.Ordinal);
+
+        foreach (var (result, index) in ranked.Select((r, i) => (r, i)))
+        {
+            var fileWeight = Math.Max(0.10f, result.Score - lowestScore + 0.20f);
+            var rankWeight = 1f / (index + 1);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var term in FileTerms(result))
+            {
+                if (!IsUsefulKeyword(term, excludedTerms, seen))
+                    continue;
+                if (!stats.TryGetValue(term, out var hint))
+                    stats[term] = hint = new HintStats();
+                hint.DocumentCount++;
+                hint.ScoreWeight += fileWeight * rankWeight;
+                if (result.Score > hint.BestScore)
+                    hint.BestScore = result.Score;
+            }
+        }
+
+        return stats
+            .OrderByDescending(kvp => HintScore(kvp.Value))
+            .ThenBy(kvp => kvp.Value.DocumentCount)
+            .ThenByDescending(kvp => kvp.Key.Length)
+            .ThenBy(kvp => StableHash(kvp.Key))
+            .Take(maxHints)
             .Select(kvp => kvp.Key)
             .ToArray();
     }
@@ -268,24 +281,61 @@ internal static class GetKeywordMapCommand
         SessionKeywordAtlasStore.Save(repoRoot, atlas);
     }
 
-    private static IEnumerable<string> FullFolderTerms(ScoredFolderDetails result)
+    private static HashSet<string> FileTerms(ScoredFile file)
     {
-        if (!string.IsNullOrWhiteSpace(result.CombinedTokens))
+        var terms = new HashSet<string>(StringComparer.Ordinal);
+        var folder = Path.GetDirectoryName(file.Path)?.Replace('\\', '/') ?? ".";
+        foreach (var token in PathTokenizer.TokenizePath(folder).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            terms.Add(token);
+        foreach (var token in PathTokenizer.TokenizeFileName(Path.GetFileName(file.Path)).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            terms.Add(token);
+        foreach (var token in ExtractTerms(file.EmbeddingText))
+            terms.Add(token);
+        foreach (var token in ExtractTerms(file.MethodNames))
+            terms.Add(token);
+        return terms;
+    }
+
+    private static IEnumerable<string> ExtractTerms(string text)
+    {
+        var buffer = new char[64];
+        var len = 0;
+        foreach (var ch in text)
         {
-            foreach (var token in result.CombinedTokens.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                yield return token;
-            yield break;
+            if (char.IsLetterOrDigit(ch) || ch == '_')
+            {
+                if (len < buffer.Length)
+                    buffer[len++] = char.ToLowerInvariant(ch);
+                continue;
+            }
+
+            if (len >= 3)
+                yield return new string(buffer, 0, len);
+            len = 0;
         }
 
-        foreach (var token in result.UnmatchedFolderTerms)
-            yield return token;
+        if (len >= 3)
+            yield return new string(buffer, 0, len);
     }
 
     private static bool IsUsefulKeyword(string term, IReadOnlyCollection<string> excludedTerms, HashSet<string> seenInFolder)
         => term.Length >= 3
            && !excludedTerms.Contains(term)
            && !LowRankDictionary.Contains(term)
+           && !IsNoisyOperationalToken(term)
            && seenInFolder.Add(term);
+
+    private static bool IsNoisyOperationalToken(string term)
+    {
+        var t = term.ToLowerInvariant();
+        if (t.Length > 24 && (t.StartsWith("enable", StringComparison.Ordinal) || t.StartsWith("featureflag", StringComparison.Ordinal)))
+            return true;
+        if (t.StartsWith("create", StringComparison.Ordinal) && t.EndsWith("parameters", StringComparison.Ordinal))
+            return true;
+        if (t is "feature" or "flags" or "components" or "component")
+            return true;
+        return false;
+    }
 
     private static float HintScore(HintStats stats)
         => stats.ScoreWeight / MathF.Pow(stats.DocumentCount, 1.35f);
@@ -325,7 +375,7 @@ internal static class GetKeywordMapCommand
               --query <text>         Natural language description of the code area (required)
               --must <text>          Required provider/concept to focus on (repeatable)
               --top <n>              Number of top semantic folders to analyze (default: 12)
-              --per-keyword <n>      Max related keywords returned per seed keyword (default: 50, adaptive)
+              --per-keyword <n>      Max related keywords returned per seed keyword (default: 12, adaptive)
               --repo <path>          Path to git repo root (default: git rev-parse from cwd)
               --verbose              Print index build/refresh progress to stderr
               --quiet                Accepted for compatibility; concise output is default

@@ -133,8 +133,8 @@ internal static class RefsCommand
 
             Defaults:
               - Uses --path roots when provided.
-              - Otherwise uses scoped folders from latest ck find-scope.
-              - If no scoped folders exist, command fails and asks for --path or find-scope first.
+              - Otherwise uses paths captured by latest ck find-files.
+              - If no paths exist, command fails and asks for --path or find-files first.
 
             Output (stdout):
               <score>\t<file:line>\t<line snippet>

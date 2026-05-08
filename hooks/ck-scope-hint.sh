@@ -2,10 +2,11 @@
 # ck-scope-hint: PostToolUse hook for the Bash tool.
 #
 # Responsibilities:
-# 1) Existing hint: for tight find-scope score clusters, suggest --min-score.
+# 1) Existing hint: for tight find-files score clusters, suggest --min-score.
 # 2) Stateful loop control support for PreToolUse guard:
-#    - mark broad find-scope as requiring get-keyword-map before next scope/explore
-#    - track last find-scope / expand-folder command (dedupe)
+#    - track file-first boundaries from find-files
+#    - mark broad find-files as requiring get-keyword-map before next scope/explore
+#    - track last find-files / expand-folder command (dedupe)
 #    - track consecutive expand-folder no-match count per folder
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -29,7 +30,7 @@ mkdir -p "$STATE_DIR"
 
 if [ ! -f "$STATE_FILE" ]; then
   cat > "$STATE_FILE" <<'JSON'
-{"keywordMapSeen":false,"pendingKeywordMap":false,"pendingQuery":"","lastFindScopeCommand":"","lastExpandFolderCommand":"","noMatchFolder":"","noMatchCount":0,"knownTargetFile":"","knownTargetFolder":"","knownTargetFrom":"","expandFolderCount":0,"signaturesFolderCount":0,"scopedFolders":[],"recentSearchToken":"","recentSearchCount":0,"recentSearchFirstTs":0,"lastBuildCheckCommand":"","lastBuildCheckTs":0,"lastBuildCheckTree":""}
+{"keywordMapSeen":false,"pendingKeywordMap":false,"pendingQuery":"","lastFindFilesCommand":"","lastExpandFolderCommand":"","noMatchFolder":"","noMatchCount":0,"knownTargetFile":"","knownTargetFolder":"","knownTargetFrom":"","expandFolderCount":0,"signaturesFolderCount":0,"scopedFolders":[],"recentSearchToken":"","recentSearchCount":0,"recentSearchFirstTs":0,"lastBuildCheckCommand":"","lastBuildCheckTs":0,"lastBuildCheckTree":""}
 JSON
 fi
 
@@ -74,6 +75,19 @@ extract_query_from_find_scope() {
   printf '%s\n' "$cmd" | sed -n 's/.*--query[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
 }
 
+extract_scoped_folders_from_find_files_json() {
+  local output="$1"
+  printf '%s\n' "$output" \
+    | awk -F'\t' '/^[0-9]+\.[0-9]+\t/ {print $2}' \
+    | grep -E '\.(cs|ts|tsx)$' \
+    | sed 's|\\|/|g' \
+    | sed 's|^\./||' \
+    | xargs -I{} dirname "{}" 2>/dev/null \
+    | awk 'length($0)>0' \
+    | jq -R . \
+    | jq -s 'unique'
+}
+
 extract_file_arg_for_tool() {
   local cmd="$1"
   local tool="$2"
@@ -98,16 +112,16 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+get-keyword-map\b'; then
   exit 0
 fi
 
-# Track find-scope outcomes.
-if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b'; then
+# Track find-files outcomes.
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-files\b'; then
   query="$(extract_query_from_find_scope "$COMMAND")"
   [ -z "$query" ] && query="<same query>"
   folders_json="$(extract_scoped_folders_json "$OUTPUT")"
   [ -z "$folders_json" ] && folders_json='[]'
 
-  if printf '%s' "$OUTPUT" | grep -qF '[ck find-scope] Scope is too broad or ambiguous.'; then
+  if printf '%s' "$OUTPUT" | grep -qF '[ck find-files] Scope is too broad or ambiguous.'; then
     update_state --arg cmd "$COMMAND" --arg q "$query" '
-      .lastFindScopeCommand=$cmd
+      .lastFindFilesCommand=$cmd
       | .pendingKeywordMap=true
       | .pendingQuery=$q
       | .noMatchFolder=""
@@ -121,7 +135,7 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b'; then
     '
   else
     update_state --arg cmd "$COMMAND" --argjson folders "$folders_json" '
-      .lastFindScopeCommand=$cmd
+      .lastFindFilesCommand=$cmd
       | .pendingKeywordMap=false
       | .pendingQuery=""
       | .noMatchFolder=""
@@ -132,6 +146,39 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b'; then
       | .expandFolderCount=0
       | .signaturesFolderCount=0
       | .scopedFolders=$folders
+    '
+  fi
+fi
+
+# Track find-files outcomes (file-first boundaries).
+if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-files\b'; then
+  folders_json="$(extract_scoped_folders_from_find_files_json "$OUTPUT")"
+  [ -z "$folders_json" ] && folders_json='[]'
+
+  if printf '%s' "$OUTPUT" | grep -qF '[ck find-files] No matches found.'; then
+    update_state --arg cmd "$COMMAND" '
+      .lastFindFilesCommand=$cmd
+      | .scopedFolders=[]
+      | .noMatchFolder=""
+      | .noMatchCount=0
+      | .knownTargetFile=""
+      | .knownTargetFolder=""
+      | .knownTargetFrom=""
+    '
+  else
+    update_state --arg cmd "$COMMAND" --argjson folders "$folders_json" '
+      .lastFindFilesCommand=$cmd
+      | .pendingKeywordMap=false
+      | .pendingQuery=""
+      | .keywordMapSeen=true
+      | .scopedFolders=$folders
+      | .noMatchFolder=""
+      | .noMatchCount=0
+      | .knownTargetFile=""
+      | .knownTargetFolder=""
+      | .knownTargetFrom=""
+      | .expandFolderCount=0
+      | .signaturesFolderCount=0
     '
   fi
 fi
@@ -223,8 +270,8 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+build-check\b'; then
   '
 fi
 
-# Existing score-cluster hint (find-scope only).
-if ! printf '%s' "$COMMAND" | grep -qE 'ck\s+find-scope\b'; then
+# Existing score-cluster hint (find-files only).
+if ! printf '%s' "$COMMAND" | grep -qE 'ck\s+find-files\b'; then
   exit 0
 fi
 

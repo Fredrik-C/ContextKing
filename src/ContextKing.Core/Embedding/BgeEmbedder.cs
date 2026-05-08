@@ -101,7 +101,11 @@ public sealed class BgeEmbedder : IDisposable
         {
             if (_session is null)
             {
-                var opts = new SessionOptions { InterOpNumThreads = 1, IntraOpNumThreads = 1 };
+                var opts = new SessionOptions
+                {
+                    IntraOpNumThreads = 1,
+                    InterOpNumThreads = 1
+                };
                 _session = new InferenceSession(_onnxPath, opts);
             }
         }

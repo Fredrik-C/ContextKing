@@ -26,7 +26,7 @@ Valid RIDs: `osx-arm64`, `osx-x64`, `linux-x64`, `linux-arm64`, `win-x64`
 
 **Run CLI locally (from repo root):**
 ```bash
-dotnet run --project src/ContextKing.Cli -- find-scope --query "reservation allocation"
+dotnet run --project src/ContextKing.Cli -- find-files --query "reservation allocation"
 ```
 
 ## Architecture

@@ -162,9 +162,7 @@ internal static class InitCommand
         }
 
         // ── Build index on first init / --force ───────────────────────────────
-        // Keep find-scope auto-refresh behavior unchanged: this is an eager initial
-        // build so first scope call is faster, while stale checks still happen in
-        // every find-scope invocation.
+        // This eager initial build makes the first find-files call faster.
         if (triggerIndexBuild)
         {
             try
@@ -172,8 +170,7 @@ internal static class InitCommand
                 if (!quiet)
                     Console.WriteLine("  Building semantic index (.ck-index/index.db)...");
 
-                using var buildEmbedder = ModelLocator.CreateEmbedder();
-                var builder = new SourceMapBuilder(buildEmbedder);
+                var builder = new SourceMapBuilder();
                 var progress = quiet
                     ? null
                     : new Progress<string>(msg => Console.WriteLine($"  [index] {msg}"));

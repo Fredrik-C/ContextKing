@@ -1,17 +1,17 @@
 ---
 name: ck-expand-folder
-description: List files in a folder with their signatures, filtered by an optional regex pattern. Files with no matching signatures are excluded. Use this as the EXPLORE step after ck find-scope when you have a keyword in mind.
+description: List files in a folder with their signatures, filtered by an optional regex pattern. Use this in fallback folder-scoped exploration after ck find-files.
 ---
 
 # ck expand-folder — Filtered Signature Listing
 
 Expands a folder into a per-file signature list, optionally filtered by a regex pattern.
-Use this as the **EXPLORE step** after `ck find-scope` when the area is still uncharted.
+Use this in the **fallback scope path** after `ck find-files` when the area is still uncharted.
 It shows which files contain relevant members without dumping everything.
 
 ## When to use
 
-- You got a folder from `ck find-scope` and want to narrow it down to relevant files.
+- You are in fallback scope mode and got a folder from `ck find-files`, and want to narrow it down to relevant files.
 - The folder is large and `ck signatures` would return too much to scan.
 - You have 2-4 high-signal keywords (provider/domain + workflow + symbol/DTO/type),
   and want to see which files and members match before deciding which method to read.
@@ -40,7 +40,7 @@ It shows which files contain relevant members without dumping everything.
 
 If the command says `Pattern is too broad`, do not pipe or truncate the output. Rerun with more precision using the printed `add-keyword-hints`, for example provider + workflow + DTO/type/member words.
 
-If you already reached a concrete file in this direction, do not go back to `expand-folder`. Continue with `ck signatures <file>` and `ck get-method-source <file> <MemberName>`. If direction changed, run a new `find-scope` first.
+If you already reached a concrete file in this direction, do not go back to `expand-folder`. Continue with `ck signatures <file>` and `ck get-method-source <file> <MemberName>`. If direction changed, run a new `find-files` first.
 
 Budget rule: use at most 3 `expand-folder` calls per direction. After that, either move to targeted file reads or re-scope.
 
@@ -80,9 +80,8 @@ Pagination metadata is printed to stderr:
 ## Workflow integration
 
 ```
-0. ck get-keyword-map --query "..."                                → keywords = source of truth
-1. ck find-scope --query "..." (using terms from step 0)           → folders = source of truth
-2. ck expand-folder --pattern "<2-4 precise keywords>" <folder>    → see which files and members match
-   (grep/rg/glob are also fine within the scoped folder)
-3. ck get-method-source <file> <MemberName>                        → read the method body
+0. ck find-files --query "..."                                      → primary file-level entrypoint
+1. If needed, fallback: ck get-keyword-map + ck find-files          → folders = source of truth
+2. ck expand-folder --pattern "<2-4 precise keywords>" <folder>     → see which files and members match
+3. ck get-method-source <file> <MemberName>                         → read the method body
 ```

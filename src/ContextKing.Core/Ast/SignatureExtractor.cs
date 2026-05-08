@@ -11,6 +11,37 @@ namespace ContextKing.Core.Ast;
 /// </summary>
 public static class SignatureExtractor
 {
+    public static (IReadOnlyList<string> TypeNames, IReadOnlyList<string> MethodNames) ExtractTypeAndMethodNames(string path)
+    {
+        var source = File.ReadAllText(path);
+        var tree = CSharpSyntaxTree.ParseText(source, path: path);
+        var root = tree.GetRoot();
+
+        var typeNames = new HashSet<string>(StringComparer.Ordinal);
+        var methodNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var node in root.DescendantNodes())
+        {
+            switch (node)
+            {
+                case TypeDeclarationSyntax t:
+                    if (!string.IsNullOrWhiteSpace(t.Identifier.Text))
+                        typeNames.Add(t.Identifier.Text);
+                    break;
+                case MethodDeclarationSyntax m:
+                    if (!string.IsNullOrWhiteSpace(m.Identifier.Text))
+                        methodNames.Add(m.Identifier.Text);
+                    break;
+                case ConstructorDeclarationSyntax c:
+                    if (!string.IsNullOrWhiteSpace(c.Identifier.Text))
+                        methodNames.Add(c.Identifier.Text);
+                    break;
+            }
+        }
+
+        return (typeNames.ToArray(), methodNames.ToArray());
+    }
+
     /// <summary>
     /// Extracts all public-surface signatures from each file in <paramref name="filePaths"/>
     /// and writes them to <paramref name="writer"/> in the format:

@@ -25,7 +25,7 @@ $context = @"
 $protocol
 
 The ck binary is at: ck
-Use ck find-scope, ck expand-folder --pattern, and ck get-method-source instead of broad grep/glob.
+Use ck find-files first, then ck get-method-source/get-type-source on returned files. Use find-files/expand-folder only as fallback instead of broad grep/glob.
 "@
 
 @{

@@ -9,11 +9,11 @@
  *
  * Guards implemented (tool.execute.before — reactive):
  *   read on source files (.cs/.ts/.tsx)            → allowed (use only immediately before editing)
- *   glob on source files across a wide path         → redirect to ck find-scope
- *   grep on source files across a wide path         → redirect to ck find-scope
+ *   glob on source files across a wide path         → redirect to ck find-files
+ *   grep on source files across a wide path         → redirect to ck find-files
  *   bash cat on source files                        → redirect to ck get-method-source / ck read-full-file
- *   broad recursive bash grep from source roots     → redirect to ck find-scope
- *   bash pipe on ck find-scope / expand-folder      → block (destroys structure)
+ *   broad recursive bash grep from source roots     → redirect to ck find-files
+ *   bash pipe on ck find-files / expand-folder      → block (destroys structure)
  *   raw/piped dotnet build loops                     → redirect to ck build-check
  *
  * grep/rg/glob/search are allowed only after scope is established.
@@ -23,7 +23,7 @@
  *   experimental.chat.system.transform  → inject CK protocol at top of system prompt each turn
  *
  * Hints implemented (tool.execute.after):
- *   ck find-scope with tight score cluster → suggest --min-score
+ *   ck find-files with tight score cluster → suggest --min-score
  *   signal-based knowledge-capture reminders (with cooldown + ck learn detection)
  */
 
@@ -84,7 +84,7 @@ const KNOWLEDGE_REMINDER_MAX = 8
 
 // Stateful anti-loop controls for this OpenCode session.
 let pendingKeywordMapQuery: string | null = null
-let lastFindScopeCommand: string | null = null
+let lastFindFilesCommand: string | null = null
 let lastExpandFolderCommand: string | null = null
 let noMatchFolder: string | null = null
 let noMatchCount = 0
@@ -258,7 +258,7 @@ function gitTreeFingerprint(): string {
   }
 }
 
-function extractFindScopeQuery(cmd: string): string | null {
+function extractFindFilesQuery(cmd: string): string | null {
   const m = cmd.match(/--query\s+"([^"]+)"/)
   return m?.[1] ?? null
 }
@@ -350,7 +350,7 @@ If full-file context is truly required:
 
 Before grep/glob/find-style searching, run:
   ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-scope --query "<refined query from keyword-map>"
+  ${CK} find-files --query "<refined query from keyword-map>"
 
 Then keep all searches inside returned folders.`
           )
@@ -358,14 +358,14 @@ Then keep all searches inside returned folders.`
 
         if (isSource && scopedFolders.length > 0 && !explicitFileTarget && !isWithinScopedFolders(target, scopedFolders)) {
           throw new Error(
-            `[ck-guard] Glob path is outside current scoped folders from ck find-scope.
+            `[ck-guard] Glob path is outside current scoped folders from ck find-files.
 
 Keep searches inside:
   ${scopedFolders.join("\n  ")}
 
 If direction changed:
   ${CK} get-keyword-map --query "<new direction>"
-  ${CK} find-scope --query "<new direction>"`
+  ${CK} find-files --query "<new direction>"`
           )
         }
 
@@ -373,8 +373,8 @@ If direction changed:
           throw new Error(
             `[ck-guard] Broad source file glob detected (pattern: "${pattern}", path: "${path || "repo root"}").
 
-Use ck find-scope to discover the right area first:
-  ${CK} find-scope --query "<multi-keyword description>"
+Use ck find-files to discover the right area first:
+  ${CK} find-files --query "<multi-keyword description>"
 
 Then explore within those folders:
   ${CK} expand-folder --pattern "<keyword>" <folder>/
@@ -404,7 +404,7 @@ Do NOT use broad glob — it wastes tokens scanning irrelevant files.`
 
 Before grep/glob/find-style searching, run:
   ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-scope --query "<refined query from keyword-map>"
+  ${CK} find-files --query "<refined query from keyword-map>"
 
 Then keep all searches inside returned folders.`
           )
@@ -412,14 +412,14 @@ Then keep all searches inside returned folders.`
 
         if (scopedFolders.length > 0 && isSource && !explicitFileTarget && !isWithinScopedFolders(path, scopedFolders)) {
           throw new Error(
-            `[ck-guard] Grep path is outside current scoped folders from ck find-scope.
+            `[ck-guard] Grep path is outside current scoped folders from ck find-files.
 
 Keep searches inside:
   ${scopedFolders.join("\n  ")}
 
 If direction changed:
   ${CK} get-keyword-map --query "<new direction>"
-  ${CK} find-scope --query "<new direction>"`
+  ${CK} find-files --query "<new direction>"`
           )
         }
 
@@ -427,8 +427,8 @@ If direction changed:
           throw new Error(
             `[ck-guard] Broad source file grep detected (path: "${path || "repo root"}").
 
-Use ck find-scope to discover the right area first:
-  ${CK} find-scope --query "<multi-keyword description>"
+Use ck find-files to discover the right area first:
+  ${CK} find-files --query "<multi-keyword description>"
 
 Then explore within those folders:
   ${CK} expand-folder --pattern "<keyword>" <folder>/
@@ -475,13 +475,13 @@ Do NOT use broad grep — it wastes tokens scanning irrelevant files.`
 
 Before grep/glob/find-style searching, run:
   ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-scope --query "<refined query from keyword-map>"
+  ${CK} find-files --query "<refined query from keyword-map>"
 
 Then keep all searches inside returned folders.`
           )
         }
 
-        // Strict scope lock after successful find-scope.
+        // Strict scope lock after successful find-files.
         if (scopedFolders.length > 0 &&
             /(^|[;&|\s])(grep|rg|find)\b|ck\s+signatures\b/.test(stripped)) {
           for (const commandPath of extractCommandPaths(stripped)) {
@@ -495,35 +495,35 @@ Keep operations inside:
 
 If your direction changed:
   ${CK} get-keyword-map --query "<new direction>"
-  ${CK} find-scope --query "<new direction>"`
+  ${CK} find-files --query "<new direction>"`
               )
             }
           }
         }
 
-        // If the previous find-scope was broad, force get-keyword-map before
-        // any further find-scope/expand-folder call.
+        // If the previous find-files was broad, force get-keyword-map before
+        // any further find-files/expand-folder call.
         if (pendingKeywordMapQuery &&
-            /ck\s+(find-scope|expand-folder)\b/.test(stripped) &&
+            /ck\s+(find-files|expand-folder)\b/.test(stripped) &&
             !/ck\s+get-keyword-map\b/.test(stripped)) {
           throw new Error(
-            `[ck-guard] Previous ck find-scope was broad/ambiguous.
+            `[ck-guard] Previous ck find-files was broad/ambiguous.
 
 Run keyword mapping before more scope/explore calls:
   ${CK} get-keyword-map --query "${pendingKeywordMapQuery}"
 
-Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-scope once.`
+Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-files once.`
           )
         }
 
         // Block exact repeated scope/explore commands.
-        if (/ck\s+find-scope\b/.test(stripped) && lastFindScopeCommand && cmd === lastFindScopeCommand) {
+        if (/ck\s+find-files\b/.test(stripped) && lastFindFilesCommand && cmd === lastFindFilesCommand) {
           throw new Error(
-            `[ck-guard] Repeated identical ck find-scope command.
+            `[ck-guard] Repeated identical ck find-files command.
 
 Do not rerun the same scope command unchanged. If previous output was broad:
   ${CK} get-keyword-map --query "<same query>"
-Then rerun find-scope with refined terms.`
+Then rerun find-files with refined terms.`
           )
         }
 
@@ -547,7 +547,7 @@ Refine --pattern using add-keyword-hints instead of rerunning the same command.`
             `[ck-guard] This folder already had 2 consecutive expand-folder no-match results.
 
 Stop expanding the same folder. Either:
-  1) run ${CK} get-keyword-map + refined ${CK} find-scope, or
+  1) run ${CK} get-keyword-map + refined ${CK} find-files, or
   2) switch to another scoped folder.`
           )
         }
@@ -565,7 +565,7 @@ Next step in this direction:
   ${CK} get-method-source "${knownTargetFile ?? "<file>"}" <MemberName>
 
 If your direction changed, reset scope explicitly with:
-  ${CK} find-scope --query "<new direction query>"`
+  ${CK} find-files --query "<new direction query>"`
           )
         }
 
@@ -581,7 +581,7 @@ Use targeted reads now:
 
 If still uncharted, reset direction first:
   ${CK} get-keyword-map --query "<same query>"
-  ${CK} find-scope --query "<refined query>"`
+  ${CK} find-files --query "<refined query>"`
           )
         }
 
@@ -616,15 +616,15 @@ Use the CK command with a narrower pattern instead:
           )
         }
 
-        // Detect ck find-scope piped through content-filtering tools.
+        // Detect ck find-files piped through content-filtering tools.
         // Allow: head, wc (truncation/counting, harmless).
         // Block: grep, tail, sort, awk, sed, cut (filter or reorder scored results).
-        if (/ck\s+find-scope\b/.test(stripped) &&
+        if (/ck\s+find-files\b/.test(stripped) &&
             /\|\s*(tail|grep|sort|awk|sed|cut|less|more)\b/.test(stripped)) {
           throw new Error(
-            `[ck-guard] Do NOT pipe ck find-scope through grep, sort, or awk.
+            `[ck-guard] Do NOT pipe ck find-files through grep, sort, or awk.
 
-ck find-scope output is already ranked by relevance score. Filtering or sorting
+ck find-files output is already ranked by relevance score. Filtering or sorting
 destroys that structure. Instead:
 
   • Reduce output with --top <n> or --min-score <f>
@@ -715,7 +715,7 @@ Bulk-reading files via find bypasses targeted reads and wastes tokens.`
 
 Plain find across src/ returns unranked paths and often floods context. Use:
 
-  ${CK} find-scope --query "<domain concept operation>"
+  ${CK} find-files --query "<domain concept operation>"
   ${CK} expand-folder --pattern "<keyword>" <returned-folder>
 
 If you already know the exact narrow folder, run find inside that folder only.`
@@ -732,7 +732,7 @@ If you already know the exact narrow folder, run find inside that folder only.`
 
 Recursive grep from src/ or a module root scans too much. Use CK to narrow first:
 
-  ${CK} find-scope --query "<domain concept operation>" --explain
+  ${CK} find-files --query "<domain concept operation>" --explain
   ${CK} expand-folder --pattern "<keyword>" <returned-folder>
 
 If you already have focused folders, grep only those exact folders.`
@@ -763,7 +763,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
     },
 
     // ── tool.execute.after: tight score cluster hint ──────────────────────
-    // Fires after ck find-scope completes. Parses the score column
+    // Fires after ck find-files completes. Parses the score column
     // and appends a hint when avg_gap = spread/(count-1) <= 0.01 and scores
     // are above the noise floor — scales correctly with --top N.
     "tool.execute.after": async (
@@ -793,10 +793,10 @@ cat wastes tokens by dumping entire files into command output without line numbe
         try { if (fs.existsSync(CK_LEARN_PENDING_FILE)) fs.unlinkSync(CK_LEARN_PENDING_FILE) } catch {}
       }
 
-      if (/ck\s+find-scope\b/.test(cmd)) {
-        lastFindScopeCommand = cmd
-        if (output.output.includes("[ck find-scope] Scope is too broad or ambiguous.")) {
-          pendingKeywordMapQuery = extractFindScopeQuery(cmd) ?? "<same query>"
+      if (/ck\s+find-files\b/.test(cmd)) {
+        lastFindFilesCommand = cmd
+        if (output.output.includes("[ck find-files] Scope is too broad or ambiguous.")) {
+          pendingKeywordMapQuery = extractFindFilesQuery(cmd) ?? "<same query>"
         } else {
           scopeBootstrapRequired = false
           preScopeSearchViolationCount = 0
@@ -850,7 +850,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
       // Strong CK exploration signals that imply knowledge might be worth
       // capturing at the end of the ongoing work chunk.
       const isStrongKnowledgeSignal =
-        /ck\s+(find-scope|expand-folder|signatures|find-symbol|refs|get-method-source|get-type-source|get-constructors|get-usings|get-base-types|get-enum-members)\b/.test(cmd) &&
+        /ck\s+(find-files|expand-folder|signatures|find-symbol|refs|get-method-source|get-type-source|get-constructors|get-usings|get-base-types|get-enum-members)\b/.test(cmd) &&
         !/\b(ERROR|Error)\b/.test(output.output)
       if (isStrongKnowledgeSignal) {
         knowledgeSignalCount += 1
@@ -889,7 +889,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
         }
       }
 
-      if (/ck\s+find-scope\b/.test(cmd)) {
+      if (/ck\s+find-files\b/.test(cmd)) {
         // Parse score values from lines formatted as "<float>\t<folder-path>"
         const scoreLineRe = /^([\d.]+)\t/
         const scores: number[] = []
@@ -921,10 +921,10 @@ cat wastes tokens by dumping entire files into command output without line numbe
           }
         }
 
-        // After a successful find-scope (has scored results), inject the mandatory
+        // After a successful find-files (has scored results), inject the mandatory
         // next-step reminder: run ck recall before any method-body reads.
         const hasResults = scores.length > 0
-        if (hasResults && !output.output.includes("[ck find-scope] Scope is too broad")) {
+        if (hasResults && !output.output.includes("[ck find-files] Scope is too broad")) {
           const topFolder = output.output
             .split("\n")
             .map((l) => l.match(/^[\d.]+\t(.+)$/)?.[1])
@@ -944,7 +944,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
         const cooldownPassed = (now - lastKnowledgeReminderAtMs) >= KNOWLEDGE_REMINDER_COOLDOWN_MS
         const isCheckpoint =
           /ck\s+(build-check|get-method-source|get-type-source|find-symbol|refs)\b/.test(cmd) ||
-          /ck\s+find-scope\b/.test(cmd)
+          /ck\s+find-files\b/.test(cmd)
 
         const shouldRemind =
           knowledgeReminderCount < KNOWLEDGE_REMINDER_MAX &&
@@ -978,9 +978,9 @@ cat wastes tokens by dumping entire files into command output without line numbe
           `[CK PROTOCOL — mandatory for C#/TypeScript source files] ` +
           `Do NOT call this tool for source file search. Use CK tools instead:\n` +
           `  ${CK} get-keyword-map --query "<terms>"           (step 0 — always first)\n` +
-          `  ${CK} find-scope --query "<terms>"                (step 1 — establishes scope)\n` +
+          `  ${CK} find-files --query "<terms>"                (step 1 — establishes scope)\n` +
           `  ${CK} expand-folder --pattern "<kw>" <folder>     (step 2 — explore)\n` +
-          `grep/glob are only allowed within folders returned by find-scope.\n\n` +
+          `grep/glob are only allowed within folders returned by find-files.\n\n` +
           output.description
       }
 
@@ -1012,11 +1012,11 @@ cat wastes tokens by dumping entire files into command output without line numbe
         `[Context King Protocol — highest priority] This repository has CK initialized. ` +
         `For ANY C#/TypeScript source search: ` +
         `step 0 = \`${CK} get-keyword-map --query "..."\`, ` +
-        `step 1 = \`${CK} find-scope --query "..."\`. ` +
+        `step 1 = \`${CK} find-files --query "..."\`. ` +
         `These steps are MANDATORY before grep, glob, find, or native Read for exploration. ` +
         `When any other tool (CallGraph, language servers, etc.) returns empty results or fails, ` +
         `the NEXT step is CK tools — never raw grep. ` +
-        `grep is only allowed inside folders already returned by find-scope. ` +
+        `grep is only allowed inside folders already returned by find-files. ` +
         `MANDATORY: if CK tools were used this session, run \`${CK} learn\` before the final response.` +
         pendingLearn
       )

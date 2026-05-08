@@ -1,10 +1,10 @@
 # ck-scope-hint: PostToolUse hook for the Bash tool (PowerShell).
 #
 # Responsibilities:
-# 1) Existing hint: for tight find-scope score clusters, suggest --min-score.
+# 1) Existing hint: for tight find-files score clusters, suggest --min-score.
 # 2) Stateful loop control support for PreToolUse guard:
-#    - mark broad find-scope as requiring get-keyword-map before next scope/explore
-#    - track last find-scope / expand-folder command (dedupe)
+#    - mark broad find-files as requiring get-keyword-map before next scope/explore
+#    - track last find-files / expand-folder command (dedupe)
 #    - track consecutive expand-folder no-match count per folder
 
 if (-not (Get-Command jq -ErrorAction SilentlyContinue)) { exit 0 }
@@ -35,7 +35,7 @@ if (-not $state) {
         keywordMapSeen = $false
         pendingKeywordMap = $false
         pendingQuery = ""
-        lastFindScopeCommand = ""
+        lastFindFilesCommand = ""
         lastExpandFolderCommand = ""
         noMatchFolder = ""
         noMatchCount = 0
@@ -133,8 +133,8 @@ if ($command -match 'ck\s+get-keyword-map\b') {
     exit 0
 }
 
-if ($command -match 'ck\s+find-scope\b') {
-    $state.lastFindScopeCommand = $command
+if ($command -match 'ck\s+find-files\b') {
+    $state.lastFindFilesCommand = $command
     $scoped = @()
     foreach ($line in ($output -split "`n")) {
         if ($line -match '^[0-9]+\.[0-9]+\t(.+)$') {
@@ -144,7 +144,7 @@ if ($command -match 'ck\s+find-scope\b') {
     }
     $state.scopedFolders = $scoped | Select-Object -Unique
 
-    if ($output -match '\[ck find-scope\] Scope is too broad or ambiguous\.') {
+    if ($output -match '\[ck find-files\] Scope is too broad or ambiguous\.') {
         $q = ""
         if ($command -match '--query\s+"([^"]+)"') { $q = $Matches[1] }
         if (-not $q) { $q = "<same query>" }
@@ -169,6 +169,32 @@ if ($command -match 'ck\s+find-scope\b') {
         $state.expandFolderCount = 0
         $state.signaturesFolderCount = 0
     }
+    Save-State $state $stateFile
+}
+
+if ($command -match 'ck\s+find-files\b') {
+    $state.lastFindFilesCommand = $command
+    $scoped = @()
+    foreach ($line in ($output -split "`n")) {
+        if ($line -match '^[0-9]+\.[0-9]+\t(.+)$') {
+            $path = $Matches[1].Replace('\', '/').TrimStart('./').TrimEnd('/')
+            if ($path -match '\.(cs|ts|tsx)$') {
+                $folder = Split-Path -Parent $path
+                if ($folder) { $scoped += $folder.Replace('\', '/') }
+            }
+        }
+    }
+    $state.scopedFolders = $scoped | Select-Object -Unique
+    $state.pendingKeywordMap = $false
+    $state.pendingQuery = ""
+    $state.keywordMapSeen = $true
+    $state.noMatchFolder = ""
+    $state.noMatchCount = 0
+    $state.knownTargetFile = ""
+    $state.knownTargetFolder = ""
+    $state.knownTargetFrom = ""
+    $state.expandFolderCount = 0
+    $state.signaturesFolderCount = 0
     Save-State $state $stateFile
 }
 
@@ -246,8 +272,8 @@ if ($command -match 'ck\s+build-check\b') {
     Save-State $state $stateFile
 }
 
-# Existing score-cluster hint logic (find-scope only)
-if ($command -notmatch 'ck\s+find-scope\b') { exit 0 }
+# Existing score-cluster hint logic (find-files only)
+if ($command -notmatch 'ck\s+find-files\b') { exit 0 }
 if ([string]::IsNullOrEmpty($output)) { exit 0 }
 
 $scores = @()

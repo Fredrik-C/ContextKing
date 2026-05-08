@@ -103,7 +103,7 @@ if (Test-Path $ModelSrc) {
   Copy-Item $ModelSrc $ModelDest -Recurse
   Write-Ok "Model installed: $ModelDest"
 } else {
-  Write-Warning "Model not found in assets — embedding commands (find-scope, get-keyword-map, recall --query) will not work."
+  Write-Warning "Model not found in assets — embedding commands (find-files, get-keyword-map, recall --query) will not work."
 }
 
 # ── Add to PATH ────────────────────────────────────────────────────────────────
@@ -264,7 +264,7 @@ This codebase uses Context King (CK) for source navigation. Follow this protocol
 
 $fence
 0. ck get-keyword-map --query "<domain concept operation>"   <- FIRST — always before any search
-1. ck find-scope --query "<refined terms>"                   <- SECOND — establishes folder scope
+1. ck find-files --query "<refined terms>"                   <- SECOND — establishes folder scope
 2. ck expand-folder --pattern "<keyword>" <folder>           <- explore within scoped folders
    ck signatures <folder>/                                   <- when no keyword available
 2.5 ck recall --folder <confirmed-folder>                    <- before reading any method body
@@ -283,7 +283,7 @@ $fence
 ### Rules
 - Steps 0 and 1 are **mandatory** before grep, rg, glob, or find on source files
 - When any other search tool (CallGraph, etc.) returns empty results, use CK tools next — **never fall back directly to grep**
-- grep/rg/glob are only allowed within folders returned by ${bt}ck find-scope${bt}
+- grep/rg/glob are only allowed within folders returned by ${bt}ck find-files${bt}
 - **You MUST run ${bt}ck learn${bt} before ending the session if CK tools were used.** Record architectural insights, cross-module constraints, and non-obvious WHYs — not implementation details findable via signatures.
 
 Full protocol reference: ${bt}$CodexHome\ck-code-search-protocol.md${bt}

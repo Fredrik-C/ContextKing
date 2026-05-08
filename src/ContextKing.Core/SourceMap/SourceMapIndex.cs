@@ -8,6 +8,7 @@ namespace ContextKing.Core.SourceMap;
 
 /// <summary>Per-folder state stored in the index, used to decide what needs re-embedding.</summary>
 internal record struct StoredFolderState(string FileHashes, string? FilenameSet, int FileCount, int TokenCount);
+internal record struct StoredFileState(string FileHash, int TypeCount, int SignatureCount);
 
 /// <summary>A knowledge row ready to be written to the index.</summary>
 internal sealed record KnowledgeRow(
@@ -46,6 +47,27 @@ internal sealed record IndexedFolder(
     string EmbeddingText,
     int FileCount,
     int TokenCount);
+
+/// <summary>A fully populated file row ready to be written to the index.</summary>
+internal sealed record FileRow(
+    string Path,
+    string FolderPath,
+    string EmbeddingText,
+    string FileHash,
+    string TypeNames,
+    string MethodNames,
+    int TypeCount,
+    int SignatureCount);
+
+/// <summary>A file row loaded from the index for scoring.</summary>
+internal sealed record IndexedFile(
+    string Path,
+    string FolderPath,
+    string EmbeddingText,
+    string TypeNames,
+    string MethodNames,
+    int TypeCount,
+    int SignatureCount);
 
 // ── Index ──────────────────────────────────────────────────────────────────────
 
@@ -138,6 +160,57 @@ internal sealed class SourceMapIndex(string dbPath)
         return result;
     }
 
+    /// <summary>
+    /// Loads the content hash and summary stats for each indexed source file.
+    /// Used by <see cref="SourceMapBuilder"/> to incrementally refresh file embeddings.
+    /// </summary>
+    public Dictionary<string, StoredFileState> LoadFileStates()
+    {
+        using var conn = OpenReadOnly();
+        using var cmd  = conn.CreateCommand();
+        cmd.CommandText = "SELECT path, file_hash, type_count, signature_count FROM files";
+
+        var result = new Dictionary<string, StoredFileState>(StringComparer.Ordinal);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var path = reader.GetString(0);
+            var hash = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+            var typeCount = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
+            var signatureCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3);
+            result[path] = new StoredFileState(hash, typeCount, signatureCount);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Loads all indexed source files with their lexical fields.
+    /// </summary>
+    public IReadOnlyList<IndexedFile> LoadIndexedFiles()
+    {
+        using var conn = OpenReadOnly();
+        using var cmd  = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT path, folder_path, embedding_text, type_names, method_names, type_count, signature_count FROM files";
+
+        var result = new List<IndexedFile>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var path = reader.GetString(0);
+            var folderPath = reader.IsDBNull(1) ? "." : reader.GetString(1);
+            var embeddingText = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+            var typeNames = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+            var methodNames = reader.IsDBNull(4) ? string.Empty : reader.GetString(4);
+            var typeCount = reader.IsDBNull(5) ? 0 : reader.GetInt32(5);
+            var signatureCount = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+            result.Add(new IndexedFile(path, folderPath, embeddingText, typeNames, methodNames, typeCount, signatureCount));
+        }
+
+        return result;
+    }
+
     // ── Writes ─────────────────────────────────────────────────────────────────
 
     public void WriteMeta(string key, string value)
@@ -204,6 +277,58 @@ internal sealed class SourceMapIndex(string dbPath)
         NonQuery(conn, "DELETE FROM folders");
     }
 
+    /// <summary>Upserts all file rows in a single transaction.</summary>
+    public void UpsertFiles(IReadOnlyList<FileRow> rows)
+    {
+        if (rows.Count == 0) return;
+
+        using var conn = Open();
+        using var txn  = conn.BeginTransaction();
+        using var cmd  = conn.CreateCommand();
+        cmd.Transaction = txn;
+        cmd.CommandText = """
+            INSERT INTO files (path, folder_path, embedding_text, file_hash, type_names, method_names, type_count, signature_count)
+                VALUES ($path, $folder_path, $etext, $hash, $type_names, $method_names, $type_count, $signature_count)
+            ON CONFLICT(path) DO UPDATE SET
+                folder_path     = excluded.folder_path,
+                embedding_text  = excluded.embedding_text,
+                file_hash       = excluded.file_hash,
+                type_names      = excluded.type_names,
+                method_names    = excluded.method_names,
+                type_count      = excluded.type_count,
+                signature_count = excluded.signature_count
+            """;
+        var pPath = cmd.Parameters.Add("$path", SqliteType.Text);
+        var pFolder = cmd.Parameters.Add("$folder_path", SqliteType.Text);
+        var pEText = cmd.Parameters.Add("$etext", SqliteType.Text);
+        var pHash = cmd.Parameters.Add("$hash", SqliteType.Text);
+        var pTypeNames = cmd.Parameters.Add("$type_names", SqliteType.Text);
+        var pMethodNames = cmd.Parameters.Add("$method_names", SqliteType.Text);
+        var pTypeCount = cmd.Parameters.Add("$type_count", SqliteType.Integer);
+        var pSignatureCount = cmd.Parameters.Add("$signature_count", SqliteType.Integer);
+
+        foreach (var row in rows)
+        {
+            pPath.Value = row.Path;
+            pFolder.Value = row.FolderPath;
+            pEText.Value = row.EmbeddingText;
+            pHash.Value = row.FileHash;
+            pTypeNames.Value = row.TypeNames;
+            pMethodNames.Value = row.MethodNames;
+            pTypeCount.Value = row.TypeCount;
+            pSignatureCount.Value = row.SignatureCount;
+            cmd.ExecuteNonQuery();
+        }
+
+        txn.Commit();
+    }
+
+    public void ClearAllFiles()
+    {
+        using var conn = Open();
+        NonQuery(conn, "DELETE FROM files");
+    }
+
     /// <summary>
     /// Removes rows for folders not present in <paramref name="pathsToKeep"/>.
     /// </summary>
@@ -225,6 +350,35 @@ internal sealed class SourceMapIndex(string dbPath)
 
         using var del   = conn.CreateCommand();
         del.CommandText = "DELETE FROM folders WHERE path = $path";
+        var param = del.Parameters.Add("$path", SqliteType.Text);
+        foreach (var p in toDelete)
+        {
+            param.Value = p;
+            del.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Removes rows for files not present in <paramref name="pathsToKeep"/>.
+    /// </summary>
+    public void DeleteFiles(HashSet<string> pathsToKeep)
+    {
+        using var conn = Open();
+        using var sel  = conn.CreateCommand();
+        sel.CommandText = "SELECT path FROM files";
+
+        var toDelete = new List<string>();
+        using (var reader = sel.ExecuteReader())
+            while (reader.Read())
+            {
+                var p = reader.GetString(0);
+                if (!pathsToKeep.Contains(p)) toDelete.Add(p);
+            }
+
+        if (toDelete.Count == 0) return;
+
+        using var del   = conn.CreateCommand();
+        del.CommandText = "DELETE FROM files WHERE path = $path";
         var param = del.Parameters.Add("$path", SqliteType.Text);
         foreach (var p in toDelete)
         {
@@ -358,6 +512,24 @@ internal sealed class SourceMapIndex(string dbPath)
                 value TEXT
             )
             """);
+        NonQuery(conn, """
+            CREATE TABLE IF NOT EXISTS files (
+                id              INTEGER PRIMARY KEY,
+                path            TEXT UNIQUE NOT NULL,
+                folder_path     TEXT NOT NULL,
+                embedding_text  TEXT,
+                embedding       BLOB,
+                file_hash       TEXT,
+                type_names      TEXT,
+                method_names    TEXT,
+                type_count      INTEGER DEFAULT 0,
+                signature_count INTEGER DEFAULT 0
+            )
+            """);
+        try { NonQuery(conn, "ALTER TABLE files ADD COLUMN type_names TEXT"); }
+        catch { /* column already exists */ }
+        try { NonQuery(conn, "ALTER TABLE files ADD COLUMN method_names TEXT"); }
+        catch { /* column already exists */ }
 
         // Migration: add filename_set to any schema that pre-dates it
         try { NonQuery(conn, "ALTER TABLE folders ADD COLUMN filename_set TEXT"); }

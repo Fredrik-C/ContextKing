@@ -1,17 +1,17 @@
 ---
 name: ck-index
-description: Build or update the Context King source-map index. Rarely needed explicitly — ck find-scope auto-builds on first use. Useful after branch switches or to force a full rebuild.
+description: Build or update the Context King source-map index. Rarely needed explicitly — ck find-files auto-builds on first use. Useful after branch switches or to force a full rebuild.
 ---
 
 # ck index — Source Map Index Management
 
-Under normal usage the index is built automatically on the first call to `ck find-scope`.
+Under normal usage the index is built automatically on the first call to `ck find-files`.
 Use this skill explicitly when you need precise control over the index state.
 
 ## When to use explicitly
 
 - After `git checkout <branch>` in the same worktree, to refresh the index without waiting for the
-  next `ck find-scope` call.
+  next `ck find-files` call.
 - After a large merge or rebase that changed many files.
 - To force a full rebuild (`--force`) if the index appears incorrect.
 - To check whether the index is current without triggering a search.
