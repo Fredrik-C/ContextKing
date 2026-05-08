@@ -1,3 +1,18 @@
+## Install
+Step 1 — global install (once per machine):
+
+Mac / Linux:
+`curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/install-global.sh | bash`
+
+Windows (PowerShell 7+):
+`irm https://github.com/Fredrik-C/ContextKing/releases/latest/download/install-global.ps1 | iex`
+
+Step 2 — initialize each repo (once per repo):
+```
+cd /path/to/your-repo
+ck init
+```
+
 ## Highlights
 
 - Replaced source-map file retrieval/indexing dependencies on embeddings with a lexical-first engine tuned for precision and speed.

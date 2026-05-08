@@ -1,13 +1,13 @@
 # Context King
 
-Semantic code navigation toolkit for **Claude Code**, **Codex CLI**, and **OpenCode** on large **C#** and **TypeScript** codebases.
+Code navigation toolkit for **Claude Code**, **Codex CLI**, and **OpenCode** on large **C#** and **TypeScript** codebases.
 
 Most approaches to reducing token usage focus on compacting what the agent reads: tighter prompts, summarised context, leaner encoding. Context King addresses a different problem: the token cost of getting there. On a large codebase, navigating to the right method without guidance means scanning many wrong files before finding the right one, and that over-reading during navigation dominates the total cost.
 
 The goal is to reach the right method body in as few steps as possible, spending tokens only on what is relevant. Context King indexes at the folder level, where the signal-to-cost ratio is highest, and replaces broad file searches with a four-step navigation system:
 
 ```
-semantic folder search -> scoped exploration -> live AST signature extraction -> targeted method extraction
+file-first lexical retrieval -> scoped exploration -> live AST signature extraction -> targeted method extraction
 ```
 
 ---
@@ -30,8 +30,7 @@ Context King installs these commands into your AI CLI tool:
 
 | Command | What it does |
 |---|---|
-| `ck find-files` | Semantic file search over source files using type/class names and signatures |
-| `ck find-files` | Semantic search over the folder tree, returning the most relevant folders |
+| `ck find-files` | Lexical file search over path/file/type/method names |
 | `ck get-keyword-map` | Returns a seed→related keyword map from indexed results to refine broad queries |
 | `ck expand-folder` | Scoped folder browser: enumerates source files and extracts signatures, with an optional regex filter |
 | `ck signatures` | Live AST extraction. Lists every method/property signature in a set of files |
@@ -40,7 +39,7 @@ Context King installs these commands into your AI CLI tool:
 | `ck get-enum-members` | Lists enum members for a named C#/TS enum without reading the full file |
 | `ck read-full-file` | Reads one full C#/TS file with a large-file guardrail and explicit override |
 | `ck build-check` | Runs `dotnet build -v q` and prints compact diagnostics |
-| `ck index` | Builds or refreshes the semantic index (runs automatically on first use) |
+| `ck index` | Builds or refreshes the source-map index (runs automatically on first use) |
 | `ck init` | Initializes Context King in a repository (see Installation) |
 | `ck find-symbol` | Finds type or member declarations in C# and TypeScript/TSX files across a scoped path |
 | `ck refs` | Finds textual references (call-sites) for a symbol across a scoped path |
@@ -162,12 +161,12 @@ For questions that span multiple folders, `ck recall --query "<text>"` does a se
 
 **Mac / Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install-global.sh | bash
+curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/install-global.sh | bash
 ```
 
 **Windows:**
 ```powershell
-irm https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install-global.ps1 | iex
+irm https://github.com/Fredrik-C/ContextKing/releases/latest/download/install-global.ps1 | iex
 ```
 
 This installs the `ck` binary to `~/.ck/bin/`, the embedding model to `~/.ck/models/`, and registers skills, hooks, and rules in `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/`. After install, start a new shell or add `~/.ck/bin` to your PATH manually.
@@ -291,23 +290,13 @@ Initializes Context King in the current git repository. Creates `.ck.json`, adds
 ### `ck find-files`
 
 ```
-ck find-files --query "<multi-keyword description>" [--must <text>] [--limit <n>] [--offset <n>] [--max-per-area <n>] [--top <n>] [--min-score <f>] [--explain] [--verbose] [--repo <path>]
+ck find-files "<query>" [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--explain]
 ```
 
-Output rows: `<score>\t<relative-folder-path>`, sorted by score descending. Default page size is `--limit 10` (max 20). Auto-builds the index on first call.
-Pagination metadata is emitted on stderr (`offset`, `limit`, `returned`, `total_estimate`, `has_more`, `next_offset`).
-
-When the top results are too broad or ambiguous, `find-files` prints a narrowing instruction before the folder list. The diagnostic includes query keywords that matched, query keywords that did not match, and grouped hints from the too-wide scope: exact symbol candidates first, then provider/workflow buckets, then generic leftovers. Treat that as a request to rerun with more precise provider, workflow, DTO/type, or method words instead of expanding every returned folder.
-Query expansion is repository-agnostic and corpus-driven: it only expands into terms present in the indexed corpus (no repository-specific hardcoded synonym tables).
-
-### `ck find-files`
-
-```
-ck find-files "<query>" [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--explain]
-```
-
-Semantic file retrieval using per-file embeddings composed from type/class names and extracted member signatures. Output rows are `<score>\t<relative-file-path>`, optionally with `types=<n> signatures=<n>` when `--explain` is set.
-Use this as the default discovery step; use `find-files` as fallback when file-level ranking is weak/noisy or broad impact coverage is needed.
+Lexical file retrieval using weighted term matching across path, file, type, and method fields.
+`--must` applies soft score boosts (it does not hard-filter to zero results).
+Output rows are `<score>\t<relative-file-path>`, optionally with `types=<n> signatures=<n>` when `--explain` is set.
+Use this as the default discovery step.
 
 ### `ck get-keyword-map`
 
@@ -315,7 +304,7 @@ Use this as the default discovery step; use `find-files` as fallback when file-l
 ck get-keyword-map --query "<multi-keyword description>" [--must <text>] [--top <n>] [--per-keyword <n>] [--repo <path>] [--verbose]
 ```
 
-Builds a keyword neighborhood map from the top semantic folders for your query. Output includes matched query keywords, unmatched query keywords, global keyword hints, and a per-seed map (`seed: related1, related2, ...`). Default `--per-keyword` is `50` with adaptive quality cut-off (returns fewer when signal is weak). The command also persists a session keyword atlas in `.ck-index/session-keyword-atlas.json`, which is reused by later scope/expand refinements until the query direction shifts.
+Builds a keyword neighborhood map from the top file-first results for your query. Output includes matched query keywords, unmatched query keywords, global keyword hints, and a per-seed map (`seed: related1, related2, ...`). Default `--per-keyword` is `12` with adaptive quality cut-off (returns fewer when signal is weak). The command also persists a session keyword atlas in `.ck-index/session-keyword-atlas.json`, which is reused by later refinements until direction shifts.
 
 ### `ck expand-folder`
 
