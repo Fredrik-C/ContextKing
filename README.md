@@ -4,7 +4,7 @@ Code navigation toolkit for **Claude Code**, **Codex CLI**, and **OpenCode** on 
 
 Most approaches to reducing token usage focus on compacting what the agent reads: tighter prompts, summarised context, leaner encoding. Context King addresses a different problem: the token cost of getting there. On a large codebase, navigating to the right method without guidance means scanning many wrong files before finding the right one, and that over-reading during navigation dominates the total cost.
 
-The goal is to reach the right method body in as few steps as possible, spending tokens only on what is relevant. Context King indexes at the folder level, where the signal-to-cost ratio is highest, and replaces broad file searches with a four-step navigation system:
+The goal is to reach the right method body in as few steps as possible, spending tokens only on what is relevant. Context King indexes source files with lightweight lexical metadata and replaces broad file searches with a four-step navigation system:
 
 ```
 file-first lexical retrieval -> scoped exploration -> live AST signature extraction -> targeted method extraction
@@ -17,7 +17,7 @@ file-first lexical retrieval -> scoped exploration -> live AST signature extract
 A large C# solution or TypeScript monorepo has tens of thousands of files spread across thousands of folders. When Claude Code needs to find a specific piece of logic, the typical unguided path is:
 
 1. Grep or Glob across the whole repo, returning dozens of hits across unrelated modules.
-2. Scan candidate files for keywords. Many files touched, and grep misses semantic relationships entirely.
+2. Scan candidate files for keywords. Many files touched, and grep misses cross-module naming/context clues.
 3. Eventually find the right method, but only after pulling a lot of surrounding noise into the context window.
 
 On a 20,000-file codebase this is expensive. Unscoped searches return false positives from test projects, generated code, node_modules, and unrelated modules. Every wrong file wastes tokens and pushes relevant context out of the window.
@@ -43,7 +43,7 @@ Context King installs these commands into your AI CLI tool:
 | `ck init` | Initializes Context King in a repository (see Installation) |
 | `ck find-symbol` | Finds type or member declarations in C# and TypeScript/TSX files across a scoped path |
 | `ck refs` | Finds textual references (call-sites) for a symbol across a scoped path |
-| `ck recall` | Retrieves knowledge snippets for a folder or a cross-folder semantic query (step 2.5) |
+| `ck recall` | Retrieves knowledge snippets for a folder or a cross-folder ranked query (step 2.5) |
 | `ck learn` | Records a knowledge snippet to `.ck-knowledge/snippets.jsonl` |
 | `ck forget` | Removes a stale snippet by ID |
 
@@ -95,36 +95,25 @@ The no-CK session delegated navigation to an Explore sub-agent, which internally
 | New tokens processed | **22,280** | 234,842 |
 | Ratio | 1x | **10.5x more** |
 
-The CK session read zero `.cs` files in full. Two `ck find-files` passes identified the relevant folders; two `ck signatures` passes confirmed member lists without opening any file body.
+The CK session read zero `.cs` files in full. Two `ck find-files` passes identified the relevant files; two `ck signatures` passes confirmed member lists without opening any file body.
 
 ---
 
-## How semantic matching works
+## How file-first matching works
 
-**Folder-level index.** Rather than indexing individual files, Context King indexes leaf folders: folders that directly contain source files. A 20,000-file repo typically has 2,000-3,000 leaf folders. The index builds in under 15 seconds on Mac/Linux, fits entirely in memory for scoring, and still captures the conceptual structure of the codebase.
+**File-level lexical index.** Context King indexes each source file (`.cs`, `.ts`, `.tsx`) as one row. A 20,000-file repo typically produces 15,000-20,000 indexed files. The index is incremental and updates only changed files.
 
-Each folder's embedding is built from three token sources:
+Each indexed file stores normalized tokens from:
 
-- Its full path from the repo root (e.g. `src modules inventory reservations allocator`)
-- All source filenames it contains (e.g. `inventory reservation service`)
-- Public surface symbols from those files: type names, constructors, methods, properties/fields, enum members, and exported TypeScript declarations (e.g. `AllocateReservation PaymentType Refund`)
+- Full relative path segments
+- File name tokens
+- Type names and method names/signatures extracted from source
 
-PascalCase and camelCase identifiers are split at case boundaries. Interface prefixes are stripped. Symbol names are included in both readable embedding text and exact-match tokens, so queries can use operation names, DTO/type names, or property names.
+PascalCase and camelCase identifiers are split at case boundaries. Symbol names are preserved in normalized token form so queries can match operation names, DTO/type names, and domain terms.
 
-**Embedding model.** Embeddings use **BGE-small-en-v1.5** running locally via ONNX Runtime with no network calls and no API keys. The model produces 384-dimensional float vectors, L2-normalised so cosine similarity reduces to a dot product. Scoring 2,000-3,000 embeddings completes in milliseconds.
+**Scoring.** `ck find-files` uses weighted lexical scoring across path/file/type/method fields, with term-coverage boosts and recency/scope heuristics. `--must` is a soft boost, not a hard filter, so the command can still return best-effort results when exact must terms are missing.
 
-**Hybrid scoring.** The final score combines semantic and exact-match signals:
-
-```
-score = cosine_similarity(query_embedding, folder_embedding)
-      + 0.30 x (query_terms_found_in_folder_tokens / total_query_terms)
-      + must_provider_adjustment
-      - folder_noise_penalty
-```
-
-Semantic similarity is the primary driver. The exact-match bonus (capped at 0.30) is a tiebreaker when folders are semantically close: a folder whose indexed symbols or path literally contain words from the query ranks slightly higher than one that is only conceptually similar. Very large or miscellaneous folders receive a small noise penalty so keyword-stuffed grab-bag folders do not outrank focused implementation folders by default. Use `--explain` to see the scoring breakdown.
-
-**Staleness detection.** The index is keyed by a fingerprint of file paths and content hashes in each folder. A folder is re-embedded when any source file changes (add, remove, rename, or content edit). Untracked new files and working-tree deletions are included, not just committed state.
+**Staleness detection.** The index is keyed by file path + content fingerprint. A file row is refreshed when that file changes (add, remove, rename, content edit). Untracked new files and working-tree deletions are included, not just committed state.
 
 ---
 
@@ -140,7 +129,7 @@ After a dozen sessions on an active module, the brain holds the kind of contextu
 
 **How knowledge is retrieved.** Knowledge retrieval is step 2.5 in the navigation protocol: once an agent has confirmed the folder it will work in (via `ck expand-folder` or `ck signatures`), it runs `ck recall --folder <path>` before reading any method body. This returns all snippets associated with that folder, newest first. Only the snippets for the folder being worked in are surfaced, so sessions touching unrelated code pay no token cost for knowledge they won't use.
 
-For questions that span multiple folders, `ck recall --query "<text>"` does a semantic search across all snippets. This is supplementary and optional; the folder-scoped recall at step 2.5 covers most cases.
+For questions that span multiple folders, `ck recall --query "<text>"` performs ranked lexical retrieval across all snippets. This is supplementary and optional; the folder-scoped recall at step 2.5 covers most cases.
 
 **Token cost.** Unlike the navigation commands, brain recall does add tokens to the context window — the snippets are injected as text. This is intentional: the value is precisely that the agent reads and reasons over that knowledge. Snippets are kept short (2-4 sentences) to keep the cost low. Sessions working on code with no associated knowledge pay nothing.
 
@@ -169,7 +158,7 @@ curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/ins
 irm https://github.com/Fredrik-C/ContextKing/releases/latest/download/install-global.ps1 | iex
 ```
 
-This installs the `ck` binary to `~/.ck/bin/`, the embedding model to `~/.ck/models/`, and registers skills, hooks, and rules in `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/`. After install, start a new shell or add `~/.ck/bin` to your PATH manually.
+This installs the `ck` binary to `~/.ck/bin/` and registers skills, hooks, and rules in `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/`. After install, start a new shell or add `~/.ck/bin` to your PATH manually.
 Windows equivalents use `%USERPROFILE%` (for example `%USERPROFILE%\\.ck\\bin\\ck.exe`, `%USERPROFILE%\\.claude\\`, `%USERPROFILE%\\.codex\\`, `%USERPROFILE%\\.agents\\`) and `%APPDATA%\\opencode\\`.
 
 ### 2. Initialize each repository (once per repo)
@@ -190,7 +179,7 @@ If the repo was previously set up with the old per-repo `deploy.sh`, run:
 ck init --migrate
 ```
 
-This detects and removes per-repo artifacts (binary, model, hook scripts, rule file) and cleans up the relative-path hook registrations and CK `allowedTools` entries from `.claude/settings.json`, leaving all non-CK content intact.
+This detects and removes per-repo artifacts (binary, hook scripts, rule file) and cleans up the relative-path hook registrations and CK `allowedTools` entries from `.claude/settings.json`, leaving all non-CK content intact.
 
 ---
 
@@ -200,7 +189,6 @@ This detects and removes per-repo artifacts (binary, model, hook scripts, rule f
 ```
 ~/.ck/
   bin/ck                                     <- ck binary
-  models/bge-small-en-v1.5/                  <- embedding model (ONNX, ~34 MB)
 ~/.claude/
   skills/ck*/                                <- skill docs + binary wrapper
   hooks/ck-*.sh                              <- PreToolUse guards
@@ -230,7 +218,7 @@ Windows equivalents:
 <repo-root>/
   .ck.json                                   <- version requirement (commit this)
   .ck-knowledge/                             <- knowledge base directory (commit this)
-  .ck-index/                                 <- semantic index (gitignored, built on first use)
+  .ck-index/                                 <- lexical source index (gitignored, built on first use)
 ```
 
 ---
@@ -245,7 +233,7 @@ Context King enforces the navigation workflow through rules, hooks, and skill in
 
 **PreToolUse hooks** fire before every tool call:
 
-- `ck-bash-guard`: blocks piping `ck find-files` output through head/grep/tail (which destroys folder scores), and blocks running `grep` on known source files when `ck get-method-source` should be used instead.
+- `ck-bash-guard`: blocks piping `ck find-files` output through head/grep/tail (which destroys ranking signals), and blocks running `grep` on known source files when `ck get-method-source` should be used instead.
 - `agent-usage-guard`: injects the full CK code search protocol into every sub-agent's context via `additionalContext`, so sub-agents use CK tools natively instead of broad searches.
 
 ### Codex CLI / Agents
@@ -268,7 +256,7 @@ A TypeScript plugin (`ck-guards.ts`) is installed to `~/.config/opencode/plugins
 - Broad `glob` or `grep` on source files (3 or fewer path segments): redirects to `ck find-files` first (with `find-files` fallback guidance when needed).
 - `bash cat` on source files: redirects to `ck get-method-source` or `ck read-full-file`.
 - `bash grep` on source files: redirects to the three-step protocol.
-- `bash` pipe on `ck find-files` output: blocks to preserve folder scores and structure.
+- `bash` pipe on `ck find-files` output: blocks to preserve ranking signals and structure.
 
 **Proactive hooks** (shape the agent's behaviour before guards are needed):
 - `tool.definition`: rewrites the descriptions of `grep` and `glob` that the model sees, prepending the CK protocol mandate so the model prefers CK tools without being blocked first.
@@ -362,7 +350,7 @@ ck find-symbol <symbol> [--path <folder-or-file>] [--kind type|member] [--top <n
 ck find-symbol <symbol> <folder-or-file> [more paths...]
 ```
 
-Finds type or member declarations in C# and TypeScript/TSX files. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries (from `find-files` or fallback `find-files`). Output: `<score>\t<file:line>\t<kind>\t<symbol>\t<container>\t<signature>`. Works on live disk content (uncommitted edits included).
+Finds type or member declarations in C# and TypeScript/TSX files. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries. Output: `<score>\t<file:line>\t<kind>\t<symbol>\t<container>\t<signature>`. Works on live disk content (uncommitted edits included).
 
 ### `ck refs`
 
@@ -371,7 +359,7 @@ ck refs <symbol> [--path <folder-or-file>] [--top <n>] [--ignore-case]
 ck refs <symbol> <folder-or-file> [more paths...]
 ```
 
-Finds textual references (call-sites) for a symbol in C# and TypeScript/TSX files. Uses identifier-boundary matching on the symbol's right-most segment. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries (from `find-files` or fallback `find-files`). Output: `<score>\t<file:line>\t<line snippet>`. Works on live disk content.
+Finds textual references (call-sites) for a symbol in C# and TypeScript/TSX files. Uses identifier-boundary matching on the symbol's right-most segment. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries. Output: `<score>\t<file:line>\t<line snippet>`. Works on live disk content.
 
 ### `ck build-check`
 
@@ -396,7 +384,7 @@ ck recall --folder <path> [--repo <path>]
 ck recall --query <text> [--top <n>] [--repo <path>]
 ```
 
-Retrieves knowledge snippets from `.ck-knowledge/snippets.jsonl`. `--folder` returns all snippets for a specific folder (no index, always fresh) — this is step 2.5 in the navigation protocol. `--query` does a semantic cross-folder search and requires the knowledge index (auto-built). Silent when no snippets exist or when `"brain": false` is set in `.ck.json`.
+Retrieves knowledge snippets from `.ck-knowledge/snippets.jsonl`. `--folder` returns all snippets for a specific folder (no index, always fresh) — this is step 2.5 in the navigation protocol. `--query` does a ranked cross-folder lookup and requires the knowledge index (auto-built). Silent when no snippets exist or when `"brain": false` is set in `.ck.json`.
 
 ### `ck learn`
 
@@ -464,7 +452,7 @@ bash scripts/install-local-dev.sh
 Use the release helper script to create/push a tag, wait for the GitHub release workflow, and then update release notes after release creation:
 
 ```bash
-bash scripts/release.sh --tag v1.7.3 --notes-file RELEASE_NOTES_v1.7.3.md
+bash scripts/release.sh --tag v1.8.0 --notes-file RELEASE_NOTES_v1.8.0.md
 ```
 
 Notes:
