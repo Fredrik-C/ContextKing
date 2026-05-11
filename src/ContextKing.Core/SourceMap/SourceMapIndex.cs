@@ -103,11 +103,14 @@ internal sealed class SourceMapIndex(string dbPath)
 
     public string? ReadMeta(string key)
     {
-        using var conn = OpenReadOnly();
-        using var cmd  = conn.CreateCommand();
-        cmd.CommandText = "SELECT value FROM meta WHERE key = $key";
-        cmd.Parameters.AddWithValue("$key", key);
-        return cmd.ExecuteScalar() as string;
+        return WithSchemaRetry(() =>
+        {
+            using var conn = OpenReadOnly();
+            using var cmd  = conn.CreateCommand();
+            cmd.CommandText = "SELECT value FROM meta WHERE key = $key";
+            cmd.Parameters.AddWithValue("$key", key);
+            return cmd.ExecuteScalar() as string;
+        });
     }
 
     /// <summary>
@@ -116,22 +119,25 @@ internal sealed class SourceMapIndex(string dbPath)
     /// </summary>
     public Dictionary<string, StoredFolderState> LoadFolderStates()
     {
-        using var conn = OpenReadOnly();
-        using var cmd  = conn.CreateCommand();
-        cmd.CommandText = "SELECT path, file_hashes, filename_set, file_count, token_count FROM folders";
-
-        var result = new Dictionary<string, StoredFolderState>(StringComparer.Ordinal);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
+        return WithSchemaRetry(() =>
         {
-            var path        = reader.GetString(0);
-            var hashes      = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
-            var filenameSet = reader.IsDBNull(2) ? null         : reader.GetString(2);
-            var fileCount   = reader.IsDBNull(3) ? 0            : reader.GetInt32(3);
-            var tokenCount  = reader.IsDBNull(4) ? 0            : reader.GetInt32(4);
-            result[path]    = new StoredFolderState(hashes, filenameSet, fileCount, tokenCount);
-        }
-        return result;
+            using var conn = OpenReadOnly();
+            using var cmd  = conn.CreateCommand();
+            cmd.CommandText = "SELECT path, file_hashes, filename_set, file_count, token_count FROM folders";
+
+            var result = new Dictionary<string, StoredFolderState>(StringComparer.Ordinal);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var path        = reader.GetString(0);
+                var hashes      = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                var filenameSet = reader.IsDBNull(2) ? null         : reader.GetString(2);
+                var fileCount   = reader.IsDBNull(3) ? 0            : reader.GetInt32(3);
+                var tokenCount  = reader.IsDBNull(4) ? 0            : reader.GetInt32(4);
+                result[path]    = new StoredFolderState(hashes, filenameSet, fileCount, tokenCount);
+            }
+            return result;
+        });
     }
 
     /// <summary>
@@ -140,24 +146,27 @@ internal sealed class SourceMapIndex(string dbPath)
     /// </summary>
     public IReadOnlyList<IndexedFolder> LoadIndexedFolders()
     {
-        using var conn = OpenReadOnly();
-        using var cmd  = conn.CreateCommand();
-        cmd.CommandText =
-            "SELECT path, embedding, combined_tokens, embedding_text, file_count, token_count FROM folders WHERE embedding IS NOT NULL";
-
-        var result = new List<IndexedFolder>();
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
+        return WithSchemaRetry(() =>
         {
-            var path           = reader.GetString(0);
-            var embedding      = DecodeEmbedding((byte[])reader.GetValue(1));
-            var combinedTokens = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
-            var embeddingText  = reader.IsDBNull(3) ? combinedTokens : reader.GetString(3);
-            var fileCount      = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
-            var tokenCount     = reader.IsDBNull(5) ? CountTokens(combinedTokens) : reader.GetInt32(5);
-            result.Add(new IndexedFolder(path, embedding, combinedTokens, embeddingText, fileCount, tokenCount));
-        }
-        return result;
+            using var conn = OpenReadOnly();
+            using var cmd  = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT path, embedding, combined_tokens, embedding_text, file_count, token_count FROM folders WHERE embedding IS NOT NULL";
+
+            var result = new List<IndexedFolder>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var path           = reader.GetString(0);
+                var embedding      = DecodeEmbedding((byte[])reader.GetValue(1));
+                var combinedTokens = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                var embeddingText  = reader.IsDBNull(3) ? combinedTokens : reader.GetString(3);
+                var fileCount      = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
+                var tokenCount     = reader.IsDBNull(5) ? CountTokens(combinedTokens) : reader.GetInt32(5);
+                result.Add(new IndexedFolder(path, embedding, combinedTokens, embeddingText, fileCount, tokenCount));
+            }
+            return result;
+        });
     }
 
     /// <summary>
@@ -166,22 +175,25 @@ internal sealed class SourceMapIndex(string dbPath)
     /// </summary>
     public Dictionary<string, StoredFileState> LoadFileStates()
     {
-        using var conn = OpenReadOnly();
-        using var cmd  = conn.CreateCommand();
-        cmd.CommandText = "SELECT path, file_hash, type_count, signature_count FROM files";
-
-        var result = new Dictionary<string, StoredFileState>(StringComparer.Ordinal);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
+        return WithSchemaRetry(() =>
         {
-            var path = reader.GetString(0);
-            var hash = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
-            var typeCount = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
-            var signatureCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3);
-            result[path] = new StoredFileState(hash, typeCount, signatureCount);
-        }
+            using var conn = OpenReadOnly();
+            using var cmd  = conn.CreateCommand();
+            cmd.CommandText = "SELECT path, file_hash, type_count, signature_count FROM files";
 
-        return result;
+            var result = new Dictionary<string, StoredFileState>(StringComparer.Ordinal);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var path = reader.GetString(0);
+                var hash = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                var typeCount = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
+                var signatureCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3);
+                result[path] = new StoredFileState(hash, typeCount, signatureCount);
+            }
+
+            return result;
+        });
     }
 
     /// <summary>
@@ -189,26 +201,29 @@ internal sealed class SourceMapIndex(string dbPath)
     /// </summary>
     public IReadOnlyList<IndexedFile> LoadIndexedFiles()
     {
-        using var conn = OpenReadOnly();
-        using var cmd  = conn.CreateCommand();
-        cmd.CommandText =
-            "SELECT path, folder_path, embedding_text, type_names, method_names, type_count, signature_count FROM files";
-
-        var result = new List<IndexedFile>();
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
+        return WithSchemaRetry(() =>
         {
-            var path = reader.GetString(0);
-            var folderPath = reader.IsDBNull(1) ? "." : reader.GetString(1);
-            var embeddingText = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
-            var typeNames = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
-            var methodNames = reader.IsDBNull(4) ? string.Empty : reader.GetString(4);
-            var typeCount = reader.IsDBNull(5) ? 0 : reader.GetInt32(5);
-            var signatureCount = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
-            result.Add(new IndexedFile(path, folderPath, embeddingText, typeNames, methodNames, typeCount, signatureCount));
-        }
+            using var conn = OpenReadOnly();
+            using var cmd  = conn.CreateCommand();
+            cmd.CommandText =
+                "SELECT path, folder_path, embedding_text, type_names, method_names, type_count, signature_count FROM files";
 
-        return result;
+            var result = new List<IndexedFile>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var path = reader.GetString(0);
+                var folderPath = reader.IsDBNull(1) ? "." : reader.GetString(1);
+                var embeddingText = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                var typeNames = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+                var methodNames = reader.IsDBNull(4) ? string.Empty : reader.GetString(4);
+                var typeCount = reader.IsDBNull(5) ? 0 : reader.GetInt32(5);
+                var signatureCount = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+                result.Add(new IndexedFile(path, folderPath, embeddingText, typeNames, methodNames, typeCount, signatureCount));
+            }
+
+            return result;
+        });
     }
 
     // ── Writes ─────────────────────────────────────────────────────────────────
@@ -613,6 +628,26 @@ internal sealed class SourceMapIndex(string dbPath)
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
+    }
+
+    private T WithSchemaRetry<T>(Func<T> action)
+    {
+        try
+        {
+            return action();
+        }
+        catch (SqliteException ex) when (NeedsSchemaUpgrade(ex))
+        {
+            EnsureSchema();
+            return action();
+        }
+    }
+
+    private static bool NeedsSchemaUpgrade(SqliteException ex)
+    {
+        var message = ex.Message;
+        return message.Contains("no such column", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("no such table", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int CountTokens(string combinedTokens) =>

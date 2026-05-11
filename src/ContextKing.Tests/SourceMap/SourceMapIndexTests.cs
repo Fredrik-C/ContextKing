@@ -1,5 +1,6 @@
 using ContextKing.Core.SourceMap;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 
 namespace ContextKing.Tests.SourceMap;
 
@@ -123,6 +124,37 @@ public class SourceMapIndexTests : IDisposable
 
         var folders = Index.LoadIndexedFolders();
         folders.Should().OnlyContain(f => f.Path == "src/Good");
+    }
+
+    [Fact]
+    public void LoadIndexedFiles_UpgradesLegacySchemaMissingTypeAndMethodColumns()
+    {
+        using (var conn = new SqliteConnection($"Data Source={_dbPath};Mode=ReadWriteCreate"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE files (
+                    id              INTEGER PRIMARY KEY,
+                    path            TEXT UNIQUE NOT NULL,
+                    folder_path     TEXT NOT NULL,
+                    embedding_text  TEXT,
+                    embedding       BLOB,
+                    file_hash       TEXT,
+                    type_count      INTEGER DEFAULT 0,
+                    signature_count INTEGER DEFAULT 0
+                );
+                INSERT INTO files (path, folder_path, embedding_text, file_hash, type_count, signature_count)
+                VALUES ('src/A.cs', 'src', 'a tokens', 'h1', 1, 2);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        var rows = Index.LoadIndexedFiles();
+        rows.Should().ContainSingle();
+        rows[0].Path.Should().Be("src/A.cs");
+        rows[0].TypeNames.Should().BeEmpty();
+        rows[0].MethodNames.Should().BeEmpty();
     }
 
     // ── Delete ────────────────────────────────────────────────────────────────
