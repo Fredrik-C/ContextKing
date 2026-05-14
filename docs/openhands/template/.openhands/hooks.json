@@ -1,0 +1,13 @@
+{
+  "pre_tool_use": [
+    {
+      "matcher": "terminal",
+      "hooks": [
+        {
+          "command": ".openhands/hooks/ck-terminal-guard.sh",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}
