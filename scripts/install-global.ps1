@@ -68,15 +68,31 @@ if ($LocalRepo) {
   Write-Info "Using local assets from: $LocalRepo"
   $AssetsDir = $LocalRepo
 } else {
-  $Archive    = "context-king-win-x64.zip"
-  $ArchiveUrl = "$GithubRelease/$Archive"
+  $ArchiveCandidates = @(
+    "context-king-windows.zip", # current release artifact name
+    "context-king-win-x64.zip"  # legacy fallback
+  )
 
-  Write-Info "Downloading $Archive from latest release..."
   $TmpDir = Join-Path $env:TEMP "ck-install-$(Get-Random)"
   New-Item -ItemType Directory -Path $TmpDir | Out-Null
 
-  Invoke-WebRequest -Uri $ArchiveUrl -OutFile "$TmpDir\$Archive" -UseBasicParsing
-  Expand-Archive "$TmpDir\$Archive" -DestinationPath $TmpDir
+  $ArchivePath = ""
+  foreach ($Archive in $ArchiveCandidates) {
+    $ArchiveUrl = "$GithubRelease/$Archive"
+    Write-Info "Downloading $Archive from latest release..."
+    try {
+      Invoke-WebRequest -Uri $ArchiveUrl -OutFile "$TmpDir\$Archive" -UseBasicParsing
+      $ArchivePath = "$TmpDir\$Archive"
+      break
+    } catch {
+      # Try next known artifact name.
+    }
+  }
+  if (-not $ArchivePath) {
+    throw "Could not download Windows archive from latest release. Tried: $($ArchiveCandidates -join ', ')"
+  }
+
+  Expand-Archive $ArchivePath -DestinationPath $TmpDir
 
   $AssetsDir = "$TmpDir\context-king"
   if (-not (Test-Path $AssetsDir)) { throw "Archive did not contain expected context-king\ directory" }
