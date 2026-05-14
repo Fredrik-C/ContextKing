@@ -51,9 +51,11 @@ function Write-Info($msg) { Write-Host $msg }
 
 # ── Detect local repo ──────────────────────────────────────────────────────────
 $LocalRepo = ""
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoDir   = Split-Path -Parent $ScriptDir
-if (Test-Path "$RepoDir\skills\ck\ck.cmd") { $LocalRepo = $RepoDir }
+$ScriptPath = $MyInvocation.MyCommand.Path
+if (-not $ScriptPath) { $ScriptPath = $PSCommandPath }
+$ScriptDir = if ($ScriptPath) { Split-Path -Parent $ScriptPath } else { "" }
+$RepoDir   = if ($ScriptDir) { Split-Path -Parent $ScriptDir } else { "" }
+if ($RepoDir -and (Test-Path "$RepoDir\skills\ck\ck.cmd")) { $LocalRepo = $RepoDir }
 if (-not $LocalRepo -and (Test-Path ".\scripts\install-global.ps1") -and (Test-Path ".\skills\ck\ck.cmd")) {
   $LocalRepo = (Get-Location).Path
 }
