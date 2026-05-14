@@ -1,6 +1,6 @@
 ---
 name: ck-get-method-source
-description: Extract a single C# or TypeScript method/property body with exact source spans. Use after ck signatures identifies the target member.
+description: Extract a single C#, TypeScript, Kotlin, or Python method/property body with exact source spans. Use after ck signatures identifies the target member.
 ---
 
 # ck get-method-source — Reference

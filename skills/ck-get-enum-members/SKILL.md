@@ -1,6 +1,6 @@
 ---
 name: ck-get-enum-members
-description: List enum members for a specific C# or TypeScript enum without reading full file content.
+description: List enum members for a specific C#, TypeScript, Kotlin, or Python enum without reading full file content.
 ---
 
 # ck get-enum-members — Reference
@@ -26,4 +26,4 @@ description: List enum members for a specific C# or TypeScript enum without read
 ## Tips
 
 - Prefer this over `ck read-full-file` when you only need enum values.
-- Works for C# and TypeScript/TSX files.
+- Works for C#, TypeScript, Kotlin, and Python/TSX files.

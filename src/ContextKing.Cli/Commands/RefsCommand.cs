@@ -125,7 +125,7 @@ internal static class RefsCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck refs — find textual references for a symbol in C# and TypeScript/TSX files
+            ck refs — find textual references for a symbol in supported source files
 
             Usage:
               ck refs <symbol> [--path <folder-or-file>] [--top <n>] [--ignore-case]

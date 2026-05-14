@@ -1,6 +1,6 @@
 ---
 name: ck-get-constructors
-description: Extract all constructors from a C# or TypeScript file with exact source spans. Use when you need to see constructor signatures or injected dependencies without knowing the class name.
+description: Extract all constructors from a C#, TypeScript, Kotlin, or Python file with exact source spans. Use when you need to see constructor signatures or injected dependencies without knowing the class name.
 ---
 
 # ck get-constructors — Reference

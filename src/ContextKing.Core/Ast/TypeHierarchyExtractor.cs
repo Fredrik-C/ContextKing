@@ -1,14 +1,13 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using TypeScriptParser;
-using TypeScriptParser.TreeSitter;
+using TreeSitterLanguagePack;
 
 namespace ContextKing.Core.Ast;
 
 /// <summary>
 /// Extracts type hierarchy information (class/interface declarations with base types)
-/// from C# and TypeScript/TSX files. Always reads live from disk; never uses cached data.
+/// from C#, TypeScript/TSX, Kotlin, and Python files. Always reads live from disk; never uses cached data.
 /// </summary>
 public static class TypeHierarchyExtractor
 {
@@ -16,9 +15,41 @@ public static class TypeHierarchyExtractor
     {
         var source = File.ReadAllText(filePath);
 
-        return SupportedLanguages.IsTypeScript(filePath)
-            ? ExtractTypeScript(source, filePath)
-            : ExtractCSharp(source, filePath);
+        if (SupportedLanguages.IsTypeScript(filePath))
+        {
+            var lang = filePath.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ? "tsx" : "typescript";
+            return ExtractTreeSitter(source, filePath, lang);
+        }
+
+        if (SupportedLanguages.IsKotlin(filePath))
+            return ExtractTreeSitter(source, filePath, "kotlin");
+
+        if (SupportedLanguages.IsPython(filePath))
+            return ExtractTreeSitter(source, filePath, "python");
+
+        return ExtractCSharp(source, filePath);
+    }
+
+    // ── Tree-sitter dispatch ──────────────────────────────────────────────────
+
+    private static IReadOnlyList<TypeHierarchyEntry> ExtractTreeSitter(string source, string filePath, string languageName)
+    {
+        using var parser = Parser.Default();
+        parser.SetLanguage(languageName);
+        var tree = parser.Parse(source);
+        if (tree is null) return [];
+        var root = tree.RootNode();
+        if (root is null) return [];
+
+        var results = new List<TypeHierarchyEntry>();
+
+        return languageName switch
+        {
+            "typescript" => CollectTsTypes(root, source, filePath, results),
+            "kotlin" => CollectKtTypes(root, source, filePath, results),
+            "python" => CollectPyTypes(root, source, filePath, results),
+            _ => []
+        };
     }
 
     // ── C# ────────────────────────────────────────────────────────────────────
@@ -81,137 +112,238 @@ public static class TypeHierarchyExtractor
 
     // ── TypeScript ────────────────────────────────────────────────────────────
 
-    private static IReadOnlyList<TypeHierarchyEntry> ExtractTypeScript(string source, string filePath)
+    private static IReadOnlyList<TypeHierarchyEntry> CollectTsTypes(Node node, string source, string filePath, List<TypeHierarchyEntry> results)
     {
-        using var parser = new Parser();
-        var tree    = parser.ParseString(source);
-        var root    = tree.root_node();
-        var results = new List<TypeHierarchyEntry>();
+        var kind = node.Kind();
 
-        CollectTsTypes(root, source, filePath, results);
-        return results;
-    }
-
-    private static void CollectTsTypes(TSNode node, string source, string filePath, List<TypeHierarchyEntry> results)
-    {
-        var nodeType = node.type();
-
-        if (nodeType == "class_declaration")
+        if (kind == "class_declaration")
         {
-            var name      = GetFieldText(node, "name", source) ?? "<anonymous>";
+            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
             var baseTypes = CollectClassHeritage(node, source);
-            var line      = (int)node.start_point().row + 1;
+            var line = (int)node.StartPosition().Row + 1;
             results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "class", baseTypes, line));
-            // Recurse for nested classes
         }
-        else if (nodeType == "interface_declaration")
+        else if (kind == "interface_declaration")
         {
-            var name      = GetFieldText(node, "name", source) ?? "<anonymous>";
+            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
             var baseTypes = CollectInterfaceExtends(node, source);
-            var line      = (int)node.start_point().row + 1;
+            var line = (int)node.StartPosition().Row + 1;
             results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "interface", baseTypes, line));
         }
-        else if (nodeType == "enum_declaration")
+        else if (kind == "enum_declaration")
         {
-            var name = GetFieldText(node, "name", source) ?? "<anonymous>";
-            var line = (int)node.start_point().row + 1;
+            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
+            var line = (int)node.StartPosition().Row + 1;
             results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "enum", [], line));
         }
 
-        for (uint i = 0; i < node.child_count(); i++)
-            CollectTsTypes(node.child(i), source, filePath, results);
+        WalkChildren(node, child => CollectTsTypes(child, source, filePath, results));
+        return results;
     }
 
-    private static List<string> CollectClassHeritage(TSNode classNode, string source)
+    private static List<string> CollectClassHeritage(Node classNode, string source)
     {
         var baseTypes = new List<string>();
 
-        for (uint i = 0; i < classNode.child_count(); i++)
+        WalkChildren(classNode, child =>
         {
-            var child = classNode.child(i);
-            var ct    = child.type();
+            var ct = child.Kind();
 
             if (ct == "class_heritage")
             {
-                for (uint j = 0; j < child.child_count(); j++)
+                WalkChildren(child, heritage =>
                 {
-                    var heritage = child.child(j);
-                    var ht       = heritage.type();
+                    var ht = heritage.Kind();
 
                     if (ht == "extends_clause")
                     {
-                        // "extends Foo" or "extends Foo<T>" — grab the type reference text
                         var typeRef = ExtractHeritageTypeText(heritage, source);
                         if (typeRef is not null)
                             baseTypes.Add(typeRef);
                     }
                     else if (ht == "implements_clause")
                     {
-                        // "implements IFoo, IBar" — multiple type references
-                        for (uint k = 0; k < heritage.child_count(); k++)
+                        WalkChildren(heritage, impl =>
                         {
-                            var impl = heritage.child(k);
-                            if (impl.type() is "type_identifier" or "generic_type" or "member_type")
+                            if (impl.Kind() is "type_identifier" or "generic_type" or "member_type")
                             {
-                                var start = (int)impl.start_offset();
-                                var end   = (int)impl.end_offset();
-                                baseTypes.Add(source[start..end].Trim());
+                                var text = NodeSourceSlice(source, impl).Trim();
+                                if (text.Length > 0)
+                                    baseTypes.Add(text);
                             }
-                        }
+                        });
                     }
-                }
+                });
             }
-        }
+        });
 
         return baseTypes;
     }
 
-    private static List<string> CollectInterfaceExtends(TSNode ifaceNode, string source)
+    private static List<string> CollectInterfaceExtends(Node ifaceNode, string source)
     {
         var baseTypes = new List<string>();
 
-        for (uint i = 0; i < ifaceNode.child_count(); i++)
+        WalkChildren(ifaceNode, child =>
         {
-            var child = ifaceNode.child(i);
-            if (child.type() == "extends_type_clause")
+            if (child.Kind() == "extends_type_clause")
             {
-                for (uint j = 0; j < child.child_count(); j++)
+                WalkChildren(child, t =>
                 {
-                    var t = child.child(j);
-                    if (t.type() is "type_identifier" or "generic_type" or "member_type")
+                    if (t.Kind() is "type_identifier" or "generic_type" or "member_type")
                     {
-                        var start = (int)t.start_offset();
-                        var end   = (int)t.end_offset();
-                        baseTypes.Add(source[start..end].Trim());
+                        var text = NodeSourceSlice(source, t).Trim();
+                        if (text.Length > 0)
+                            baseTypes.Add(text);
                     }
-                }
+                });
             }
-        }
+        });
 
         return baseTypes;
     }
 
-    private static string? ExtractHeritageTypeText(TSNode extendsClause, string source)
+    private static string? ExtractHeritageTypeText(Node extendsClause, string source)
     {
-        // extends_clause: "extends" <type_reference>
-        // The type reference is usually the second child (after "extends" keyword)
-        for (uint i = 0; i < extendsClause.child_count(); i++)
+        var count = extendsClause.ChildCount();
+        for (uint i = 0; i < count; i++)
         {
-            var child = extendsClause.child(i);
-            var ct    = child.type();
+            var child = extendsClause.Child(i);
+            if (child is null) continue;
+            var ct = child.Kind();
             if (ct is "type_identifier" or "generic_type" or "member_type" or "identifier")
             {
-                var start = (int)child.start_offset();
-                var end   = (int)child.end_offset();
-                return source[start..end].Trim();
+                return NodeSourceSlice(source, child).Trim();
             }
         }
         return null;
     }
 
-    private static string? GetFieldText(TSNode node, string fieldName, string source)
+    // ── Kotlin ────────────────────────────────────────────────────────────────
+
+    private static IReadOnlyList<TypeHierarchyEntry> CollectKtTypes(Node node, string source, string filePath, List<TypeHierarchyEntry> results)
     {
-        var child = node.child_by_field_name(fieldName);
-        return child.is_null() ? null : source[(int)child.start_offset()..(int)child.end_offset()];
+        var kind = node.Kind();
+
+        if (kind is "class_declaration" or "object_declaration")
+        {
+            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
+            var baseTypes = CollectKotlinHeritage(node, source);
+            var line = (int)node.StartPosition().Row + 1;
+            var typeKind = kind == "object_declaration" ? "object" : "class";
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, typeKind, baseTypes, line));
+        }
+        else if (kind == "interface_declaration")
+        {
+            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
+            var baseTypes = CollectKotlinInterfaces(node, source);
+            var line = (int)node.StartPosition().Row + 1;
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "interface", baseTypes, line));
+        }
+        else if (kind == "enum_class")
+        {
+            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
+            var line = (int)node.StartPosition().Row + 1;
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "enum class", [], line));
+        }
+
+        WalkChildren(node, child => CollectKtTypes(child, source, filePath, results));
+        return results;
+    }
+
+    private static List<string> CollectKotlinHeritage(Node classNode, string source)
+    {
+        var baseTypes = new List<string>();
+
+        WalkChildren(classNode, child =>
+        {
+            var ct = child.Kind();
+            if (ct is "superclass" or "super_interfaces")
+            {
+                WalkChildren(child, t =>
+                {
+                    if (t.Kind() is "type_identifier" or "type_projection")
+                    {
+                        // For type_projection, extract the inner type_identifier
+                        var inner = t.ChildByFieldName("type");
+                        if (inner is not null)
+                        {
+                            var text = NodeSourceSlice(source, inner).Trim();
+                            if (text.Length > 0)
+                                baseTypes.Add(text);
+                        }
+                        else
+                        {
+                            var text = NodeSourceSlice(source, t).Trim();
+                            if (text.Length > 0)
+                                baseTypes.Add(text);
+                        }
+                    }
+                    else if (t.Kind() is "user_type" or "nullable_type")
+                    {
+                        var text = NodeSourceSlice(source, t).Trim();
+                        // Strip trailing ? for nullable types
+                        if (ct == "nullable_type" && text.EndsWith('?'))
+                            text = text[..^1].Trim();
+                        if (text.Length > 0)
+                            baseTypes.Add(text);
+                    }
+                });
+            }
+        });
+
+        return baseTypes;
+    }
+
+    private static List<string> CollectKotlinInterfaces(Node ifaceNode, string source)
+    {
+        return CollectKotlinHeritage(ifaceNode, source); // same pattern for super_interfaces
+    }
+
+    // ── Python ────────────────────────────────────────────────────────────────
+
+    private static IReadOnlyList<TypeHierarchyEntry> CollectPyTypes(Node node, string source, string filePath, List<TypeHierarchyEntry> results)
+    {
+        var kind = node.Kind();
+
+        if (kind == "class_definition")
+        {
+            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
+            var bases = GetNodeFieldText(node, "superclasses", source);
+            var baseTypes = bases is not null
+                ? new List<string> { bases.Trim('(', ')').Trim() }
+                : new List<string>();
+            var line = (int)node.StartPosition().Row + 1;
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "class", baseTypes, line));
+        }
+
+        WalkChildren(node, child => CollectPyTypes(child, source, filePath, results));
+        return results;
+    }
+
+    // ── Tree-sitter helpers ───────────────────────────────────────────────────
+
+    private static void WalkChildren(Node node, Action<Node> action)
+    {
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is not null)
+                action(child);
+        }
+    }
+
+    private static string? GetNodeFieldText(Node node, string fieldName, string source)
+    {
+        var child = node.ChildByFieldName(fieldName);
+        return child is null ? null : NodeSourceSlice(source, child);
+    }
+
+    private static string NodeSourceSlice(string source, Node node)
+    {
+        var start = (int)node.StartByte();
+        var end = (int)node.EndByte();
+        return source[start..end];
     }
 }

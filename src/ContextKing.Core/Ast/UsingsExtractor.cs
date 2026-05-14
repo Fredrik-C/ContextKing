@@ -1,27 +1,36 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using TypeScriptParser;
-using TypeScriptParser.TreeSitter;
+using TreeSitterLanguagePack;
 
 namespace ContextKing.Core.Ast;
 
 /// <summary>
-/// Extracts using directives (C#) and import statements (TypeScript/TSX) from source files.
+/// Extracts using directives (C#) and import statements (TypeScript, Kotlin, Python) from source files.
 /// Always reads live from disk; never uses cached data.
 /// </summary>
 public static class UsingsExtractor
 {
     /// <summary>
-    /// Extracts all using/import directives from a C# or TypeScript file.
+    /// Extracts all using/import directives from a C#, TypeScript, Kotlin, or Python file.
     /// Returns one string per directive in source order.
     /// </summary>
     public static IReadOnlyList<string> Extract(string filePath)
     {
         var source = File.ReadAllText(filePath);
 
-        return SupportedLanguages.IsTypeScript(filePath)
-            ? ExtractTypeScriptImports(source)
-            : ExtractCSharpUsings(source, filePath);
+        if (SupportedLanguages.IsTypeScript(filePath))
+        {
+            var lang = filePath.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ? "tsx" : "typescript";
+            return ExtractTreeSitterImports(source, lang);
+        }
+
+        if (SupportedLanguages.IsKotlin(filePath))
+            return ExtractTreeSitterImports(source, "kotlin");
+
+        if (SupportedLanguages.IsPython(filePath))
+            return ExtractTreeSitterImports(source, "python");
+
+        return ExtractCSharpUsings(source, filePath);
     }
 
     private static IReadOnlyList<string> ExtractCSharpUsings(string source, string filePath)
@@ -35,36 +44,59 @@ public static class UsingsExtractor
             .ToList();
     }
 
-    private static IReadOnlyList<string> ExtractTypeScriptImports(string source)
+    private static IReadOnlyList<string> ExtractTreeSitterImports(string source, string languageName)
     {
-        using var parser = new Parser();
-        var tree = parser.ParseString(source);
-        var root = tree.root_node();
-        var results = new List<string>();
+        using var parser = Parser.Default();
+        parser.SetLanguage(languageName);
+        var tree = parser.Parse(source);
+        if (tree is null) return [];
 
-        CollectImports(root, source, results);
+        var root = tree.RootNode();
+        if (root is null) return [];
+
+        var results = new List<string>();
+        CollectImports(root, source, languageName, results);
         return results;
     }
 
-    private static void CollectImports(TSNode node, string source, List<string> results)
+    private static void CollectImports(Node node, string source, string languageName, List<string> results)
     {
-        var nodeType = node.type();
+        var kind = node.Kind();
 
-        if (nodeType == "import_statement")
+        var importNodeTypes = languageName switch
         {
-            var start = (int)node.start_offset();
-            var end   = (int)node.end_offset();
+            "typescript" => (string[])["import_statement"],
+            "kotlin" => ["import_header", "import_list"],
+            "python" => ["import_statement", "import_from_statement"],
+            _ => []
+        };
+
+        if (Array.IndexOf(importNodeTypes, kind) >= 0)
+        {
+            var start = (int)node.StartByte();
+            var end = (int)node.EndByte();
             results.Add(source[start..end].Trim());
-            return; // don't recurse into import body
+            return;
         }
 
-        // Only scan at the top-level program scope — imports are never nested inside functions.
-        // Stop recursing when we hit a class, function, or block to keep this fast.
-        if (nodeType is "class_declaration" or "function_declaration" or "statement_block"
-                     or "method_definition" or "arrow_function")
+        // Only scan at top-level scope — imports are never nested inside functions/classes
+        var stopTypes = languageName switch
+        {
+            "typescript" => (string[])["class_declaration", "function_declaration", "statement_block", "method_definition", "arrow_function"],
+            "kotlin" => ["class_declaration", "function_declaration", "lambda_literal", "class_body"],
+            "python" => ["function_definition", "class_definition", "block"],
+            _ => []
+        };
+
+        if (Array.IndexOf(stopTypes, kind) >= 0)
             return;
 
-        for (uint i = 0; i < node.child_count(); i++)
-            CollectImports(node.child(i), source, results);
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is not null)
+                CollectImports(child, source, languageName, results);
+        }
     }
 }

@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using ContextKing.Core;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using TypeScriptParser;
+using TreeSitterLanguagePack;
 
 namespace ContextKing.Cli.Commands;
 
@@ -44,9 +44,19 @@ internal static class GetEnumMembersCommand
 
         try
         {
-            var results = SupportedLanguages.IsTypeScript(filePath)
-                ? ExtractTypeScript(filePath, enumName)
-                : ExtractCSharp(filePath, enumName);
+            EnumMembersResult? results = null;
+
+            if (SupportedLanguages.IsTypeScript(filePath))
+            {
+                var lang = filePath.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ? "tsx" : "typescript";
+                results = ExtractTreeSitterEnum(filePath, enumName, lang);
+            }
+            else if (SupportedLanguages.IsKotlin(filePath))
+                results = ExtractTreeSitterEnum(filePath, enumName, "kotlin");
+            else if (SupportedLanguages.IsPython(filePath))
+                results = ExtractPythonEnum(filePath, enumName);
+            else
+                results = ExtractCSharp(filePath, enumName);
 
             if (results is null)
             {
@@ -90,39 +100,56 @@ internal static class GetEnumMembersCommand
         return null;
     }
 
-    private static EnumMembersResult? ExtractTypeScript(string filePath, string enumName)
+    private static EnumMembersResult? ExtractTreeSitterEnum(string filePath, string enumName, string languageName)
     {
         var source = File.ReadAllText(filePath);
-        using var parser = new Parser();
-        var tree = parser.ParseString(source);
-        var root = tree.root_node();
+        using var parser = Parser.Default();
+        parser.SetLanguage(languageName);
+        var tree = parser.Parse(source);
+        if (tree is null) return null;
+        var root = tree.RootNode();
+        if (root is null) return null;
 
-        var stack = new Stack<TypeScriptParser.TreeSitter.TSNode>();
+        var enumNodeType = languageName switch
+        {
+            "typescript" => "enum_declaration",
+            "kotlin" => "enum_class",
+            _ => "enum_declaration"
+        };
+
+        var stack = new Stack<Node>();
         stack.Push(root);
         while (stack.Count > 0)
         {
             var node = stack.Pop();
-            if (node.type() == "enum_declaration")
+            if (node.Kind() == enumNodeType)
             {
-                var nameNode = node.child_by_field_name("name");
-                if (!nameNode.is_null())
+                var nameNode = node.ChildByFieldName("name");
+                if (nameNode is not null)
                 {
-                    var name = source[(int)nameNode.start_offset()..(int)nameNode.end_offset()];
+                    var name = source[(int)nameNode.StartByte()..(int)nameNode.EndByte()];
                     if (name.Equals(enumName, StringComparison.Ordinal))
                     {
                         var members = new List<string>();
-                        for (uint i = 0; i < node.child_count(); i++)
+                        var count = node.ChildCount();
+                        for (uint i = 0; i < count; i++)
                         {
-                            var child = node.child(i);
-                            if (child.type() != "enum_body") continue;
-                            for (uint j = 0; j < child.child_count(); j++)
+                            var child = node.Child(i);
+                            if (child is null) continue;
+                            var ck = child.Kind();
+                            if (ck is "enum_body" or "enum_class_body")
                             {
-                                var item = child.child(j);
-                                if (item.type() == "enum_assignment")
+                                var mc = child.ChildCount();
+                                for (uint j = 0; j < mc; j++)
                                 {
-                                    var itemName = item.child_by_field_name("name");
-                                    if (!itemName.is_null())
-                                        members.Add(source[(int)itemName.start_offset()..(int)itemName.end_offset()]);
+                                    var item = child.Child(j);
+                                    if (item is null) continue;
+                                    if (item.Kind() is "enum_assignment" or "enum_entry")
+                                    {
+                                        var itemName = item.ChildByFieldName("name");
+                                        if (itemName is not null)
+                                            members.Add(source[(int)itemName.StartByte()..(int)itemName.EndByte()]);
+                                    }
                                 }
                             }
                         }
@@ -130,15 +157,93 @@ internal static class GetEnumMembersCommand
                         return new EnumMembersResult(
                             File: filePath,
                             EnumName: enumName,
-                            StartLine: CountLine(source, (int)node.start_offset()),
-                            EndLine: CountLine(source, Math.Max((int)node.start_offset(), (int)node.end_offset() - 1)),
+                            StartLine: CountLine(source, (int)node.StartByte()),
+                            EndLine: CountLine(source, Math.Max((int)node.StartByte(), (int)node.EndByte() - 1)),
                             Members: members.ToArray());
                     }
                 }
             }
 
-            for (uint i = 0; i < node.child_count(); i++)
-                stack.Push(node.child(i));
+            var childCount = node.ChildCount();
+            for (uint i = 0; i < childCount; i++)
+            {
+                var child = node.Child(i);
+                if (child is not null)
+                    stack.Push(child);
+            }
+        }
+
+        return null;
+    }
+
+    private static EnumMembersResult? ExtractPythonEnum(string filePath, string enumName)
+    {
+        // Python uses class-based enums, handled by the class_definition matching
+        var source = File.ReadAllText(filePath);
+        using var parser = Parser.Default();
+        parser.SetLanguage("python");
+        var tree = parser.Parse(source);
+        if (tree is null) return null;
+        var root = tree.RootNode();
+        if (root is null) return null;
+
+        var stack = new Stack<Node>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            if (node.Kind() == "class_definition")
+            {
+                var nameNode = node.ChildByFieldName("name");
+                if (nameNode is not null)
+                {
+                    var name = source[(int)nameNode.StartByte()..(int)nameNode.EndByte()];
+                    if (name.Equals(enumName, StringComparison.Ordinal))
+                    {
+                        // Collect enum members from the body: assignments at top level
+                        var members = new List<string>();
+                        var body = node.ChildByFieldName("body");
+                        if (body is not null)
+                        {
+                            var bc = body.ChildCount();
+                            for (uint i = 0; i < bc; i++)
+                            {
+                                var child = body.Child(i);
+                                if (child is null) continue;
+                                if (child.Kind() == "expression_statement")
+                                {
+                                    var exprCount = child.ChildCount();
+                                    for (uint j = 0; j < exprCount; j++)
+                                    {
+                                        var expr = child.Child(j);
+                                        if (expr?.Kind() == "assignment")
+                                        {
+                                            var left = expr.ChildByFieldName("left");
+                                            if (left is not null)
+                                                members.Add(source[(int)left.StartByte()..(int)left.EndByte()]);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        return new EnumMembersResult(
+                            File: filePath,
+                            EnumName: enumName,
+                            StartLine: CountLine(source, (int)node.StartByte()),
+                            EndLine: CountLine(source, Math.Max((int)node.StartByte(), (int)node.EndByte() - 1)),
+                            Members: members.ToArray());
+                    }
+                }
+            }
+
+            var childCount = node.ChildCount();
+            for (uint i = 0; i < childCount; i++)
+            {
+                var child = node.Child(i);
+                if (child is not null)
+                    stack.Push(child);
+            }
         }
 
         return null;
@@ -166,6 +271,8 @@ internal static class GetEnumMembersCommand
 
             Usage:
               ck get-enum-members <file> <EnumName>
+
+            Supports C# (.cs), TypeScript (.ts, .tsx), Kotlin (.kt, .kts), and Python (.py) files.
 
             Output: JSON object with file, enum_name, start/end line, and members[].
             """);

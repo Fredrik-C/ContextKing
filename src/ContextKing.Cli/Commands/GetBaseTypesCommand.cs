@@ -65,7 +65,7 @@ internal static class GetBaseTypesCommand
             Usage:
               ck get-base-types <file>
 
-            Supports C# (.cs), TypeScript (.ts), and TSX (.tsx) files.
+            Supports C# (.cs), TypeScript (.ts, .tsx), Kotlin (.kt, .kts), and Python (.py) files.
 
             Output: JSON array — one object per type declaration found
               [
@@ -90,7 +90,7 @@ internal static class GetBaseTypesCommand
               - Always reads from disk; reflects uncommitted edits immediately.
               - base_types is empty [] when the type has no base class or interfaces.
               - For C# enums, base_types contains the underlying type if specified (e.g. "byte").
-              - For TypeScript, both extends and implements entries appear in base_types.
+              - For TypeScript and Kotlin, both extends and implements entries appear in base_types.
             """);
     }
 }

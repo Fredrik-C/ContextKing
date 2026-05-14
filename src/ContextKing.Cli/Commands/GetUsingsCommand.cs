@@ -31,7 +31,7 @@ internal static class GetUsingsCommand
 
         if (!SupportedLanguages.IsSupported(filePath))
         {
-            Console.Error.WriteLine($"[ck get-usings] Error: unsupported file type: '{filePath}'. Supported: .cs, .ts, .tsx");
+            Console.Error.WriteLine($"[ck get-usings] Error: unsupported file type: '{filePath}'. Supported: {string.Join(", ", LanguageRegistry.RegisteredExtensions)}");
             return Task.FromResult(1);
         }
 
@@ -60,12 +60,12 @@ internal static class GetUsingsCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck get-usings — list all using directives (C#) or import statements (TypeScript) in a file
+            ck get-usings — list all using directives (C#) or import statements (TypeScript/TSX/Kotlin/Python) in a file
 
             Usage:
               ck get-usings <file>
 
-            Supports C# (.cs), TypeScript (.ts), and TSX (.tsx) files.
+            Supports C# (.cs), TypeScript (.ts, .tsx), Kotlin (.kt, .kts), and Python (.py) files.
 
             Output (stdout):
               One using/import line per output line, in source order.
@@ -75,10 +75,13 @@ internal static class GetUsingsCommand
               using System.Collections.Generic;
               using Mews.Accounting.Core.Payments;
 
-            Examples (TypeScript):
-              import React from 'react';
-              import { useState, useEffect } from 'react';
-              import type { PaymentGateway } from '../types';
+            Examples (TypeScript/Kotlin/Python):
+              import React from 'react';                                      // TypeScript
+              import { useState, useEffect } from 'react';                    // TypeScript
+              import type { PaymentGateway } from '../types';                 // TypeScript
+              import kotlinx.coroutines.*                                    // Kotlin
+              import os                                                      // Python
+              from django.db import models                                   // Python
 
             Notes:
               - Always reads from disk; reflects uncommitted edits immediately.

@@ -1,6 +1,5 @@
 using ContextKing.Core;
 using ContextKing.Core.Ast;
-using ContextKing.Core.Ast.TypeScript;
 using ContextKing.Cli.KeywordAtlas;
 using ContextKing.Core.SourceMap;
 using System.Text.RegularExpressions;
@@ -98,14 +97,20 @@ internal static class SignaturesCommand
         }
 
         // Always live — reads directly from disk, no cache.
-        // Split files by language and dispatch to the appropriate extractor.
         var csFiles = valid.Where(SupportedLanguages.IsCSharp).ToList();
-        var tsFiles = valid.Where(SupportedLanguages.IsTypeScript).ToList();
+        var otherFiles = valid.Where(f => !SupportedLanguages.IsCSharp(f)).ToList();
 
         if (csFiles.Count > 0)
             SignatureExtractor.Extract(csFiles, Console.Out, Console.Error);
-        if (tsFiles.Count > 0)
-            TsSignatureExtractor.Extract(tsFiles, Console.Out, Console.Error);
+        if (otherFiles.Count > 0)
+        {
+            // Group by extractor for better performance
+            foreach (var group in otherFiles.GroupBy(f => LanguageRegistry.Get(f)))
+            {
+                if (group.Key is not null)
+                    group.Key.ExtractSignatures(group.ToList(), Console.Out, Console.Error);
+            }
+        }
 
         // Guard: warn when many explicit files/globs were processed.
         if (valid.Count > 30)
@@ -125,11 +130,11 @@ internal static class SignaturesCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck signatures — extract method/property signatures from C# and TypeScript files (live, no cache)
+            ck signatures — extract method/property signatures from C#, TypeScript, Kotlin, and Python files (live, no cache)
 
             Usage:
               ck signatures <folder/>              — all supported files in the folder (recursive)
-              ck signatures <file.cs> [file2.ts …]  — specific files (.cs, .ts, .tsx)
+              ck signatures <file.cs> [file2.ts …]  — specific files (.cs, .ts, .tsx, .kt, .kts, .py)
               ck signatures <pattern/*.ts>          — glob pattern
               ck signatures --all <folder/>          — allow broad folder output intentionally
 
@@ -144,6 +149,8 @@ internal static class SignaturesCommand
             Supported languages:
               - C# (.cs)        — uses Roslyn for full-fidelity parsing
               - TypeScript (.ts, .tsx) — uses tree-sitter for AST extraction
+              - Kotlin (.kt, .kts) — uses tree-sitter for AST extraction
+              - Python (.py) — uses tree-sitter for AST extraction
 
             Notes:
               - Always reads from disk; reflects uncommitted edits immediately.

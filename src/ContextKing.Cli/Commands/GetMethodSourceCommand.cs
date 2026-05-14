@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ContextKing.Core;
 using ContextKing.Core.Ast;
-using ContextKing.Core.Ast.TypeScript;
 
 namespace ContextKing.Cli.Commands;
 
@@ -52,9 +51,14 @@ internal static class GetMethodSourceCommand
 
         try
         {
-            var results = SupportedLanguages.IsTypeScript(filePath)
-                ? TsMethodSourceExtractor.Extract(filePath, memberName, typeFilter, mode)
-                : MethodSourceExtractor.Extract(filePath, memberName, typeFilter, mode);
+            var extractor = LanguageRegistry.Get(filePath);
+            if (extractor is null)
+            {
+                Error($"unsupported file type: '{filePath}'. Supported: {string.Join(", ", LanguageRegistry.RegisteredExtensions)}");
+                return Task.FromResult(1);
+            }
+
+            var results = extractor.ExtractMethodSource(filePath, memberName, typeFilter, mode);
 
             if (results.Count == 0)
             {
@@ -62,9 +66,7 @@ internal static class GetMethodSourceCommand
                 Console.Error.WriteLine(
                     $"[ck get-method-source] No member '{memberName}' found{typeHint} in '{filePath}'.");
 
-                var allNames = SupportedLanguages.IsTypeScript(filePath)
-                    ? TsMethodSourceExtractor.GetAllMemberNames(filePath)
-                    : MethodSourceExtractor.GetAllMemberNames(filePath);
+                var allNames = extractor.GetAllMemberNames(filePath);
 
                 var suggestions = allNames
                     .Where(n => n.Contains(memberName, StringComparison.OrdinalIgnoreCase)
@@ -120,7 +122,7 @@ internal static class GetMethodSourceCommand
             Usage:
               ck get-method-source <file> <member-name> [options]
 
-            Supports C# (.cs), TypeScript (.ts), and TSX (.tsx) files.
+            Supports C# (.cs), TypeScript (.ts, .tsx), Kotlin (.kt, .kts), and Python (.py) files.
 
             Options:
               --type, -t <TypeName>   Filter to a specific containing type (disambiguates overloads)

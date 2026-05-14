@@ -1,6 +1,6 @@
 ---
 name: ck-read-full-file
-description: Read a complete C#/TypeScript source file when full-file context is required, with a large-file guardrail and explicit override.
+description: Read a complete C#, TypeScript, Kotlin, and Python source file when full-file context is required, with a large-file guardrail and explicit override.
 ---
 
 # ck read-full-file — Reference

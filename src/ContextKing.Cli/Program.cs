@@ -115,7 +115,7 @@ static int CompareVersions(string a, string b)
 static void PrintHelp()
 {
     Console.WriteLine($"""
-        ck — Context King: semantic code navigation for large C# and TypeScript codebases
+        ck — Context King: semantic code navigation for large C#, TypeScript, Kotlin, and Python codebases
 
         Commands:
           ck init                Initialize Context King in the current git repository
@@ -123,8 +123,8 @@ static void PrintHelp()
           ck find-files          Semantic search to find the most relevant source files
           ck get-keyword-map     Inspect related indexed keywords for each query term
           ck expand-folder       List files in a folder with filtered signatures
-          ck signatures          Extract method signatures from C#/TypeScript files (always live)
-          ck find-symbol         Find type/member declarations in C#/TypeScript files
+          ck signatures          Extract method signatures from source files (always live)
+          ck find-symbol         Find type/member declarations in source files
           ck refs                Find textual references of a symbol in scoped code folders
           ck get-method-source   Extract method/property source with exact span (always live)
           ck get-type-source     Extract a single type declaration source with exact span (always live)

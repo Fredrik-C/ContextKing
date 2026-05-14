@@ -1,6 +1,6 @@
 ---
 name: ck-refs
-description: Find textual references for a symbol in C# and TypeScript/TSX files within scoped folders or explicit paths.
+description: Find textual references for a symbol in C#, TypeScript, Kotlin, and Python/TSX files within scoped folders or explicit paths.
 ---
 
 # ck refs — Symbol Reference Locator

@@ -1,6 +1,6 @@
 ---
 name: ck-get-type-source
-description: Extract a single C# or TypeScript type declaration with exact source span. Use when you need one class/interface/record/enum/type alias without reading the full file.
+description: Extract a single C#, TypeScript, Kotlin, or Python type declaration with exact source span. Use when you need one class/interface/record/enum/type alias without reading the full file.
 ---
 
 # ck get-type-source — Reference
@@ -31,5 +31,5 @@ description: Extract a single C# or TypeScript type declaration with exact sourc
 ## Tips
 
 - Prefer this over `ck read-full-file` when you only need one declaration.
-- Works for C# and TypeScript/TSX files.
+- Works for C#, TypeScript, Kotlin, and Python/TSX files.
 - Use `--kind` to disambiguate names shared across declaration kinds.
