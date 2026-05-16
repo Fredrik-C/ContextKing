@@ -1,3 +1,5 @@
+using ContextKing.Core.Ast.TreeSitter;
+
 namespace ContextKing.Core.Ast;
 
 public static class LanguageRegistry
