@@ -1,6 +1,5 @@
 using ContextKing.Core;
 using ContextKing.Core.Ast;
-using ContextKing.Core.Ast.TypeScript;
 using ContextKing.Core.SourceMap;
 using ContextKing.Cli.KeywordAtlas;
 using System.Text.RegularExpressions;
@@ -119,13 +118,19 @@ internal static class ExpandFolderCommand
 
         // Capture all signature output into a string buffer
         var csFiles = allFiles.Where(SupportedLanguages.IsCSharp).ToList();
-        var tsFiles = allFiles.Where(SupportedLanguages.IsTypeScript).ToList();
+        var nonCsFiles = allFiles.Where(f => !SupportedLanguages.IsCSharp(f)).ToList();
 
         var captured = new StringWriter();
         if (csFiles.Count > 0)
             SignatureExtractor.Extract(csFiles, captured, Console.Error);
-        if (tsFiles.Count > 0)
-            TsSignatureExtractor.Extract(tsFiles, captured, Console.Error);
+        if (nonCsFiles.Count > 0)
+        {
+            foreach (var group in nonCsFiles.GroupBy(f => LanguageRegistry.Get(f)))
+            {
+                if (group.Key is not null)
+                    group.Key.ExtractSignatures(group.ToList(), captured, Console.Error);
+            }
+        }
 
         // Parse captured lines and group by normalised file path.
         // Line format: filepath:line\tcontainingType\tmemberName\tsignature

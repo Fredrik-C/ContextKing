@@ -1,6 +1,6 @@
 ---
 name: ck-signatures
-description: Extract all method/property signatures from C# and TypeScript files using live AST parsing. Use after ck find-files has identified the relevant folder, when evaluating multiple candidate files to avoid reading full file content.
+description: Extract all method/property signatures from C#, TypeScript, Kotlin, and Python files using live AST parsing. Use after ck find-files has identified the relevant folder, when evaluating multiple candidate files to avoid reading full file content.
 ---
 
 # ck signatures — Reference

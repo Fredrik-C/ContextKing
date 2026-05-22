@@ -194,33 +194,70 @@ if (-not $NoClaude) {
   (Get-Content $rulePath -Raw) -replace [regex]::Escape('~/.ck/bin/ck'), $CkBin | Set-Content $rulePath -NoNewline
   Write-Ok "Rule installed"
 
-  # Update settings.json
+  # Update settings.json (native PowerShell; no jq dependency)
   $Settings = "$ClaudeHome\settings.json"
   if (-not (Test-Path $Settings)) { '{}' | Set-Content $Settings }
+  $HookBase = "$ClaudeHome\hooks" -replace '\\','/'
 
-  if (Get-Command jq -ErrorAction SilentlyContinue) {
-    $HookBase = "$ClaudeHome\hooks" -replace '\\','/'
+  try {
+    $cfg = Get-Content -LiteralPath $Settings -Raw | ConvertFrom-Json -AsHashtable
+    if (-not $cfg) { $cfg = @{} }
 
-    jq ".permissions.allowedTools = ((.permissions.allowedTools // []) + [`"Bash(ck *)`"])" `
-      $Settings | Set-Content "$Settings.tmp"
-    Move-Item "$Settings.tmp" $Settings -Force
+    if (-not $cfg.ContainsKey('permissions') -or -not ($cfg['permissions'] -is [hashtable])) {
+      $cfg['permissions'] = @{}
+    }
+    $permissions = $cfg['permissions']
+    $allowedTools = @($permissions['allowedTools'] | Where-Object { $_ })
+    if ($allowedTools -notcontains 'Bash(ck *)') { $allowedTools += 'Bash(ck *)' }
+    $permissions['allowedTools'] = $allowedTools
+    $cfg['permissions'] = $permissions
 
-    jq --arg base $HookBase ".hooks.PreToolUse = ((.hooks.PreToolUse // []) + [
-      {`"matcher`":`"Bash`",`"hooks`":[{`"type`":`"command`",`"command`":(`$base + `"/ck-bash-guard.ps1`")}]},
-      {`"matcher`":`"Read`",`"hooks`":[{`"type`":`"command`",`"command`":(`$base + `"/ck-read-guard.ps1`")}]},
-      {`"matcher`":`"Grep`",`"hooks`":[{`"type`":`"command`",`"command`":(`$base + `"/ck-search-guard.ps1`")}]},
-      {`"matcher`":`"Glob`",`"hooks`":[{`"type`":`"command`",`"command`":(`$base + `"/ck-search-guard.ps1`")}]}
-    ])" $Settings | Set-Content "$Settings.tmp"
-    Move-Item "$Settings.tmp" $Settings -Force
+    if (-not $cfg.ContainsKey('hooks') -or -not ($cfg['hooks'] -is [hashtable])) {
+      $cfg['hooks'] = @{}
+    }
+    $hooks = $cfg['hooks']
+    if (-not $hooks.ContainsKey('PreToolUse')) { $hooks['PreToolUse'] = @() }
+    if (-not $hooks.ContainsKey('Stop')) { $hooks['Stop'] = @() }
 
-    $HookJson = "{`"type`":`"command`",`"command`":`"$HookBase/ck-postsession.ps1`"}"
-    jq ".hooks.Stop = ((.hooks.Stop // []) + [{`"matcher`":`"*`",`"hooks`":[$HookJson]}])" `
-      $Settings | Set-Content "$Settings.tmp"
-    Move-Item "$Settings.tmp" $Settings -Force
+    $preToolUse = @($hooks['PreToolUse'])
+    $preCleaned = @()
+    foreach ($entry in $preToolUse) {
+      $entryHooks = @($entry['hooks'])
+      $entryHooks = @($entryHooks | Where-Object { -not ([string]($_['command']) -match 'ck-bash-guard|ck-read-guard|ck-search-guard') })
+      if ($entryHooks.Count -gt 0) {
+        $entry['hooks'] = $entryHooks
+        $preCleaned += $entry
+      }
+    }
+    $preCleaned += @(
+      @{ matcher = 'Bash'; hooks = @(@{ type = 'command'; command = "$HookBase/ck-bash-guard.ps1" }) },
+      @{ matcher = 'Read'; hooks = @(@{ type = 'command'; command = "$HookBase/ck-read-guard.ps1" }) },
+      @{ matcher = 'Grep'; hooks = @(@{ type = 'command'; command = "$HookBase/ck-search-guard.ps1" }) },
+      @{ matcher = 'Glob'; hooks = @(@{ type = 'command'; command = "$HookBase/ck-search-guard.ps1" }) }
+    )
+    $hooks['PreToolUse'] = $preCleaned
 
+    $stopHooks = @($hooks['Stop'])
+    $stopCleaned = @()
+    foreach ($entry in $stopHooks) {
+      $entryHooks = @($entry['hooks'])
+      $entryHooks = @($entryHooks | Where-Object { -not ([string]($_['command']) -match 'ck-postsession') })
+      if ($entryHooks.Count -gt 0) {
+        $entry['hooks'] = $entryHooks
+        $stopCleaned += $entry
+      }
+    }
+    $stopCleaned += @{
+      matcher = '*'
+      hooks = @(@{ type = 'command'; command = "$HookBase/ck-postsession.ps1" })
+    }
+    $hooks['Stop'] = $stopCleaned
+
+    $cfg['hooks'] = $hooks
+    $cfg | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $Settings -Encoding UTF8
     Write-Ok "Registered hooks and permissions in $Settings"
-  } else {
-    Write-Warning "jq not found — hook registration in $Settings skipped. Install jq and re-run."
+  } catch {
+    Write-Warning "Could not update $Settings automatically. Ensure it contains valid JSON and re-run."
   }
 
   # Models

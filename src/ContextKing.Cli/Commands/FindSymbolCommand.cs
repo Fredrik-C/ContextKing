@@ -1,6 +1,5 @@
 using ContextKing.Core;
 using ContextKing.Core.Ast;
-using ContextKing.Core.Ast.TypeScript;
 using System.Globalization;
 
 namespace ContextKing.Cli.Commands;
@@ -128,13 +127,11 @@ internal static class FindSymbolCommand
 
     private static void CollectMemberHits(string file, string query, List<SymbolHit> hits)
     {
+        var extractor = LanguageRegistry.Get(file);
+        if (extractor is null) return;
+
         var writer = new StringWriter();
-        if (SupportedLanguages.IsCSharp(file))
-            SignatureExtractor.Extract([file], writer);
-        else if (SupportedLanguages.IsTypeScript(file))
-            TsSignatureExtractor.Extract([file], writer);
-        else
-            return;
+        extractor.ExtractSignatures([file], writer);
 
         foreach (var line in writer.ToString().Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
@@ -219,7 +216,7 @@ internal static class FindSymbolCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck find-symbol — find type/member declarations in C# and TypeScript/TSX files
+            ck find-symbol — find type/member declarations in C#, TypeScript, Kotlin, and Python files
 
             Usage:
               ck find-symbol <symbol> [--path <folder-or-file>] [--kind type|member] [--top <n>]

@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ContextKing.Core;
 using ContextKing.Core.Ast;
-using ContextKing.Core.Ast.TypeScript;
 
 namespace ContextKing.Cli.Commands;
 
@@ -48,27 +47,29 @@ internal static class GetConstructorsCommand
             return Task.FromResult(1);
         }
 
-        if (!SupportedLanguages.IsSupported(filePath))
+        if (!LanguageRegistry.IsSupported(filePath))
         {
-            Error($"unsupported file type: '{filePath}'. Supported: .cs, .ts, .tsx");
+            Error($"unsupported file type: '{filePath}'. Supported: {string.Join(", ", LanguageRegistry.RegisteredExtensions)}");
             return Task.FromResult(1);
         }
 
         try
         {
-            var results = SupportedLanguages.IsTypeScript(filePath)
-                ? TsMethodSourceExtractor.ExtractAllConstructors(filePath, typeFilter, mode)
-                : MethodSourceExtractor.ExtractAllConstructors(filePath, typeFilter, mode);
+            var extractor = LanguageRegistry.Get(filePath);
+            if (extractor is null)
+            {
+                Error($"unsupported file type: '{filePath}'. Supported: {string.Join(", ", LanguageRegistry.RegisteredExtensions)}");
+                return Task.FromResult(1);
+            }
+
+            var results = extractor.ExtractAllConstructors(filePath, typeFilter, mode);
 
             if (results.Count == 0)
             {
                 var typeHint = typeFilter is not null ? $" in type '{typeFilter}'" : string.Empty;
                 Console.Error.WriteLine($"[ck get-constructors] No constructors found{typeHint} in '{filePath}'.");
 
-                // Show all member names so the agent can see what's available without an extra round trip.
-                var allNames = SupportedLanguages.IsTypeScript(filePath)
-                    ? TsMethodSourceExtractor.GetAllMemberNames(filePath)
-                    : MethodSourceExtractor.GetAllMemberNames(filePath);
+                var allNames = extractor.GetAllMemberNames(filePath);
 
                 Console.Error.WriteLine($"[ck get-constructors] All members in '{filePath}':");
                 foreach (var name in allNames.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
@@ -107,12 +108,12 @@ internal static class GetConstructorsCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck get-constructors — extract all constructors from a C#/TypeScript file with exact spans
+            ck get-constructors — extract all constructors from a C#, TypeScript, Kotlin, or Python file with exact spans
 
             Usage:
               ck get-constructors <file> [options]
 
-            Supports C# (.cs), TypeScript (.ts), and TSX (.tsx) files.
+            Supports C# (.cs), TypeScript (.ts, .tsx), Kotlin (.kt, .kts), and Python (.py) files.
 
             Options:
               --type, -t <TypeName>   Filter to a specific containing type (when file has multiple classes)

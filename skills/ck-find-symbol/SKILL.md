@@ -1,6 +1,6 @@
 ---
 name: ck-find-symbol
-description: Find type/member declarations in C# and TypeScript/TSX files with ranked matches. Use when grep loops on the same token start forming.
+description: Find type/member declarations in C#, TypeScript, Kotlin, and Python/TSX files with ranked matches. Use when grep loops on the same token start forming.
 ---
 
 # ck find-symbol — Symbol Declaration Locator

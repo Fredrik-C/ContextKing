@@ -1,6 +1,5 @@
 using System.Text.Json;
 using ContextKing.Core.Ast;
-using ContextKing.Core.Ast.TypeScript;
 using ContextKing.Core.Embedding;
 using ContextKing.Core.Git;
 using System.Collections.Concurrent;
@@ -295,9 +294,8 @@ public sealed class SourceMapBuilder(string[]? excludeSegments = null)
                 repoRoot,
                 relPath.Replace('/', Path.DirectorySeparatorChar));
 
-            var extracted = SupportedLanguages.IsTypeScript(fileName)
-                ? TsPublicMethodNameExtractor.ExtractFromFile(absPath)
-                : PublicMethodNameExtractor.ExtractFromFile(absPath);
+            var extracted = LanguageRegistry.Get(absPath)
+                ?.ExtractPublicNamesFromFile(absPath) ?? [];
 
             foreach (var name in extracted)
             {
@@ -332,22 +330,13 @@ public sealed class SourceMapBuilder(string[]? excludeSegments = null)
 
             IReadOnlyList<string> distinctMethodNames;
             IReadOnlyList<string> distinctTypeNames;
-            if (SupportedLanguages.IsTypeScript(absPath))
-            {
-                var extracted = TsSignatureExtractor.ExtractTypeAndMethodNames(absPath);
-                distinctTypeNames = extracted.TypeNames;
-                distinctMethodNames = extracted.MethodNames;
-            }
-            else if (SupportedLanguages.IsCSharp(absPath))
-            {
-                var extracted = SignatureExtractor.ExtractTypeAndMethodNames(absPath);
-                distinctTypeNames = extracted.TypeNames;
-                distinctMethodNames = extracted.MethodNames;
-            }
-            else
-            {
+
+            var extractResult = LanguageRegistry.Get(absPath)?.ExtractTypeAndMethodNames(absPath);
+            if (extractResult is null)
                 return false;
-            }
+
+            distinctTypeNames = extractResult.Value.TypeNames;
+            distinctMethodNames = extractResult.Value.MethodNames;
             var typeCount = distinctTypeNames.Count;
             var signatureCount = distinctMethodNames.Count;
             if (typeCount == 0 && signatureCount == 0)

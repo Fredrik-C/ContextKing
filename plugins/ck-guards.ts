@@ -101,7 +101,7 @@ let lastBuildCheckTree: string | null = null
 let scopeBootstrapRequired = false
 let preScopeSearchViolationCount = 0
 
-const SOURCE_EXT_RE = /\.(cs|tsx?)(\b|$)/
+const SOURCE_EXT_RE = /\.(cs|tsx?|kt|kts|py)(\b|$)/
 const STATE_FILE = path.join(process.cwd(), ".ck-index", ".ck-guard-state.json")
 const CK_CONFIG_FILE = path.join(process.cwd(), ".ck.json")
 const CK_LEARN_PENDING_FILE = path.join(process.cwd(), ".ck-index", ".ck-learn-pending")
@@ -975,7 +975,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
 
       if (input.toolID === "grep" || input.toolID === "glob") {
         output.description =
-          `[CK PROTOCOL — mandatory for C#/TypeScript source files] ` +
+          `[CK PROTOCOL — mandatory for C#, TypeScript, Kotlin, Python source files] ` +
           `Do NOT call this tool for source file search. Use CK tools instead:\n` +
           `  ${CK} get-keyword-map --query "<terms>"           (step 0 — always first)\n` +
           `  ${CK} find-files --query "<terms>"                (step 1 — establishes scope)\n` +
@@ -986,7 +986,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
 
       if (input.toolID === "read") {
         output.description =
-          `[CK PROTOCOL] For C#/TypeScript exploration prefer CK targeted reads:\n` +
+          `[CK PROTOCOL] For C#, TypeScript, Kotlin, Python exploration prefer CK targeted reads:\n` +
           `  ${CK} signatures <file>  |  ${CK} get-method-source <file> <Method>  |  ${CK} read-full-file <file>\n` +
           `Native read is allowed only immediately before editing a known target file — not for exploration.\n\n` +
           output.description
@@ -1010,7 +1010,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
 
       output.system.unshift(
         `[Context King Protocol — highest priority] This repository has CK initialized. ` +
-        `For ANY C#/TypeScript source search: ` +
+        `For ANY C#, TypeScript, Kotlin, Python source search: ` +
         `step 0 = \`${CK} get-keyword-map --query "..."\`, ` +
         `step 1 = \`${CK} find-files --query "..."\`. ` +
         `These steps are MANDATORY before grep, glob, find, or native Read for exploration. ` +

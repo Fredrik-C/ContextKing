@@ -136,7 +136,7 @@ internal static class GetKeywordMapCommand
         return 0;
     }
 
-    private static IReadOnlyList<KeywordMapEntry> BuildKeywordMap(
+    internal static IReadOnlyList<KeywordMapEntry> BuildKeywordMap(
         IReadOnlyList<ScoredFile> results,
         IReadOnlyList<string> seedTerms,
         IReadOnlyCollection<string> excludedTerms,

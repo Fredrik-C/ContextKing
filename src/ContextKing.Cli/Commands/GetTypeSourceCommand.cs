@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using ContextKing.Core;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using TreeSitterLanguagePack;
 using TypeScriptParser;
 using TypeScriptParser.TreeSitter;
 
@@ -46,9 +47,15 @@ internal static class GetTypeSourceCommand
 
         try
         {
-            var results = SupportedLanguages.IsTypeScript(filePath)
-                ? ExtractTypeScript(filePath, typeName, typeFilter)
-                : ExtractCSharp(filePath, typeName, typeFilter);
+            IReadOnlyList<TypeSourceResult> results;
+            if (SupportedLanguages.IsTypeScript(filePath))
+                results = ExtractTypeScript(filePath, typeName, typeFilter);
+            else if (SupportedLanguages.IsKotlin(filePath))
+                results = ExtractTreeSitter(filePath, typeName, typeFilter, "kotlin");
+            else if (SupportedLanguages.IsPython(filePath))
+                results = ExtractTreeSitter(filePath, typeName, typeFilter, "python");
+            else
+                results = ExtractCSharp(filePath, typeName, typeFilter);
 
             if (results.Count == 0)
             {
@@ -108,10 +115,117 @@ internal static class GetTypeSourceCommand
         return results;
     }
 
+    private static IReadOnlyList<TypeSourceResult> ExtractTreeSitter(string filePath, string typeName, string? kindFilter, string languageName)
+    {
+        var source = File.ReadAllText(filePath);
+        using var parser = TreeSitterLanguagePack.Parser.Default();
+        parser.SetLanguage(languageName);
+        var tree = parser.Parse(source);
+        if (tree is null) return [];
+        var root = tree.RootNode();
+        if (root is null) return [];
+        var results = new List<TypeSourceResult>();
+
+        CollectTreeSitterMatches(root, source, filePath, typeName, kindFilter, languageName, results);
+        return results;
+    }
+
+    private static void CollectTreeSitterMatches(
+        Node node,
+        string source,
+        string filePath,
+        string typeName,
+        string? kindFilter,
+        string languageName,
+        List<TypeSourceResult> results)
+    {
+        var nodeKind = node.Kind();
+
+        string? kind = null;
+        if (languageName == "kotlin")
+        {
+            if (nodeKind == "class_declaration")
+            {
+                kind = IsTokenPresent(node, source, "enum")
+                    ? "enum"
+                    : IsTokenPresent(node, source, "interface") ? "interface" : "class";
+            }
+            else if (nodeKind == "object_declaration")
+            {
+                kind = "object";
+            }
+        }
+        else if (languageName == "python" && nodeKind == "class_definition")
+        {
+            kind = "class";
+        }
+
+        if (kind is not null)
+        {
+            var nameNode = node.ChildByFieldName("name") ?? FirstIdentifierChild(node);
+            if (nameNode is not null)
+            {
+                var name = source[(int)nameNode.StartByte()..(int)nameNode.EndByte()];
+                if (name.Equals(typeName, StringComparison.Ordinal) && MatchesKind(kind, kindFilter))
+                {
+                    var start = (int)node.StartByte();
+                    var end = (int)node.EndByte();
+                    results.Add(new TypeSourceResult(
+                        File: filePath,
+                        TypeName: typeName,
+                        Kind: kind,
+                        StartLine: CountLine(source, start),
+                        EndLine: CountLine(source, Math.Max(start, end - 1)),
+                        StartChar: start,
+                        EndChar: end,
+                        Content: source[start..end]));
+                }
+            }
+        }
+
+        var childCount = node.ChildCount();
+        for (uint i = 0; i < childCount; i++)
+        {
+            var child = node.Child(i);
+            if (child is not null)
+                CollectTreeSitterMatches(child, source, filePath, typeName, kindFilter, languageName, results);
+        }
+    }
+
+    private static bool IsTokenPresent(Node node, string source, string token)
+    {
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is null) continue;
+            if (child.Kind() == token)
+                return true;
+            if (source[(int)child.StartByte()..(int)child.EndByte()] == token)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static Node? FirstIdentifierChild(Node node)
+    {
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is null) continue;
+            if (child.Kind() is "identifier" or "simple_identifier" or "type_identifier")
+                return child;
+        }
+
+        return null;
+    }
+
     private static IReadOnlyList<TypeSourceResult> ExtractTypeScript(string filePath, string typeName, string? kindFilter)
     {
         var source = File.ReadAllText(filePath);
-        using var parser = new Parser();
+        using var parser = new TypeScriptParser.Parser();
         var tree = parser.ParseString(source);
         var root = tree.root_node();
         var results = new List<TypeSourceResult>();
@@ -193,6 +307,8 @@ internal static class GetTypeSourceCommand
 
             Usage:
               ck get-type-source <file> <TypeName> [--kind <class|interface|struct|record|enum|type_alias>]
+
+            Supports C# (.cs), TypeScript (.ts, .tsx), Kotlin (.kt, .kts), and Python (.py) files.
 
             Output: JSON array with file, type_name, kind, start/end lines/chars, and content.
             """);

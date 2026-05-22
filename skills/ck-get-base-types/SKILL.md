@@ -1,6 +1,6 @@
 ---
 name: ck-get-base-types
-description: Extract type declarations with base classes and interfaces from a C# or TypeScript file. Use when you need to understand inheritance hierarchy or find where a class fits in the type system.
+description: Extract type declarations with base classes and interfaces from a C#, TypeScript, Kotlin, or Python file. Use when you need to understand inheritance hierarchy or find where a class fits in the type system.
 ---
 
 # ck get-base-types — Reference

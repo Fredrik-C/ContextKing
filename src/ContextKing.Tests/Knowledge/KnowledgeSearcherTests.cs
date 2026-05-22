@@ -116,7 +116,7 @@ public sealed class KnowledgeSearcherTests : IClassFixture<EmbedderFixture>, IDi
         _repo.WriteFile("src/Placeholder/Placeholder.cs");
         _repo.StageAndCommit();
 
-        var builder = new SourceMapBuilder(_fixture.Embedder);
+        var builder = new SourceMapBuilder();
         builder.BuildAsync(_repo.Root).GetAwaiter().GetResult();
 
         var dbPath = SourceMapBuilder.GetDbPath(_repo.Root);
@@ -141,3 +141,4 @@ public sealed class KnowledgeSearcherTests : IClassFixture<EmbedderFixture>, IDi
 
     public void Dispose() => _repo.Dispose();
 }
+

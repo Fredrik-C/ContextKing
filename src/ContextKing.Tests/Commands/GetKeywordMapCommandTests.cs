@@ -11,39 +11,27 @@ public class GetKeywordMapCommandTests
     {
         var results = new[]
         {
-            new ScoredFolderDetails(
-                "src/A",
+            new ScoredFile(
+                "src/A/StripeRefundGateway.cs",
                 0.94f,
-                0.84f,
-                0.10f,
-                0f,
-                0f,
                 4,
                 40,
-                ["stripe", "refund"],
-                ["gateway", "terminal", "request", "entity"]),
-            new ScoredFolderDetails(
-                "src/B",
+                "stripe refund gateway terminal request entity",
+                "ProcessRefund;BuildTerminalRequest"),
+            new ScoredFile(
+                "src/B/StripeProcessor.cs",
                 0.83f,
-                0.73f,
-                0.10f,
-                0f,
-                0f,
                 3,
                 30,
-                ["stripe"],
-                ["gateway", "processor", "response"]),
-            new ScoredFolderDetails(
-                "src/C",
+                "stripe gateway processor response",
+                "ProcessPayment"),
+            new ScoredFile(
+                "src/C/RefundNotifications.cs",
                 0.79f,
-                0.69f,
-                0.10f,
-                0f,
-                0f,
                 2,
                 20,
-                ["refund"],
-                ["capture", "notification", "gateway"])
+                "refund capture notification gateway",
+                "EmitRefundNotification")
         };
 
         var map = GetKeywordMapCommand.BuildKeywordMap(
@@ -55,11 +43,13 @@ public class GetKeywordMapCommandTests
         map.Should().HaveCount(2);
         map[0].Seed.Should().Be("stripe");
         map[0].Related.Should().Contain("terminal");
-        map[0].Related.Should().Contain("processor");
+        map[0].Related.Should().Contain("processrefund");
         map[0].Related.Should().NotContain("stripe");
 
         map[1].Seed.Should().Be("refund");
-        map[1].Related.Should().Contain("notification");
+        map[1].Related.Should().NotBeEmpty();
+        map[1].Related.Should().Contain("terminal");
+        map[1].Related.Should().NotContain("refund");
         map[1].Related.Should().NotContain("stripe");
     }
 

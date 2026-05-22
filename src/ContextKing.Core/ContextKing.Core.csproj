@@ -13,10 +13,21 @@
     <PackageReference Include="TypeScriptParser" Version="0.4.2.39" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.18.0" />
+    <PackageReference Include="TreeSitterLanguagePack" Version="1.8.1" GeneratePathProperty="true" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="SourceMap/lowrank_dictionary.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- TreeSitterLanguagePack 1.8.1 ships native assets under runtimes/runtimes/...;
+         copy them into the expected runtimes/... layout for app execution and publish. -->
+    <None Include="$(PkgTreeSitterLanguagePack)\runtimes\runtimes\**\ts_pack_core_ffi.*">
+      <Link>runtimes\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
