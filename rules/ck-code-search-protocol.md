@@ -34,6 +34,17 @@ Use whichever resolves in your environment.
 **Keyword-map first, file-first retrieval second.** Start with `ck get-keyword-map`, then run `ck find-files` using the same intent.
 Use `find-files`/`expand-folder` only as fallback when file-level ranking is weak/noisy or when broad impact analysis is required.
 
+**`find-files --query` must be lexical.** Phrase queries as code-like tokens that can match indexed fields:
+path/folder words, file-name words, type names, and method/member words. Avoid natural-language
+questions. Prefer 3-7 concrete terms (domain + workflow + operation/symbol), for example:
+- Good: `adyen terminal card-present refund`
+- Good: `inventory reservation allocate async`
+- Weak: `where is the refund logic implemented`
+- Weak: `how does this feature work`
+
+**`get-keyword-map --query` uses the same lexical rule.** Keep wording aligned with code/index tokens
+(path/file/type/member vocabulary), since keyword expansion quality depends on those lexical anchors.
+
 **Step 2.5 is mandatory once you have confirmed the folder you will work in** — unless the repo has `"brain": false` in `.ck.json`, in which case all recall/learn/forget commands exit silently and step 2.5 is skipped.
 Run it after `ck expand-folder` or `ck signatures` has confirmed relevance — not after every
 `find-files` result. One `ck recall --folder` call per folder you actually intend to edit.

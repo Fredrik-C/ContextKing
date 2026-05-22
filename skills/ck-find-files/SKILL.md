@@ -21,6 +21,23 @@ Use this as the default entrypoint for source discovery.
   `<score>\t<relative-file-path>` (plus explain metadata when enabled).
 - Triggers index refresh automatically when needed.
 
+## Query Wording (Important)
+
+- Write `--query` using lexical terms likely to exist in code:
+  folder/path words, file-name words, type names, and method/member words.
+- Prefer concrete identifiers and domain nouns/verbs over abstract intent phrasing.
+- Use 3-7 high-signal terms (domain + workflow + operation/symbol).
+
+Good:
+- `terminal card-present refund adyen`
+- `inventory reservation allocate async`
+- `render invoice template`
+
+Weak:
+- `where is the refund logic implemented`
+- `how does this feature work`
+- `find code related to payments`
+
 ## Options
 
 | Option | Description |

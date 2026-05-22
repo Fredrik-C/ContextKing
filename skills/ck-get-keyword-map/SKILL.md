@@ -25,6 +25,21 @@ Default discovery is `ck find-files`; run `ck get-keyword-map` when you need to 
 | `--repo <path>` | auto | Repo root |
 | `--verbose` | off | Prints index build/refresh progress |
 
+## Query Wording (Important)
+
+- Use lexical query terms that likely exist in indexed code metadata:
+  path/folder words, file-name words, type names, and method/member words.
+- Avoid natural-language questions; this command works best with concrete code-like tokens.
+- Use 3-7 high-signal terms (domain + workflow + operation/symbol).
+
+Good:
+- `adyen terminal card-present refund`
+- `inventory reservation allocate async`
+
+Weak:
+- `where is refund logic`
+- `how does this feature work`
+
 ## Output shape
 
 - `matched-query-keywords`: query terms that were found in top folders

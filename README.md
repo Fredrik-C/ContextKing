@@ -284,6 +284,8 @@ ck find-files "<query>" [--must <text>] [--top <n>] [--min-score <f>] [--path <f
 Lexical file retrieval using weighted term matching across path, file, type, and method fields.
 `--must` applies soft score boosts (it does not hard-filter to zero results).
 Output rows are `<score>\t<relative-file-path>`, optionally with `types=<n> signatures=<n>` when `--explain` is set.
+Write `--query` as lexical code terms (path/file/type/member words), not natural-language questions.
+Example: use `terminal refund adyen async` instead of `where is the refund logic implemented`.
 Use this as the default discovery step.
 
 ### `ck get-keyword-map`
@@ -293,6 +295,7 @@ ck get-keyword-map --query "<multi-keyword description>" [--must <text>] [--top 
 ```
 
 Builds a keyword neighborhood map from the top file-first results for your query. Output includes matched query keywords, unmatched query keywords, global keyword hints, and a per-seed map (`seed: related1, related2, ...`). Default `--per-keyword` is `12` with adaptive quality cut-off (returns fewer when signal is weak). The command also persists a session keyword atlas in `.ck-index/session-keyword-atlas.json`, which is reused by later refinements until direction shifts.
+Use the same lexical query style as `find-files`: path/file/type/member words, not natural-language questions.
 
 ### `ck expand-folder`
 
