@@ -2,6 +2,8 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TreeSitterLanguagePack;
+using TypeScriptParser;
+using TypeScriptParser.TreeSitter;
 
 namespace ContextKing.Core.Ast;
 
@@ -16,10 +18,7 @@ public static class TypeHierarchyExtractor
         var source = File.ReadAllText(filePath);
 
         if (SupportedLanguages.IsTypeScript(filePath))
-        {
-            var lang = filePath.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ? "tsx" : "typescript";
-            return ExtractTreeSitter(source, filePath, lang);
-        }
+            return ExtractTypeScript(source, filePath);
 
         if (SupportedLanguages.IsKotlin(filePath))
             return ExtractTreeSitter(source, filePath, "kotlin");
@@ -34,7 +33,7 @@ public static class TypeHierarchyExtractor
 
     private static IReadOnlyList<TypeHierarchyEntry> ExtractTreeSitter(string source, string filePath, string languageName)
     {
-        using var parser = Parser.Default();
+        using var parser = TreeSitterLanguagePack.Parser.Default();
         parser.SetLanguage(languageName);
         var tree = parser.Parse(source);
         if (tree is null) return [];
@@ -45,7 +44,6 @@ public static class TypeHierarchyExtractor
 
         return languageName switch
         {
-            "typescript" => CollectTsTypes(root, source, filePath, results),
             "kotlin" => CollectKtTypes(root, source, filePath, results),
             "python" => CollectPyTypes(root, source, filePath, results),
             _ => []
@@ -112,48 +110,62 @@ public static class TypeHierarchyExtractor
 
     // ── TypeScript ────────────────────────────────────────────────────────────
 
-    private static IReadOnlyList<TypeHierarchyEntry> CollectTsTypes(Node node, string source, string filePath, List<TypeHierarchyEntry> results)
+    private static IReadOnlyList<TypeHierarchyEntry> ExtractTypeScript(string source, string filePath)
     {
-        var kind = node.Kind();
+        using var parser = new TypeScriptParser.Parser();
+        var tree = parser.ParseString(source);
+        var root = tree.root_node();
+        var results = new List<TypeHierarchyEntry>();
 
-        if (kind == "class_declaration")
-        {
-            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
-            var baseTypes = CollectClassHeritage(node, source);
-            var line = (int)node.StartPosition().Row + 1;
-            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "class", baseTypes, line));
-        }
-        else if (kind == "interface_declaration")
-        {
-            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
-            var baseTypes = CollectInterfaceExtends(node, source);
-            var line = (int)node.StartPosition().Row + 1;
-            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "interface", baseTypes, line));
-        }
-        else if (kind == "enum_declaration")
-        {
-            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
-            var line = (int)node.StartPosition().Row + 1;
-            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "enum", [], line));
-        }
-
-        WalkChildren(node, child => CollectTsTypes(child, source, filePath, results));
+        CollectTsTypes(root, source, filePath, results);
         return results;
     }
 
-    private static List<string> CollectClassHeritage(Node classNode, string source)
+    private static IReadOnlyList<TypeHierarchyEntry> CollectTsTypes(TSNode node, string source, string filePath, List<TypeHierarchyEntry> results)
+    {
+        var nodeType = node.type();
+
+        if (nodeType == "class_declaration")
+        {
+            var name = GetTsFieldText(node, "name", source) ?? "<anonymous>";
+            var baseTypes = CollectClassHeritage(node, source);
+            var line = (int)node.start_point().row + 1;
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "class", baseTypes, line));
+        }
+        else if (nodeType == "interface_declaration")
+        {
+            var name = GetTsFieldText(node, "name", source) ?? "<anonymous>";
+            var baseTypes = CollectInterfaceExtends(node, source);
+            var line = (int)node.start_point().row + 1;
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "interface", baseTypes, line));
+        }
+        else if (nodeType == "enum_declaration")
+        {
+            var name = GetTsFieldText(node, "name", source) ?? "<anonymous>";
+            var line = (int)node.start_point().row + 1;
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "enum", [], line));
+        }
+
+        for (uint i = 0; i < node.child_count(); i++)
+            CollectTsTypes(node.child(i), source, filePath, results);
+        return results;
+    }
+
+    private static List<string> CollectClassHeritage(TSNode classNode, string source)
     {
         var baseTypes = new List<string>();
 
-        WalkChildren(classNode, child =>
+        for (uint i = 0; i < classNode.child_count(); i++)
         {
-            var ct = child.Kind();
+            var child = classNode.child(i);
+            var ct = child.type();
 
             if (ct == "class_heritage")
             {
-                WalkChildren(child, heritage =>
+                for (uint j = 0; j < child.child_count(); j++)
                 {
-                    var ht = heritage.Kind();
+                    var heritage = child.child(j);
+                    var ht = heritage.type();
 
                     if (ht == "extends_clause")
                     {
@@ -163,60 +175,68 @@ public static class TypeHierarchyExtractor
                     }
                     else if (ht == "implements_clause")
                     {
-                        WalkChildren(heritage, impl =>
+                        for (uint k = 0; k < heritage.child_count(); k++)
                         {
-                            if (impl.Kind() is "type_identifier" or "generic_type" or "member_type")
+                            var impl = heritage.child(k);
+                            if (impl.type() is "type_identifier" or "generic_type" or "member_type")
                             {
-                                var text = NodeSourceSlice(source, impl).Trim();
+                                var text = impl.text(source).Trim();
                                 if (text.Length > 0)
                                     baseTypes.Add(text);
                             }
-                        });
+                        }
                     }
-                });
+                }
             }
-        });
+        }
 
         return baseTypes;
     }
 
-    private static List<string> CollectInterfaceExtends(Node ifaceNode, string source)
+    private static List<string> CollectInterfaceExtends(TSNode ifaceNode, string source)
     {
         var baseTypes = new List<string>();
 
-        WalkChildren(ifaceNode, child =>
+        for (uint i = 0; i < ifaceNode.child_count(); i++)
         {
-            if (child.Kind() == "extends_type_clause")
+            var child = ifaceNode.child(i);
+            if (child.type() == "extends_type_clause")
             {
-                WalkChildren(child, t =>
+                for (uint j = 0; j < child.child_count(); j++)
                 {
-                    if (t.Kind() is "type_identifier" or "generic_type" or "member_type")
+                    var t = child.child(j);
+                    if (t.type() is "type_identifier" or "generic_type" or "member_type")
                     {
-                        var text = NodeSourceSlice(source, t).Trim();
+                        var text = t.text(source).Trim();
                         if (text.Length > 0)
                             baseTypes.Add(text);
                     }
-                });
+                }
             }
-        });
+        }
 
         return baseTypes;
     }
 
-    private static string? ExtractHeritageTypeText(Node extendsClause, string source)
+    private static string? ExtractHeritageTypeText(TSNode extendsClause, string source)
     {
-        var count = extendsClause.ChildCount();
+        var count = extendsClause.child_count();
         for (uint i = 0; i < count; i++)
         {
-            var child = extendsClause.Child(i);
-            if (child is null) continue;
-            var ct = child.Kind();
+            var child = extendsClause.child(i);
+            var ct = child.type();
             if (ct is "type_identifier" or "generic_type" or "member_type" or "identifier")
             {
-                return NodeSourceSlice(source, child).Trim();
+                return child.text(source).Trim();
             }
         }
         return null;
+    }
+
+    private static string? GetTsFieldText(TSNode node, string fieldName, string source)
+    {
+        var child = node.child_by_field_name(fieldName);
+        return child.is_null() ? null : child.text(source);
     }
 
     // ── Kotlin ────────────────────────────────────────────────────────────────
@@ -225,26 +245,22 @@ public static class TypeHierarchyExtractor
     {
         var kind = node.Kind();
 
-        if (kind is "class_declaration" or "object_declaration")
+        if (kind == "class_declaration")
         {
-            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
+            var name = GetKotlinTypeName(node, source) ?? "<anonymous>";
             var baseTypes = CollectKotlinHeritage(node, source);
             var line = (int)node.StartPosition().Row + 1;
-            var typeKind = kind == "object_declaration" ? "object" : "class";
+            var typeKind = IsKotlinTokenPresent(node, source, "enum")
+                ? "enum"
+                : IsKotlinTokenPresent(node, source, "interface") ? "interface" : "class";
             results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, typeKind, baseTypes, line));
         }
-        else if (kind == "interface_declaration")
+        else if (kind == "object_declaration")
         {
-            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
-            var baseTypes = CollectKotlinInterfaces(node, source);
+            var name = GetKotlinTypeName(node, source) ?? "<anonymous>";
+            var baseTypes = CollectKotlinHeritage(node, source);
             var line = (int)node.StartPosition().Row + 1;
-            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "interface", baseTypes, line));
-        }
-        else if (kind == "enum_class")
-        {
-            var name = GetNodeFieldText(node, "name", source) ?? "<anonymous>";
-            var line = (int)node.StartPosition().Row + 1;
-            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "enum class", [], line));
+            results.Add(new TypeHierarchyEntry(filePath.Replace('\\', '/'), name, "object", baseTypes, line));
         }
 
         WalkChildren(node, child => CollectKtTypes(child, source, filePath, results));
@@ -283,7 +299,7 @@ public static class TypeHierarchyExtractor
                     {
                         var text = NodeSourceSlice(source, t).Trim();
                         // Strip trailing ? for nullable types
-                        if (ct == "nullable_type" && text.EndsWith('?'))
+                        if (t.Kind() == "nullable_type" && text.EndsWith('?'))
                             text = text[..^1].Trim();
                         if (text.Length > 0)
                             baseTypes.Add(text);
@@ -293,11 +309,6 @@ public static class TypeHierarchyExtractor
         });
 
         return baseTypes;
-    }
-
-    private static List<string> CollectKotlinInterfaces(Node ifaceNode, string source)
-    {
-        return CollectKotlinHeritage(ifaceNode, source); // same pattern for super_interfaces
     }
 
     // ── Python ────────────────────────────────────────────────────────────────
@@ -345,5 +356,39 @@ public static class TypeHierarchyExtractor
         var start = (int)node.StartByte();
         var end = (int)node.EndByte();
         return source[start..end];
+    }
+
+    private static string? GetKotlinTypeName(Node node, string source)
+    {
+        var byField = GetNodeFieldText(node, "name", source);
+        if (!string.IsNullOrWhiteSpace(byField))
+            return byField;
+
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is null) continue;
+            if (child.Kind() is "type_identifier" or "simple_identifier" or "identifier")
+                return NodeSourceSlice(source, child);
+        }
+
+        return null;
+    }
+
+    private static bool IsKotlinTokenPresent(Node node, string source, string token)
+    {
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is null) continue;
+            if (child.Kind() == token)
+                return true;
+            if (NodeSourceSlice(source, child) == token)
+                return true;
+        }
+
+        return false;
     }
 }

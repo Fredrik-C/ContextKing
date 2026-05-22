@@ -35,6 +35,52 @@ public abstract class TreeSitterExtractor : ILanguageExtractor
     /// <summary>Build a human-readable signature for a member node.</summary>
     protected abstract string BuildMemberSignature(Node node, string source);
 
+    /// <summary>
+    /// Resolves a declaration name from node fields/children.
+    /// Default implementation checks the "name" field then common identifier child kinds.
+    /// </summary>
+    protected virtual string? GetNodeName(Node node, string source)
+    {
+        var byField = GetFieldText(node, "name", source);
+        if (!string.IsNullOrWhiteSpace(byField))
+            return byField;
+
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is null) continue;
+            if (child.Kind() is "identifier" or "simple_identifier" or "type_identifier" or "property_identifier")
+                return SourceSlice(source, child);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="node"/> represents a constructor for this language.
+    /// Implementations should set <paramref name="constructorName"/> to the user-facing member name.
+    /// </summary>
+    protected virtual bool TryMatchConstructor(
+        Node node,
+        string source,
+        string containingType,
+        out string constructorName)
+    {
+        constructorName = "constructor";
+        if (node.Kind() != "method_definition")
+            return false;
+
+        var name = GetFieldText(node, "name", source);
+        if (name == "constructor" || name is null)
+        {
+            constructorName = name ?? "constructor";
+            return true;
+        }
+
+        return false;
+    }
+
     // ── ILanguageExtractor implementation ─────────────────────────────────────
 
     public (IReadOnlyList<string> TypeNames, IReadOnlyList<string> MethodNames) ExtractTypeAndMethodNames(string path)
@@ -168,7 +214,7 @@ public abstract class TreeSitterExtractor : ILanguageExtractor
 
         if (IsContainerNode(kind))
         {
-            var name = GetFieldText(node, "name", source) ?? "<anonymous>";
+            var name = GetNodeName(node, source) ?? "<anonymous>";
             var newContainer = containingType == "<global>" ? name : $"{containingType}.{name}";
             WalkChildren(node, child => WalkSignatures(child, source, path, newContainer, writer));
             return;
@@ -193,7 +239,7 @@ public abstract class TreeSitterExtractor : ILanguageExtractor
 
         if (Array.IndexOf(TypeDeclarationNodeTypes, kind) >= 0)
         {
-            var name = GetFieldText(node, "name", source);
+            var name = GetNodeName(node, source);
             if (!string.IsNullOrWhiteSpace(name))
                 typeNames.Add(name);
         }
@@ -219,7 +265,7 @@ public abstract class TreeSitterExtractor : ILanguageExtractor
 
         if (IsContainerNode(kind))
         {
-            var typeName = GetFieldText(node, "name", source) ?? "<anonymous>";
+            var typeName = GetNodeName(node, source) ?? "<anonymous>";
             var newContainer = containingType == "<global>" ? typeName : $"{containingType}.{typeName}";
             WalkChildren(node, child => FindMembers(child, source, filePath, memberName, typeFilter, mode, newContainer, results));
             return;
@@ -251,26 +297,21 @@ public abstract class TreeSitterExtractor : ILanguageExtractor
 
         if (IsContainerNode(kind))
         {
-            var typeName = GetFieldText(node, "name", source) ?? "<anonymous>";
+            var typeName = GetNodeName(node, source) ?? "<anonymous>";
             var newContainer = containingType == "<global>" ? typeName : $"{containingType}.{typeName}";
             WalkChildren(node, child => FindConstructors(child, source, filePath, typeFilter, mode, newContainer, results));
             return;
         }
 
-        if (kind == "method_definition")
+        if (TryMatchConstructor(node, source, containingType, out var constructorName))
         {
-            var name = GetFieldText(node, "name", source);
-            if (name == "constructor" || (name is null && kind == "method_definition"))
+            if (typeFilter is null ||
+                containingType.Equals(typeFilter, StringComparison.Ordinal) ||
+                containingType.EndsWith("." + typeFilter, StringComparison.Ordinal))
             {
-                if (typeFilter is null ||
-                    containingType.Equals(typeFilter, StringComparison.Ordinal) ||
-                    containingType.EndsWith("." + typeFilter, StringComparison.Ordinal))
-                {
-                    var effectiveName = name ?? "constructor";
-                    var result = BuildResult(node, source, filePath, effectiveName, containingType, mode);
-                    if (result is not null)
-                        results.Add(result);
-                }
+                var result = BuildResult(node, source, filePath, constructorName, containingType, mode);
+                if (result is not null)
+                    results.Add(result);
             }
             return;
         }
@@ -340,10 +381,8 @@ public abstract class TreeSitterExtractor : ILanguageExtractor
 
     private void AddPublicName(Node node, string source, List<string> names, HashSet<string> seen)
     {
-        var nameNode = node.ChildByFieldName("name");
-        if (nameNode is null) return;
-
-        var name = SourceSlice(source, nameNode);
+        var name = GetNodeName(node, source);
+        if (string.IsNullOrWhiteSpace(name)) return;
         if (name is "constructor") return;
         if (seen.Add(name))
             names.Add(name);

@@ -20,8 +20,7 @@ public static class LanguageRegistry
     {
         if (_initialized) return;
         Register(new CSharpRoslynExtractor(), ".cs");
-        Register(new TypeScriptExtractor("typescript"), ".ts");
-        Register(new TypeScriptExtractor("tsx"), ".tsx");
+        Register(new TypeScriptExtractor(), ".ts", ".tsx");
         Register(new KotlinExtractor(), ".kt", ".kts");
         Register(new PythonExtractor(), ".py");
         _initialized = true;

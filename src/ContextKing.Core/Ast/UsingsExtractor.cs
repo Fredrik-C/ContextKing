@@ -1,6 +1,8 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TreeSitterLanguagePack;
+using TypeScriptParser;
+using TypeScriptParser.TreeSitter;
 
 namespace ContextKing.Core.Ast;
 
@@ -19,10 +21,7 @@ public static class UsingsExtractor
         var source = File.ReadAllText(filePath);
 
         if (SupportedLanguages.IsTypeScript(filePath))
-        {
-            var lang = filePath.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ? "tsx" : "typescript";
-            return ExtractTreeSitterImports(source, lang);
-        }
+            return ExtractTypeScriptImports(source);
 
         if (SupportedLanguages.IsKotlin(filePath))
             return ExtractTreeSitterImports(source, "kotlin");
@@ -31,6 +30,37 @@ public static class UsingsExtractor
             return ExtractTreeSitterImports(source, "python");
 
         return ExtractCSharpUsings(source, filePath);
+    }
+
+    private static IReadOnlyList<string> ExtractTypeScriptImports(string source)
+    {
+        using var parser = new TypeScriptParser.Parser();
+        var tree = parser.ParseString(source);
+        var root = tree.root_node();
+        var results = new List<string>();
+
+        CollectTypeScriptImports(root, source, results);
+        return results;
+    }
+
+    private static void CollectTypeScriptImports(TSNode node, string source, List<string> results)
+    {
+        var nodeType = node.type();
+
+        if (nodeType == "import_statement")
+        {
+            var start = (int)node.start_offset();
+            var end = (int)node.end_offset();
+            results.Add(source[start..end].Trim());
+            return;
+        }
+
+        if (nodeType is "class_declaration" or "function_declaration" or "statement_block"
+                     or "method_definition" or "arrow_function")
+            return;
+
+        for (uint i = 0; i < node.child_count(); i++)
+            CollectTypeScriptImports(node.child(i), source, results);
     }
 
     private static IReadOnlyList<string> ExtractCSharpUsings(string source, string filePath)
@@ -46,7 +76,7 @@ public static class UsingsExtractor
 
     private static IReadOnlyList<string> ExtractTreeSitterImports(string source, string languageName)
     {
-        using var parser = Parser.Default();
+        using var parser = TreeSitterLanguagePack.Parser.Default();
         parser.SetLanguage(languageName);
         var tree = parser.Parse(source);
         if (tree is null) return [];

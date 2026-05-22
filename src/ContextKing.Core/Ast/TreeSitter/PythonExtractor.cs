@@ -106,4 +106,32 @@ public sealed class PythonExtractor : TreeSitterExtractor
 
         return string.Join(' ', parts);
     }
+
+    protected override bool TryMatchConstructor(
+        Node node,
+        string source,
+        string containingType,
+        out string constructorName)
+    {
+        constructorName = "__init__";
+        if (node.Kind() == "function_definition")
+        {
+            var name = GetFieldText(node, "name", source);
+            return name == "__init__";
+        }
+
+        if (node.Kind() == "decorated_definition")
+        {
+            var count = node.ChildCount();
+            for (uint i = 0; i < count; i++)
+            {
+                var child = node.Child(i);
+                if (child?.Kind() != "function_definition") continue;
+                var name = GetFieldText(child, "name", source);
+                return name == "__init__";
+            }
+        }
+
+        return false;
+    }
 }

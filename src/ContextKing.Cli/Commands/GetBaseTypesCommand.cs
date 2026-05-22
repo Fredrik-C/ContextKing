@@ -40,7 +40,7 @@ internal static class GetBaseTypesCommand
 
         if (!SupportedLanguages.IsSupported(filePath))
         {
-            Console.Error.WriteLine($"[ck get-base-types] Error: unsupported file type: '{filePath}'. Supported: .cs, .ts, .tsx");
+            Console.Error.WriteLine($"[ck get-base-types] Error: unsupported file type: '{filePath}'. Supported: {string.Join(", ", LanguageRegistry.RegisteredExtensions)}");
             return Task.FromResult(1);
         }
 

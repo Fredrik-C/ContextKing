@@ -4,6 +4,8 @@ using ContextKing.Core;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using TreeSitterLanguagePack;
+using TypeScriptParser;
+using TypeScriptParser.TreeSitter;
 
 namespace ContextKing.Cli.Commands;
 
@@ -47,10 +49,7 @@ internal static class GetTypeSourceCommand
         {
             IReadOnlyList<TypeSourceResult> results;
             if (SupportedLanguages.IsTypeScript(filePath))
-            {
-                var lang = filePath.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ? "tsx" : "typescript";
-                results = ExtractTreeSitter(filePath, typeName, typeFilter, lang);
-            }
+                results = ExtractTypeScript(filePath, typeName, typeFilter);
             else if (SupportedLanguages.IsKotlin(filePath))
                 results = ExtractTreeSitter(filePath, typeName, typeFilter, "kotlin");
             else if (SupportedLanguages.IsPython(filePath))
@@ -119,7 +118,7 @@ internal static class GetTypeSourceCommand
     private static IReadOnlyList<TypeSourceResult> ExtractTreeSitter(string filePath, string typeName, string? kindFilter, string languageName)
     {
         var source = File.ReadAllText(filePath);
-        using var parser = Parser.Default();
+        using var parser = TreeSitterLanguagePack.Parser.Default();
         parser.SetLanguage(languageName);
         var tree = parser.Parse(source);
         if (tree is null) return [];
@@ -142,32 +141,28 @@ internal static class GetTypeSourceCommand
     {
         var nodeKind = node.Kind();
 
-        var kindMap = languageName switch
+        string? kind = null;
+        if (languageName == "kotlin")
         {
-            "typescript" => new Dictionary<string, string>(StringComparer.Ordinal)
+            if (nodeKind == "class_declaration")
             {
-                ["class_declaration"] = "class",
-                ["interface_declaration"] = "interface",
-                ["type_alias_declaration"] = "type_alias",
-                ["enum_declaration"] = "enum"
-            },
-            "kotlin" => new Dictionary<string, string>(StringComparer.Ordinal)
+                kind = IsTokenPresent(node, source, "enum")
+                    ? "enum"
+                    : IsTokenPresent(node, source, "interface") ? "interface" : "class";
+            }
+            else if (nodeKind == "object_declaration")
             {
-                ["class_declaration"] = "class",
-                ["object_declaration"] = "object",
-                ["interface_declaration"] = "interface",
-                ["enum_class"] = "enum"
-            },
-            "python" => new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["class_definition"] = "class"
-            },
-            _ => new Dictionary<string, string>(StringComparer.Ordinal)
-        };
+                kind = "object";
+            }
+        }
+        else if (languageName == "python" && nodeKind == "class_definition")
+        {
+            kind = "class";
+        }
 
-        if (kindMap.TryGetValue(nodeKind, out var kind))
+        if (kind is not null)
         {
-            var nameNode = node.ChildByFieldName("name");
+            var nameNode = node.ChildByFieldName("name") ?? FirstIdentifierChild(node);
             if (nameNode is not null)
             {
                 var name = source[(int)nameNode.StartByte()..(int)nameNode.EndByte()];
@@ -195,6 +190,93 @@ internal static class GetTypeSourceCommand
             if (child is not null)
                 CollectTreeSitterMatches(child, source, filePath, typeName, kindFilter, languageName, results);
         }
+    }
+
+    private static bool IsTokenPresent(Node node, string source, string token)
+    {
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is null) continue;
+            if (child.Kind() == token)
+                return true;
+            if (source[(int)child.StartByte()..(int)child.EndByte()] == token)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static Node? FirstIdentifierChild(Node node)
+    {
+        var count = node.ChildCount();
+        for (uint i = 0; i < count; i++)
+        {
+            var child = node.Child(i);
+            if (child is null) continue;
+            if (child.Kind() is "identifier" or "simple_identifier" or "type_identifier")
+                return child;
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<TypeSourceResult> ExtractTypeScript(string filePath, string typeName, string? kindFilter)
+    {
+        var source = File.ReadAllText(filePath);
+        using var parser = new TypeScriptParser.Parser();
+        var tree = parser.ParseString(source);
+        var root = tree.root_node();
+        var results = new List<TypeSourceResult>();
+
+        CollectTypeScriptMatches(root, source, filePath, typeName, kindFilter, results);
+        return results;
+    }
+
+    private static void CollectTypeScriptMatches(
+        TSNode node,
+        string source,
+        string filePath,
+        string typeName,
+        string? kindFilter,
+        List<TypeSourceResult> results)
+    {
+        var nodeType = node.type();
+        var kind = nodeType switch
+        {
+            "class_declaration" => "class",
+            "interface_declaration" => "interface",
+            "type_alias_declaration" => "type_alias",
+            "enum_declaration" => "enum",
+            _ => null
+        };
+
+        if (kind is not null)
+        {
+            var nameNode = node.child_by_field_name("name");
+            if (!nameNode.is_null())
+            {
+                var name = source[(int)nameNode.start_offset()..(int)nameNode.end_offset()];
+                if (name.Equals(typeName, StringComparison.Ordinal) && MatchesKind(kind, kindFilter))
+                {
+                    var start = (int)node.start_offset();
+                    var end = (int)node.end_offset();
+                    results.Add(new TypeSourceResult(
+                        File: filePath,
+                        TypeName: typeName,
+                        Kind: kind,
+                        StartLine: CountLine(source, start),
+                        EndLine: CountLine(source, Math.Max(start, end - 1)),
+                        StartChar: start,
+                        EndChar: end,
+                        Content: source[start..end]));
+                }
+            }
+        }
+
+        for (uint i = 0; i < node.child_count(); i++)
+            CollectTypeScriptMatches(node.child(i), source, filePath, typeName, kindFilter, results);
     }
 
     private static bool MatchesKind(string kind, string? filter)
