@@ -29,19 +29,32 @@ internal static class RecallCommand
 
         if (!CkConfig.IsBrainEnabled(repoRoot)) return 0;
 
+        var store = new KnowledgeStore(repoRoot);
+        if (!store.Exists) return 0;
+        var allSnippets = store.ReadAll();
+        if (allSnippets.Count == 0) return 0;
+
+        var refreshed = new KnowledgeFreshnessEvaluator(repoRoot)
+            .RefreshAll(allSnippets, out var knowledgeChanged);
+        if (knowledgeChanged)
+            store.ReplaceAll(refreshed);
+
         // ── Folder mode: read directly from JSONL, no embedding needed ──────────
         if (!string.IsNullOrWhiteSpace(folder))
         {
-            var store    = new KnowledgeStore(repoRoot);
-            var snippets = store.ReadByFolder(folder);
+            var snippets = refreshed
+                .Where(s => s.Folders.Any(f => FolderMatches(f, folder!)))
+                .OrderByDescending(s => s.CreatedAt)
+                .ToArray();
 
-            if (snippets.Count == 0) return 0;
+            if (snippets.Length == 0) return 0;
 
             foreach (var s in snippets)
             {
                 var date = s.CreatedAt.Length >= 10 ? s.CreatedAt[..10] : s.CreatedAt;
                 var tags = s.Tags.Count > 0 ? $"  tags:{string.Join(",", s.Tags)}" : string.Empty;
-                Console.WriteLine($"[{date}] id:{s.Id}{tags}");
+                var status = s.Validity is null ? string.Empty : $"  status:{s.Validity.Status}";
+                Console.WriteLine($"[{date}] id:{s.Id}{tags}{status}");
                 Console.WriteLine(s.Content);
                 Console.WriteLine();
             }
@@ -55,9 +68,6 @@ internal static class RecallCommand
             Console.Error.WriteLine("[ck recall] No source-map index found — run ck index or ck find-files first to build it.");
             return 1;
         }
-
-        var store2 = new KnowledgeStore(repoRoot);
-        if (!store2.Exists) return 0;
 
         using var embedder = ModelLocator.CreateEmbedder();
         var builder = new KnowledgeIndexBuilder(embedder);
@@ -83,6 +93,18 @@ internal static class RecallCommand
         await Task.CompletedTask;
         return 0;
     }
+
+    private static bool FolderMatches(string snippetFolder, string queryFolder)
+    {
+        var snippet = NormalisePath(snippetFolder);
+        var query = NormalisePath(queryFolder);
+        return string.Equals(snippet, query, StringComparison.OrdinalIgnoreCase)
+            || snippet.StartsWith(query + "/", StringComparison.OrdinalIgnoreCase)
+            || query.StartsWith(snippet + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalisePath(string path) =>
+        path.Replace('\\', '/').TrimEnd('/');
 
     private static void PrintHelp()
     {

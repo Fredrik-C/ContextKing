@@ -31,6 +31,8 @@ Appends a new snippet to `.ck-knowledge/snippets.jsonl`. Called by the session-e
 
 The new snippet's UUID (stdout). Creates `.ck-knowledge/` if absent. Silent (exit 0) when the repo has `"brain": false` in `.ck.json`.
 
+`ck learn` writes through CK's schema-aware pipeline. Do not append/edit `.ck-knowledge/snippets.jsonl` directly with shell tools.
+
 ## What to record
 
 **Record:** architectural patterns not obvious from folder structure, the WHY behind decisions,

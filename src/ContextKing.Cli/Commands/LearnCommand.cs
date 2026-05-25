@@ -41,6 +41,7 @@ internal static class LearnCommand
             Folders    = folders,
             Source     = source,
             CreatedAt  = DateTime.UtcNow.ToString("O"),
+            SchemaVersion = 2,
         };
 
         new KnowledgeStore(repoRoot).Append(snippet);

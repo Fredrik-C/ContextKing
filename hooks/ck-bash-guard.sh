@@ -34,6 +34,29 @@ emit_guard_json() {
     }'
 }
 
+# ── Knowledge JSONL guardrail ────────────────────────────────────────────────
+# Prevent direct raw reads/writes of the knowledge store from shell tools.
+# Backfill and persistence are centralized in ck commands.
+if printf '%s' "$COMMAND" | grep -qE '(^|[[:space:]])((\./)?\.ck-knowledge[/\\]snippets\.jsonl)([[:space:]]|$)'; then
+  if ! printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])([^[:space:]]*/)?ck(\.exe)?[[:space:]]'; then
+    jq -n \
+      --arg reason "[ck-guard] BLOCKED — direct access to .ck-knowledge/snippets.jsonl is not allowed.
+
+Use CK commands so migration/backfill and writes stay centralized in CLI:
+  ck recall --folder <path>
+  ck learn --content \"...\" --folders \"...\"
+  ck forget --id <uuid>" \
+      '{
+        "hookSpecificOutput": {
+          "hookEventName": "PreToolUse",
+          "permissionDecision": "deny",
+          "permissionDecisionReason": $reason
+        }
+      }'
+    exit 0
+  fi
+fi
+
 # ── Stateful anti-loop guards ───────────────────────────────────────────────
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 [ -f "$REPO_ROOT/.ck.json" ] || exit 0

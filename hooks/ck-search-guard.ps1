@@ -14,6 +14,30 @@ $tool = $obj.tool_name
 if (-not $tool) { exit 0 }
 if ($tool -ne 'Grep' -and $tool -ne 'Glob') { exit 0 }
 
+# Block raw Grep/Glob access to the knowledge JSONL.
+$patternRaw = [string]$obj.tool_input.pattern
+$pathRaw = if ($obj.tool_input.path) { [string]$obj.tool_input.path } elseif ($obj.tool_input.cwd) { [string]$obj.tool_input.cwd } else { '' }
+$includeRaw = [string]$obj.tool_input.include
+if ($patternRaw -match '\.ck-knowledge[/\\]snippets\.jsonl' -or
+    $pathRaw -match '\.ck-knowledge[/\\]snippets\.jsonl' -or
+    $includeRaw -match '\.ck-knowledge[/\\]snippets\.jsonl') {
+    @{
+        hookSpecificOutput = @{
+            hookEventName      = 'PreToolUse'
+            permissionDecision = 'deny'
+            permissionDecisionReason = @"
+[ck-guard] BLOCKED — direct Grep/Glob access to .ck-knowledge/snippets.jsonl is not allowed.
+
+Use CK commands instead:
+  ck recall --folder <path>
+  ck learn --content "..." --folders "..."
+  ck forget --id <uuid>
+"@
+        }
+    } | ConvertTo-Json -Depth 3
+    exit 0
+}
+
 $denyMsg = @"
 [ck-guard] ALLOW (guidance) — source search works better with file-first boundaries.
 

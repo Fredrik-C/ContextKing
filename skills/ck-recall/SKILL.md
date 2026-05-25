@@ -38,7 +38,7 @@ relationships accumulated by previous sessions.
 
 **Folder mode:**
 ```
-[2026-04-22] id:550e8400  tags:interac,refund,terminal
+[2026-04-22] id:550e8400  tags:interac,refund,terminal  status:fresh
 Interac refunds require card-present because Interac's network rules mandate cardholder
 authentication at the terminal. Unlike Visa/MC which support online refunds, Interac has no
 offline refund path.
@@ -54,6 +54,6 @@ Silent (no output, exit 0) when no snippets exist — not an error. Also silent 
 
 ## Behaviour
 
-- `--folder` reads directly from `.ck-knowledge/snippets.jsonl` — no index, always fresh.
+- `--folder` reads directly from `.ck-knowledge/snippets.jsonl` and prints snippet freshness status (`fresh`, `review_needed`, `unknown`) from lazy validation metadata.
 - `--query` uses the knowledge index (auto-built from snippets.jsonl on first use).
 - If `.ck-knowledge/snippets.jsonl` does not exist yet, both modes exit silently.
