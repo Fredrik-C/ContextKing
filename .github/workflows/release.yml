@@ -12,6 +12,8 @@ on:
 
 jobs:
   build-binaries:
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     strategy:
       matrix:
         include:
@@ -34,6 +36,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate tag matches Program.Version
+        shell: bash
+        run: |
+          expected="${RELEASE_TAG#v}"
+          declared="$(sed -n 's/.*Version = "\([^"]*\)".*/\1/p' src/ContextKing.Cli/Program.cs | head -n 1)"
+          if [ -z "$declared" ]; then
+            echo "Could not extract Program.Version from src/ContextKing.Cli/Program.cs" >&2
+            exit 1
+          fi
+          if [ "$declared" != "$expected" ]; then
+            echo "Tag/version mismatch: tag=${RELEASE_TAG}, Program.Version=${declared}" >&2
+            exit 1
+          fi
 
       - uses: actions/setup-dotnet@v4
         with:
