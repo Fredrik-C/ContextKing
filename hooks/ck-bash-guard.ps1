@@ -21,14 +21,14 @@ $command = if ($obj.tool_input.command) { $obj.tool_input.command }
 if (-not $command) { exit 0 }
 
 # Knowledge JSONL guardrail: block direct raw reads/writes outside CK commands.
-if ($command -match '(^|\s)((\./)?\.ck-knowledge[/\\]snippets\.jsonl)(\s|$)') {
+if ($command -match '(^|\s)((\./)?\.ck-knowledge[/\\].*\.jsonl)(\s|$)') {
     if ($command -notmatch '(^|[;&|\s])([^ \t]+/)?ck(\.exe)?\s') {
         @{
             hookSpecificOutput = @{
                 hookEventName = 'PreToolUse'
                 permissionDecision = 'deny'
                 permissionDecisionReason = @"
-[ck-guard] BLOCKED — direct access to .ck-knowledge/snippets.jsonl is not allowed.
+[ck-guard] BLOCKED — direct access to CK knowledge JSONL files is not allowed.
 
 Use CK commands so migration/backfill and writes stay centralized in CLI:
   ck recall --folder <path>

@@ -120,7 +120,7 @@ internal static class RecallCommand
                                 No index required. Preferred mode: use after confirming a
                                 target folder via ck expand-folder or ck signatures.
               --query <text>    Semantic cross-folder search. Requires the knowledge index
-                                (auto-built from .ck-knowledge/snippets.jsonl).
+                                (auto-built from all .ck-knowledge/**/*.jsonl files).
               --top <n>         Max results for --query mode (default: 10)
               --repo <path>     Path to git repo root (default: git rev-parse from cwd)
               --help, -h        Show this help

@@ -60,7 +60,7 @@ internal static class LearnCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck learn — append a knowledge snippet to .ck-knowledge/snippets.jsonl
+            ck learn — append a knowledge snippet to a session JSONL file under .ck-knowledge/
 
             Usage:
               ck learn --content "<text>" [--tags <t1,t2,...>] [--folders <f1,f2,...>]
@@ -77,7 +77,7 @@ internal static class LearnCommand
               --help, -h             Show this help
 
             Output:
-              The new snippet's UUID (stdout). Creates .ck-knowledge/ if absent.
+              The new snippet's UUID (stdout). Creates .ck-knowledge/sessions/ if absent.
 
             Guidelines:
               Record: domain rules not obvious from code, architectural decisions + reasons,

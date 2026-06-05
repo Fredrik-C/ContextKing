@@ -37,10 +37,10 @@ emit_guard_json() {
 # ── Knowledge JSONL guardrail ────────────────────────────────────────────────
 # Prevent direct raw reads/writes of the knowledge store from shell tools.
 # Backfill and persistence are centralized in ck commands.
-if printf '%s' "$COMMAND" | grep -qE '(^|[[:space:]])((\./)?\.ck-knowledge[/\\]snippets\.jsonl)([[:space:]]|$)'; then
+if printf '%s' "$COMMAND" | grep -qE '(^|[[:space:]])((\./)?\.ck-knowledge[/\\].*\.jsonl)([[:space:]]|$)'; then
   if ! printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])([^[:space:]]*/)?ck(\.exe)?[[:space:]]'; then
     jq -n \
-      --arg reason "[ck-guard] BLOCKED — direct access to .ck-knowledge/snippets.jsonl is not allowed.
+      --arg reason "[ck-guard] BLOCKED — direct access to CK knowledge JSONL files is not allowed.
 
 Use CK commands so migration/backfill and writes stay centralized in CLI:
   ck recall --folder <path>

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ContextKing.Core.Embedding;
 using ContextKing.Core.SourceMap;
@@ -7,8 +8,7 @@ namespace ContextKing.Core.Knowledge;
 
 /// <summary>
 /// Embeds knowledge snippets and stores them in the existing SQLite index.
-/// Rebuilds the knowledge table only when <c>snippets.jsonl</c> has changed
-/// (detected via SHA-256 of the full file).
+/// Rebuilds the knowledge table only when the aggregate knowledge JSONL content changes.
 /// </summary>
 public sealed class KnowledgeIndexBuilder(BgeEmbedder embedder)
 {
@@ -16,14 +16,16 @@ public sealed class KnowledgeIndexBuilder(BgeEmbedder embedder)
 
     public bool IsUpToDate(string dbPath, string repoRoot)
     {
-        var path = KnowledgeStore.SnippetsPath(repoRoot);
-        if (!File.Exists(path)) return true;
         if (!File.Exists(dbPath)) return false;
 
         try
         {
             var stored  = new SourceMapIndex(dbPath).ReadMeta(MetaKey);
-            var current = HashFile(path);
+            var store = new KnowledgeStore(repoRoot);
+            if (store.KnowledgeFiles().Count == 0 && stored is null)
+                return true;
+
+            var current = HashKnowledge(repoRoot);
             return string.Equals(stored, current, StringComparison.Ordinal);
         }
         catch { return false; }
@@ -38,9 +40,6 @@ public sealed class KnowledgeIndexBuilder(BgeEmbedder embedder)
 
     public void Build(string dbPath, string repoRoot)
     {
-        var snippetsPath = KnowledgeStore.SnippetsPath(repoRoot);
-        if (!File.Exists(snippetsPath)) return;
-
         var snippets = new KnowledgeStore(repoRoot).ReadAll();
         var index    = new SourceMapIndex(dbPath);
         index.EnsureKnowledgeSchema();
@@ -57,13 +56,13 @@ public sealed class KnowledgeIndexBuilder(BgeEmbedder embedder)
             .ToList();
 
         index.ReplaceAllKnowledge(rows);
-        index.WriteMeta(MetaKey, HashFile(snippetsPath));
+        index.WriteMeta(MetaKey, HashKnowledge(repoRoot));
     }
 
-    private static string HashFile(string path)
+    private static string HashKnowledge(string repoRoot)
     {
+        var input = new KnowledgeStore(repoRoot).AggregateHashInput();
         using var sha = SHA256.Create();
-        using var fs  = File.OpenRead(path);
-        return Convert.ToHexStringLower(sha.ComputeHash(fs));
+        return Convert.ToHexStringLower(sha.ComputeHash(Encoding.UTF8.GetBytes(input)));
     }
 }

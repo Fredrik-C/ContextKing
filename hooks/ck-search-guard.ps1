@@ -18,15 +18,15 @@ if ($tool -ne 'Grep' -and $tool -ne 'Glob') { exit 0 }
 $patternRaw = [string]$obj.tool_input.pattern
 $pathRaw = if ($obj.tool_input.path) { [string]$obj.tool_input.path } elseif ($obj.tool_input.cwd) { [string]$obj.tool_input.cwd } else { '' }
 $includeRaw = [string]$obj.tool_input.include
-if ($patternRaw -match '\.ck-knowledge[/\\]snippets\.jsonl' -or
-    $pathRaw -match '\.ck-knowledge[/\\]snippets\.jsonl' -or
-    $includeRaw -match '\.ck-knowledge[/\\]snippets\.jsonl') {
+if ($patternRaw -match '\.ck-knowledge[/\\].*\.jsonl' -or
+    $pathRaw -match '\.ck-knowledge[/\\].*\.jsonl' -or
+    $includeRaw -match '\.ck-knowledge[/\\].*\.jsonl') {
     @{
         hookSpecificOutput = @{
             hookEventName      = 'PreToolUse'
             permissionDecision = 'deny'
             permissionDecisionReason = @"
-[ck-guard] BLOCKED — direct Grep/Glob access to .ck-knowledge/snippets.jsonl is not allowed.
+[ck-guard] BLOCKED — direct Grep/Glob access to CK knowledge JSONL files is not allowed.
 
 Use CK commands instead:
   ck recall --folder <path>

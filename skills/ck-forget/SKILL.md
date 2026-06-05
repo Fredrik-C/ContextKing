@@ -5,7 +5,7 @@ description: Remove a stale knowledge snippet by ID when previously learned cont
 
 # ck forget — Reference
 
-Removes one snippet from `.ck-knowledge/snippets.jsonl` by UUID.
+Removes one snippet from CK knowledge JSONL files by UUID.
 
 ## Syntax
 

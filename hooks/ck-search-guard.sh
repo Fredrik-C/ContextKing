@@ -26,8 +26,8 @@ TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 PATTERN_RAW=$(printf '%s' "$INPUT" | jq -r '.tool_input.pattern // empty' 2>/dev/null)
 PATH_RAW=$(printf '%s' "$INPUT" | jq -r '.tool_input.path // .tool_input.cwd // empty' 2>/dev/null)
 INCLUDE_RAW=$(printf '%s' "$INPUT" | jq -r '.tool_input.include // empty' 2>/dev/null)
-if printf '%s\n%s\n%s\n' "$PATTERN_RAW" "$PATH_RAW" "$INCLUDE_RAW" | grep -qiE '\.ck-knowledge[/\\]snippets\.jsonl'; then
-  jq -n --arg reason "[ck-guard] BLOCKED — direct Grep/Glob access to .ck-knowledge/snippets.jsonl is not allowed.
+if printf '%s\n%s\n%s\n' "$PATTERN_RAW" "$PATH_RAW" "$INCLUDE_RAW" | grep -qiE '\.ck-knowledge[/\\].*\.jsonl'; then
+  jq -n --arg reason "[ck-guard] BLOCKED — direct Grep/Glob access to CK knowledge JSONL files is not allowed.
 
 Use CK commands instead:
   ck recall --folder <path>

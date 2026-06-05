@@ -54,6 +54,6 @@ Silent (no output, exit 0) when no snippets exist — not an error. Also silent 
 
 ## Behaviour
 
-- `--folder` reads directly from `.ck-knowledge/snippets.jsonl` and prints snippet freshness status (`fresh`, `review_needed`, `unknown`) from lazy validation metadata.
-- `--query` uses the knowledge index (auto-built from snippets.jsonl on first use).
-- If `.ck-knowledge/snippets.jsonl` does not exist yet, both modes exit silently.
+- `--folder` reads directly from every `.jsonl` file under `.ck-knowledge/` and prints snippet freshness status (`fresh`, `review_needed`, `unknown`) from lazy validation metadata.
+- `--query` uses the knowledge index (auto-built from all knowledge JSONL files on first use).
+- If no `.ck-knowledge/**/*.jsonl` files exist yet, both modes exit silently.

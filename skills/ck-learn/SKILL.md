@@ -5,7 +5,7 @@ description: Record a new knowledge snippet — domain rules, architectural deci
 
 # ck learn — Reference
 
-Appends a new snippet to `.ck-knowledge/snippets.jsonl`. Called by the session-end hook
+Appends a new snippet to a session-specific JSONL file under `.ck-knowledge/sessions/`. Called by the session-end hook
 (automated) and directly when you encounter something worth preserving mid-session.
 
 ## Syntax
@@ -31,7 +31,7 @@ Appends a new snippet to `.ck-knowledge/snippets.jsonl`. Called by the session-e
 
 The new snippet's UUID (stdout). Creates `.ck-knowledge/` if absent. Silent (exit 0) when the repo has `"brain": false` in `.ck.json`.
 
-`ck learn` writes through CK's schema-aware pipeline. Do not append/edit `.ck-knowledge/snippets.jsonl` directly with shell tools.
+`ck learn` writes through CK's schema-aware pipeline. Do not append/edit `.ck-knowledge/**/*.jsonl` files directly with shell tools.
 
 ## What to record
 

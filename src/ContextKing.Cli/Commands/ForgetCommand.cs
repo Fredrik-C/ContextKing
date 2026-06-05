@@ -37,7 +37,7 @@ internal static class ForgetCommand
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            ck forget — remove a knowledge snippet from .ck-knowledge/snippets.jsonl
+            ck forget — remove a knowledge snippet from CK knowledge JSONL files
 
             Usage:
               ck forget --id <uuid> [--repo <path>]

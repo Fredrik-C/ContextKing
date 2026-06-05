@@ -4,32 +4,53 @@ using System.Text.Json.Serialization;
 namespace ContextKing.Core.Knowledge;
 
 /// <summary>
-/// Reads and writes <c>.ck-knowledge/snippets.jsonl</c>.
-/// All writes are append-only except Delete, which rewrites the file.
+/// Reads every knowledge JSONL file under <c>.ck-knowledge/</c>.
+/// New snippets are appended to a session-specific file to avoid merge conflicts.
 /// </summary>
 public sealed class KnowledgeStore(string repoRoot)
 {
+    private const string LegacyFileName = "snippets.jsonl";
+    private const string SessionDirectoryName = "sessions";
+    private const string SessionIdEnvironmentVariable = "CK_SESSION_ID";
+    private readonly string _sessionId = ResolveCurrentSessionId();
+
+    public static string KnowledgeDirectory(string repoRoot) =>
+        Path.Combine(repoRoot, ".ck-knowledge");
+
     public static string SnippetsPath(string repoRoot) =>
-        Path.Combine(repoRoot, ".ck-knowledge", "snippets.jsonl");
+        Path.Combine(KnowledgeDirectory(repoRoot), LegacyFileName);
 
-    public string FilePath => SnippetsPath(repoRoot);
+    public static string SessionSnippetsDirectory(string repoRoot) =>
+        Path.Combine(KnowledgeDirectory(repoRoot), SessionDirectoryName);
 
-    public bool Exists => File.Exists(FilePath);
+    public static string SessionSnippetsPath(string repoRoot, string sessionId) =>
+        Path.Combine(SessionSnippetsDirectory(repoRoot), $"{SanitizeSessionId(sessionId)}.jsonl");
+
+    public string FilePath => CurrentSessionFilePath();
+
+    public bool Exists => KnowledgeFiles().Count > 0;
 
     public IReadOnlyList<KnowledgeSnippet> ReadAll()
-    {
-        if (!File.Exists(FilePath)) return [];
+        => ReadAllWithPaths().Select(x => x.Snippet).ToArray();
 
-        var snippets = new List<KnowledgeSnippet>();
-        foreach (var line in File.ReadLines(FilePath))
+    internal IReadOnlyList<KnowledgeSnippetRecord> ReadAllWithPaths()
+    {
+        var files = KnowledgeFiles();
+        if (files.Count == 0) return [];
+
+        var snippets = new List<KnowledgeSnippetRecord>();
+        foreach (var file in files)
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            try
+            foreach (var line in File.ReadLines(file))
             {
-                var snippet = JsonSerializer.Deserialize<KnowledgeSnippet>(line, JsonOptions);
-                if (snippet is not null) snippets.Add(snippet);
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    var snippet = JsonSerializer.Deserialize<KnowledgeSnippet>(line, JsonOptions);
+                    if (snippet is not null) snippets.Add(new KnowledgeSnippetRecord(file, snippet));
+                }
+                catch { /* malformed line — skip */ }
             }
-            catch { /* malformed line — skip */ }
         }
         return snippets;
     }
@@ -50,26 +71,118 @@ public sealed class KnowledgeStore(string repoRoot)
     public void Append(KnowledgeSnippet snippet)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        File.AppendAllText(FilePath, JsonSerializer.Serialize(snippet, JsonOptions) + "\n");
+        var sessionSnippet = snippet.SessionId is not null
+            ? snippet
+            : snippet with { SessionId = CurrentSessionId() };
+        File.AppendAllText(FilePath, JsonSerializer.Serialize(sessionSnippet, JsonOptions) + "\n");
     }
 
     public bool Delete(string id)
     {
-        if (!File.Exists(FilePath)) return false;
-        var all    = ReadAll();
-        var before = all.Count;
-        var kept   = all.Where(s => s.Id != id).ToList();
-        if (kept.Count == before) return false;
-        ReplaceAll(kept);
+        var records = ReadAllWithPaths();
+        if (records.Count == 0) return false;
+
+        var matchedFiles = records
+            .Where(r => r.Snippet.Id == id)
+            .Select(r => r.Path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (matchedFiles.Length == 0) return false;
+
+        foreach (var file in matchedFiles)
+        {
+            var kept = records
+                .Where(r => string.Equals(r.Path, file, StringComparison.OrdinalIgnoreCase))
+                .Where(r => r.Snippet.Id != id)
+                .Select(r => r.Snippet)
+                .ToArray();
+            WriteFile(file, kept);
+        }
+
         return true;
     }
 
     public void ReplaceAll(IReadOnlyList<KnowledgeSnippet> snippets)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        var lines = snippets.Select(s => JsonSerializer.Serialize(s, JsonOptions));
-        File.WriteAllText(FilePath, string.Join("\n", lines) + (snippets.Count > 0 ? "\n" : ""));
+        var existingPathById = ReadAllWithPaths()
+            .GroupBy(r => r.Snippet.Id, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Path, StringComparer.Ordinal);
+
+        var filesToRewrite = existingPathById.Values
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var snippet in snippets)
+        {
+            var path = existingPathById.TryGetValue(snippet.Id, out var existingPath)
+                ? existingPath
+                : CurrentSessionFilePath(snippet.SessionId);
+            filesToRewrite.Add(path);
+        }
+
+        foreach (var file in filesToRewrite)
+        {
+            var fileSnippets = snippets
+                .Where(s => existingPathById.TryGetValue(s.Id, out var existingPath)
+                    ? string.Equals(existingPath, file, StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(CurrentSessionFilePath(s.SessionId), file, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            WriteFile(file, fileSnippets);
+        }
     }
+
+    public IReadOnlyList<string> KnowledgeFiles()
+    {
+        var dir = KnowledgeDirectory(repoRoot);
+        if (!Directory.Exists(dir)) return [];
+
+        return Directory
+            .EnumerateFiles(dir, "*.jsonl", SearchOption.AllDirectories)
+            .Where(path => !IsInsideIndexDirectory(path))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public string AggregateHashInput()
+    {
+        var files = KnowledgeFiles();
+        if (files.Count == 0) return string.Empty;
+
+        var parts = new List<string>(files.Count);
+        foreach (var file in files)
+        {
+            var relative = Path.GetRelativePath(KnowledgeDirectory(repoRoot), file)
+                .Replace('\\', '/');
+            parts.Add(relative + "\n" + File.ReadAllText(file));
+        }
+
+        return string.Join("\n---ck-knowledge-file---\n", parts);
+    }
+
+    private string CurrentSessionFilePath(string? sessionId = null) =>
+        SessionSnippetsPath(repoRoot, sessionId ?? _sessionId);
+
+    private string CurrentSessionId() => _sessionId;
+
+    private static string ResolveCurrentSessionId()
+    {
+        var fromEnvironment = Environment.GetEnvironmentVariable(SessionIdEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(fromEnvironment))
+            return SanitizeSessionId(fromEnvironment);
+
+        return $"{DateTime.UtcNow:yyyyMMddTHHmmssfffZ}-{Guid.NewGuid():N}"[..34];
+    }
+
+    private static void WriteFile(string filePath, IReadOnlyList<KnowledgeSnippet> snippets)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        var lines = snippets.Select(s => JsonSerializer.Serialize(s, JsonOptions));
+        File.WriteAllText(filePath, string.Join("\n", lines) + (snippets.Count > 0 ? "\n" : ""));
+    }
+
+    private static bool IsInsideIndexDirectory(string path) =>
+        path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(segment => string.Equals(segment, ".ck-index", StringComparison.OrdinalIgnoreCase));
 
     private static bool FolderMatches(string snippetFolder, string queryFolder) =>
         string.Equals(snippetFolder, queryFolder, StringComparison.OrdinalIgnoreCase)
@@ -79,9 +192,23 @@ public sealed class KnowledgeStore(string repoRoot)
     private static string NormalisePath(string path) =>
         path.Replace('\\', '/').TrimEnd('/');
 
+    private static string SanitizeSessionId(string sessionId)
+    {
+        var chars = sessionId
+            .Trim()
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')
+            .ToArray();
+        var sanitized = new string(chars).Trim('-', '.', '_');
+        return string.IsNullOrWhiteSpace(sanitized)
+            ? Guid.NewGuid().ToString("N")
+            : sanitized.Length <= 80 ? sanitized : sanitized[..80];
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         PropertyNameCaseInsensitive = true,
     };
 }
+
+internal sealed record KnowledgeSnippetRecord(string Path, KnowledgeSnippet Snippet);

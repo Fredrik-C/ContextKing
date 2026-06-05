@@ -27,6 +27,22 @@ public sealed class KnowledgeStoreTests : IDisposable
     }
 
     [Fact]
+    public void ReadAll_AggregatesLegacyAndSessionJsonlFiles()
+    {
+        var legacyPath = KnowledgeStore.SnippetsPath(_repo.Root);
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        File.WriteAllText(legacyPath, JsonLine(Snippet("legacy", "Legacy content")));
+
+        var sessionPath = KnowledgeStore.SessionSnippetsPath(_repo.Root, "session-a");
+        Directory.CreateDirectory(Path.GetDirectoryName(sessionPath)!);
+        File.WriteAllText(sessionPath, JsonLine(Snippet("session", "Session content")));
+
+        var all = new KnowledgeStore(_repo.Root).ReadAll();
+
+        all.Select(s => s.Id).Should().BeEquivalentTo(["legacy", "session"]);
+    }
+
+    [Fact]
     public void ReadAll_SkipsMalformedLines()
     {
         var path = KnowledgeStore.SnippetsPath(_repo.Root);
@@ -51,6 +67,19 @@ public sealed class KnowledgeStoreTests : IDisposable
         store.Append(Snippet("x1", "Hello"));
 
         File.Exists(store.FilePath).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Append_WritesToSessionSpecificFileFromEnvironment()
+    {
+        using var env = new EnvironmentVariableScope("CK_SESSION_ID", "test/session:one");
+        var store = new KnowledgeStore(_repo.Root);
+
+        store.Append(Snippet("x1", "Hello"));
+
+        var expectedPath = KnowledgeStore.SessionSnippetsPath(_repo.Root, "test-session-one");
+        File.Exists(expectedPath).Should().BeTrue();
+        File.Exists(KnowledgeStore.SnippetsPath(_repo.Root)).Should().BeFalse();
     }
 
     [Fact]
@@ -129,6 +158,48 @@ public sealed class KnowledgeStoreTests : IDisposable
     }
 
     [Fact]
+    public void Delete_RemovesSnippetFromContainingJsonlOnly()
+    {
+        var legacyPath = KnowledgeStore.SnippetsPath(_repo.Root);
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        File.WriteAllText(legacyPath, JsonLine(Snippet("legacy", "Legacy content")));
+
+        var sessionPath = KnowledgeStore.SessionSnippetsPath(_repo.Root, "session-a");
+        Directory.CreateDirectory(Path.GetDirectoryName(sessionPath)!);
+        File.WriteAllText(sessionPath,
+            JsonLine(Snippet("gone", "Remove me")) +
+            JsonLine(Snippet("keep-session", "Keep me")));
+
+        new KnowledgeStore(_repo.Root).Delete("gone").Should().BeTrue();
+
+        File.ReadAllText(legacyPath).Should().Contain("legacy");
+        var sessionText = File.ReadAllText(sessionPath);
+        sessionText.Should().NotContain("gone");
+        sessionText.Should().Contain("keep-session");
+    }
+
+    [Fact]
+    public void ReplaceAll_PreservesExistingSnippetFiles()
+    {
+        var legacyPath = KnowledgeStore.SnippetsPath(_repo.Root);
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        File.WriteAllText(legacyPath, JsonLine(Snippet("legacy", "Legacy content")));
+
+        var sessionPath = KnowledgeStore.SessionSnippetsPath(_repo.Root, "session-a");
+        Directory.CreateDirectory(Path.GetDirectoryName(sessionPath)!);
+        File.WriteAllText(sessionPath, JsonLine(Snippet("session", "Session content")));
+
+        var store = new KnowledgeStore(_repo.Root);
+        store.ReplaceAll([
+            Snippet("legacy", "Legacy updated"),
+            Snippet("session", "Session updated")
+        ]);
+
+        File.ReadAllText(legacyPath).Should().Contain("Legacy updated");
+        File.ReadAllText(sessionPath).Should().Contain("Session updated");
+    }
+
+    [Fact]
     public void Delete_ReturnsFalse_WhenIdNotFound()
     {
         var store = new KnowledgeStore(_repo.Root);
@@ -161,5 +232,23 @@ public sealed class KnowledgeStoreTests : IDisposable
             CreatedAt = createdAt ?? "2026-04-22T10:00:00Z",
         };
 
+    private static string JsonLine(KnowledgeSnippet snippet) =>
+        System.Text.Json.JsonSerializer.Serialize(snippet) + "\n";
+
     public void Dispose() => _repo.Dispose();
+
+    private sealed class EnvironmentVariableScope : IDisposable
+    {
+        private readonly string _name;
+        private readonly string? _previous;
+
+        public EnvironmentVariableScope(string name, string value)
+        {
+            _name = name;
+            _previous = Environment.GetEnvironmentVariable(name);
+            Environment.SetEnvironmentVariable(name, value);
+        }
+
+        public void Dispose() => Environment.SetEnvironmentVariable(_name, _previous);
+    }
 }

@@ -61,6 +61,23 @@ public sealed class KnowledgeSearcherTests : IClassFixture<EmbedderFixture>, IDi
         builder.IsUpToDate(dbPath, _repo.Root).Should().BeFalse();
     }
 
+    [Fact]
+    public void IsUpToDate_AfterSessionSnippetFileAdded_ReturnsFalse()
+    {
+        WriteSnippet("a1", "First snippet.");
+        var dbPath = EnsureDb();
+        var builder = new KnowledgeIndexBuilder(_fixture.Embedder);
+        builder.Build(dbPath, _repo.Root);
+
+        var sessionPath = KnowledgeStore.SessionSnippetsPath(_repo.Root, "session-b");
+        Directory.CreateDirectory(Path.GetDirectoryName(sessionPath)!);
+        File.WriteAllText(sessionPath, """
+            {"id":"b2","content":"Second snippet.","created_at":"2026-01-01T00:00:00Z"}
+            """);
+
+        builder.IsUpToDate(dbPath, _repo.Root).Should().BeFalse();
+    }
+
     // ── Search ────────────────────────────────────────────────────────────────
 
     [Fact]

@@ -44,7 +44,7 @@ Context King installs these commands into your AI CLI tool:
 | `ck find-symbol` | Finds type or member declarations in C# and TypeScript/TSX files across a scoped path |
 | `ck refs` | Finds textual references (call-sites) for a symbol across a scoped path |
 | `ck recall` | Retrieves knowledge snippets for a folder or a cross-folder ranked query (step 2.5) |
-| `ck learn` | Records a knowledge snippet to `.ck-knowledge/snippets.jsonl` |
+| `ck learn` | Records a knowledge snippet to a session-specific `.ck-knowledge/**/*.jsonl` file |
 | `ck forget` | Removes a stale snippet by ID |
 
 The file-first flow in practice:
@@ -135,7 +135,7 @@ Navigation solves one problem: getting to the right code fast. But it doesn't he
 
 CK Brain is the knowledge layer on top of the navigation layer. Where `ck find-files` answers "where is the code?", CK Brain answers "what do we know about that code?" — domain rules, architectural decisions, gotchas, cross-module relationships, anything a senior developer would tell a new joiner.
 
-**How knowledge accumulates.** The brain starts empty and grows automatically. A hook runs after every agent turn and scans the new portion of the session transcript for code exploration signals: use of `ck find-files`, `ck signatures`, or `ck get-method-source` are strong signals; reading `.cs`/`.ts`/`.tsx` files, writing code, and running `ck recall` are moderate ones. Large investigation/edit windows can also trigger capture even without a strong signal. When enough signals are present, the hook injects a knowledge-capture prompt asking the agent to reflect on what it just discovered. The agent then calls `ck learn` to record the insight as a short snippet (2-4 sentences) in `.ck-knowledge/snippets.jsonl` — a plain-text file in the repository, git tracked and shared across the team like any other source file. Snippets are stored with schema-aware lifecycle metadata, and recall can lazily backfill older entries without breaking readability. Turns that involve no meaningful code exploration never trigger the prompt. No manual curation required.
+**How knowledge accumulates.** The brain starts empty and grows automatically. A hook runs after every agent turn and scans the new portion of the session transcript for code exploration signals: use of `ck find-files`, `ck signatures`, or `ck get-method-source` are strong signals; reading `.cs`/`.ts`/`.tsx` files, writing code, and running `ck recall` are moderate ones. Large investigation/edit windows can also trigger capture even without a strong signal. When enough signals are present, the hook injects a knowledge-capture prompt asking the agent to reflect on what it just discovered. The agent then calls `ck learn` to record the insight as a short snippet (2-4 sentences). CK writes new snippets to session-specific JSONL files under `.ck-knowledge/sessions/`, while recall reads every `.jsonl` file under `.ck-knowledge/` into one in-memory knowledge set. This keeps knowledge git-tracked and shared without forcing every session to append to the same file. Snippets are stored with schema-aware lifecycle metadata, and recall can lazily backfill older entries without breaking readability. Turns that involve no meaningful code exploration never trigger the prompt. No manual curation required.
 
 After a dozen sessions on an active module, the brain holds the kind of contextual depth that normally takes months to accumulate, and it's available to every agent on every machine from the moment they pull the repo.
 
@@ -400,7 +400,7 @@ ck recall --folder <path> [--repo <path>]
 ck recall --query <text> [--top <n>] [--repo <path>]
 ```
 
-Retrieves knowledge snippets from `.ck-knowledge/snippets.jsonl`. `--folder` returns all snippets for a specific folder (no index), runs lifecycle validation, and prints status (`fresh`, `review_needed`, `unknown`) based on folder-scope hash comparison — this is step 2.5 in the navigation protocol. `--query` does a ranked cross-folder lookup and requires the knowledge index (auto-built). Silent when no snippets exist or when `"brain": false` is set in `.ck.json`.
+Retrieves knowledge snippets from all `.jsonl` files under `.ck-knowledge/`. `--folder` returns all snippets for a specific folder (no index), runs lifecycle validation, and prints status (`fresh`, `review_needed`, `unknown`) based on folder-scope hash comparison — this is step 2.5 in the navigation protocol. `--query` does a ranked cross-folder lookup and requires the knowledge index (auto-built). Silent when no snippets exist or when `"brain": false` is set in `.ck.json`.
 
 ### `ck learn`
 
@@ -408,7 +408,7 @@ Retrieves knowledge snippets from `.ck-knowledge/snippets.jsonl`. `--folder` ret
 ck learn --content "<text>" [--folders <f1,f2,...>] [--tags <t1,t2,...>] [--repo <path>]
 ```
 
-Appends a snippet to `.ck-knowledge/snippets.jsonl`. Keep content to 2-4 sentences of non-obvious insight: domain rules, architectural decisions and their reasons, gotchas, cross-module relationships. Omit anything derivable by reading the code. Silent when `"brain": false` is set in `.ck.json`.
+Appends a snippet to a session-specific JSONL file under `.ck-knowledge/sessions/`. Keep content to 2-4 sentences of non-obvious insight: domain rules, architectural decisions and their reasons, gotchas, cross-module relationships. Omit anything derivable by reading the code. Silent when `"brain": false` is set in `.ck.json`.
 
 ### `ck forget`
 
