@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ContextKing.Core.Git;
 
 namespace ContextKing.Core.Knowledge;
 
@@ -12,7 +13,7 @@ public sealed class KnowledgeStore(string repoRoot)
     private const string LegacyFileName = "snippets.jsonl";
     private const string SessionDirectoryName = "sessions";
     private const string SessionIdEnvironmentVariable = "CK_SESSION_ID";
-    private readonly string _sessionId = ResolveCurrentSessionId();
+    private readonly string _sessionId = ResolveCurrentSessionId(repoRoot);
 
     public static string KnowledgeDirectory(string repoRoot) =>
         Path.Combine(repoRoot, ".ck-knowledge");
@@ -164,11 +165,31 @@ public sealed class KnowledgeStore(string repoRoot)
 
     private string CurrentSessionId() => _sessionId;
 
-    private static string ResolveCurrentSessionId()
+    /// <summary>
+    /// Resolves the session id used to name the per-session JSONL file. Resolution order:
+    /// <list type="number">
+    ///   <item>The <c>CK_SESSION_ID</c> environment variable, when the harness provides a true
+    ///         per-session identifier.</item>
+    ///   <item>The current git branch — a stable fallback so that every <c>ck learn</c> on the
+    ///         same branch (across separate CLI invocations) appends to one file instead of
+    ///         spawning a fresh file per entry.</item>
+    ///   <item>The HEAD commit, when in detached-HEAD state.</item>
+    ///   <item>A unique timestamp+GUID, only when there is no git context at all.</item>
+    /// </list>
+    /// </summary>
+    private static string ResolveCurrentSessionId(string repoRoot)
     {
         var fromEnvironment = Environment.GetEnvironmentVariable(SessionIdEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(fromEnvironment))
             return SanitizeSessionId(fromEnvironment);
+
+        var branch = GitTracker.GetCurrentBranch(repoRoot);
+        if (!string.IsNullOrWhiteSpace(branch))
+            return SanitizeSessionId($"branch-{branch}");
+
+        var head = GitTracker.GetHead(repoRoot);
+        if (!string.IsNullOrWhiteSpace(head) && head != "unknown")
+            return SanitizeSessionId($"detached-{head}");
 
         return $"{DateTime.UtcNow:yyyyMMddTHHmmssfffZ}-{Guid.NewGuid():N}"[..34];
     }

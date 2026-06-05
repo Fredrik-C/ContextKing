@@ -56,4 +56,14 @@ internal static class GitProcess
         try { return Run("rev-parse --abbrev-ref HEAD", repoRoot).Trim(); }
         catch { return "unknown"; }
     }
+
+    /// <summary>
+    /// Current branch name via <c>git branch --show-current</c>, which resolves even before the
+    /// first commit. Returns an empty string in detached-HEAD state or when git fails.
+    /// </summary>
+    public static string GetCurrentBranch(string repoRoot)
+    {
+        try { return Run("branch --show-current", repoRoot).Trim(); }
+        catch { return string.Empty; }
+    }
 }
