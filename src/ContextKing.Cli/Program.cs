@@ -159,5 +159,5 @@ static int PrintError(string message)
 // ── Version constant (single source of truth) ─────────────────────────────────
 static partial class Program
 {
-    internal const string Version = "1.8.7";
+    internal const string Version = "1.8.8";
 }
