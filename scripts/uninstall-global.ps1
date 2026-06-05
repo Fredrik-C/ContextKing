@@ -194,15 +194,19 @@ if (-not $NoCodex) {
     }
   }
 
-  # Remove the project_doc_fallback_filenames line from config.toml.
+  # Remove the project_doc_fallback_filenames line from config.toml. Match the
+  # exact literal the installer writes (symmetric with the install side) so we
+  # never touch a user-owned value the installer deliberately skipped, and never
+  # half-delete a multi-line TOML array.
   $CodexConfigToml = "$CodexHome\config.toml"
+  $CodexFallbackLine = 'project_doc_fallback_filenames = ["ck-code-search-protocol.md"]'
   if (Test-Path $CodexConfigToml) {
-    $tomlContent = Get-Content $CodexConfigToml -Raw -ErrorAction SilentlyContinue
-    if ($tomlContent -match 'project_doc_fallback_filenames') {
+    $tomlLines = @(Get-Content $CodexConfigToml -ErrorAction SilentlyContinue)
+    if ($tomlLines | Where-Object { $_.Trim() -eq $CodexFallbackLine }) {
       if ($DryRun) {
         Write-Host "  [dry-run] remove project_doc_fallback_filenames from $CodexConfigToml"
       } else {
-        $kept = @(Get-Content $CodexConfigToml | Where-Object { $_ -notmatch 'project_doc_fallback_filenames' })
+        $kept = @($tomlLines | Where-Object { $_.Trim() -ne $CodexFallbackLine })
         Set-Content -LiteralPath $CodexConfigToml -Value $kept -Encoding UTF8
         Write-Ok "Removed project_doc_fallback_filenames from $CodexConfigToml"
       }

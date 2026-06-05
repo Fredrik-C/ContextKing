@@ -222,14 +222,18 @@ if [ "$DO_CODEX" = true ]; then
     fi
   fi
 
-  # Remove the project_doc_fallback_filenames line from config.toml.
+  # Remove the project_doc_fallback_filenames line from config.toml. Match the
+  # exact literal the installer writes (symmetric with the install side) so we
+  # never touch a user-owned value the installer deliberately skipped, and never
+  # half-delete a multi-line TOML array.
   CODEX_CONFIG="$CODEX_HOME/config.toml"
-  if [ -f "$CODEX_CONFIG" ] && grep -qF 'project_doc_fallback_filenames' "$CODEX_CONFIG" 2>/dev/null; then
+  CODEX_FALLBACK_LINE='project_doc_fallback_filenames = ["ck-code-search-protocol.md"]'
+  if [ -f "$CODEX_CONFIG" ] && grep -qxF "$CODEX_FALLBACK_LINE" "$CODEX_CONFIG" 2>/dev/null; then
     if [ "$DRY_RUN" = true ]; then
       echo "  [dry-run] remove project_doc_fallback_filenames from $CODEX_CONFIG"
     else
       tmp="$(mktemp)"
-      grep -v 'project_doc_fallback_filenames' "$CODEX_CONFIG" > "$tmp" || true
+      grep -vxF "$CODEX_FALLBACK_LINE" "$CODEX_CONFIG" > "$tmp" || true
       mv "$tmp" "$CODEX_CONFIG"
       ok "Removed project_doc_fallback_filenames from $CODEX_CONFIG"
     fi
