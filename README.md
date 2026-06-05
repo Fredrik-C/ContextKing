@@ -235,6 +235,31 @@ Windows equivalents:
 
 ---
 
+## Uninstall
+
+To reverse the global install, run the uninstaller from a cloned repo:
+
+**Mac / Linux:**
+```bash
+bash scripts/uninstall-global.sh
+```
+
+**Windows:**
+```powershell
+pwsh scripts/uninstall-global.ps1
+```
+
+This removes the `~/.ck` tree (binary + model), strips `~/.ck/bin` from your PATH, deletes the CK skills/hooks/rules from `~/.claude/`, `~/.codex/`, `~/.config/opencode/`, and `~/.agents/`, and removes only the CK entries from each client's config files (`settings.json`, `hooks.json`, `opencode.json(c)`, Codex `AGENTS.md` / `config.toml`) — all other content is left intact.
+
+Preview without changing anything with `--dry-run` (PowerShell: `-DryRun`). The same skip flags as the installer are supported (`--no-path`, `--no-claude`, `--no-codex`, `--no-opencode`, `--no-agents`, and the `--*-home` overrides).
+
+**Per-repo files** created by `ck init` are **not** removed (they may be git-tracked). To clean a repository manually:
+```bash
+rm -rf .ck-index .ck-knowledge .ck.json
+```
+
+---
+
 ## Enforcement
 
 Context King enforces the navigation workflow through rules, hooks, and skill instructions. The mechanism varies by CLI tool.
