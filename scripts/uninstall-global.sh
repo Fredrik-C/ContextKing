@@ -9,6 +9,12 @@
 # client's config. Per-repo files created by `ck init` (.ck.json, .ck-knowledge/,
 # .ck-index/) are NOT touched — they may be git-tracked; remove them manually.
 #
+# ── One-liner uninstall ─────────────────────────────────────────────────────────
+#   curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/uninstall-global.sh | bash
+#
+# ── Download and run (to pass flags) ────────────────────────────────────────────
+#   curl -fsSL .../uninstall-global.sh -o uninstall-global.sh && bash uninstall-global.sh --dry-run
+#
 # ── Run from a cloned repo ──────────────────────────────────────────────────────
 #   bash scripts/uninstall-global.sh
 #
@@ -79,7 +85,7 @@ while [ "$#" -gt 0 ]; do
     --no-opencode)  DO_OPENCODE=false; shift ;;
     --no-agents)    DO_AGENTS=false;   shift ;;
     -h|--help)
-      grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -34
+      grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -40
       exit 0 ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac

@@ -6,6 +6,7 @@
 # .ck-index\) are NOT touched — they may be git-tracked; remove them manually.
 #
 # Usage:
+#   iex (iwr 'https://github.com/Fredrik-C/ContextKing/releases/latest/download/uninstall-global.ps1').Content
 #   .\scripts\uninstall-global.ps1
 #   .\scripts\uninstall-global.ps1 -DryRun
 #   .\scripts\uninstall-global.ps1 -CkHome "$env:USERPROFILE\.ck" -NoClaude
