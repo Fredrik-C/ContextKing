@@ -1,4 +1,5 @@
 using ContextKing.Tests.Helpers;
+using System.Text.Json;
 
 namespace ContextKing.Tests.Init;
 
@@ -52,6 +53,24 @@ public class InitCommandTests : IDisposable
         await RunCk("init --quiet", _repo.Root);
         var json = await File.ReadAllTextAsync(Path.Combine(_repo.Root, ".ck.json"));
         Assert.Contains("minVersion", json);
+    }
+
+    [Fact]
+    public async Task Init_CkJsonContainsFindFilesDefaults()
+    {
+        await RunCk("init --quiet", _repo.Root);
+        var json = await File.ReadAllTextAsync(Path.Combine(_repo.Root, ".ck.json"));
+        using var doc = JsonDocument.Parse(json);
+        var findFiles = doc.RootElement.GetProperty("findFiles");
+
+        Assert.True(findFiles.GetProperty("semanticRerank").GetBoolean());
+        Assert.Equal(5, findFiles.GetProperty("overfetchMultiplier").GetInt32());
+        Assert.Equal(50, findFiles.GetProperty("minOverfetch").GetInt32());
+        Assert.Equal(200, findFiles.GetProperty("maxOverfetch").GetInt32());
+        Assert.Equal(0.65f, findFiles.GetProperty("lexicalWeight").GetSingle());
+        Assert.Equal(0.30f, findFiles.GetProperty("semanticWeight").GetSingle());
+        Assert.Equal(0.10f, findFiles.GetProperty("mustWeight").GetSingle());
+        Assert.Equal(0.10f, findFiles.GetProperty("genericPenaltyMax").GetSingle());
     }
 
     [Fact]

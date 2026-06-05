@@ -41,6 +41,7 @@ internal static class InitCommand
                   "minVersion"  Minimum ck version required in this repo
                   "brain"       Knowledge capture (learn/recall/forget). Default: true.
                                 Set to false to disable all brain commands in this repo.
+                  "findFiles"   Default find-files reranking settings for this repo.
 
                 The global tool (binary, hooks, skills) is installed separately:
                   curl -fsSL https://raw.githubusercontent.com/Fredrik-C/ContextKing/main/scripts/install-global.sh | bash
@@ -103,10 +104,20 @@ internal static class InitCommand
             await File.WriteAllTextAsync(ckJsonPath, $$"""
                 {
                   "minVersion": "{{Program.Version}}",
-                  "brain": true
+                  "brain": true,
+                  "findFiles": {
+                    "semanticRerank": true,
+                    "overfetchMultiplier": 5,
+                    "minOverfetch": 50,
+                    "maxOverfetch": 200,
+                    "lexicalWeight": 0.65,
+                    "semanticWeight": 0.30,
+                    "mustWeight": 0.10,
+                    "genericPenaltyMax": 0.10
+                  }
                 }
                 """);
-            Print($"  Created .ck.json (minVersion: {Program.Version}, brain: true)");
+            Print($"  Created .ck.json (minVersion: {Program.Version}, brain: true, findFiles.semanticRerank: true)");
             anyChange = true;
         }
         else

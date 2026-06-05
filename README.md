@@ -7,7 +7,7 @@ Most approaches to reducing token usage focus on compacting what the agent reads
 The goal is to reach the right method body in as few steps as possible, spending tokens only on what is relevant. Context King indexes source files with lightweight lexical metadata and replaces broad file searches with a four-step navigation system:
 
 ```
-file-first lexical retrieval -> scoped exploration -> live AST signature extraction -> targeted method extraction
+file-first lexical retrieval -> optional metadata reranking -> scoped exploration -> live AST signature extraction -> targeted method extraction
 ```
 
 ---
@@ -113,6 +113,18 @@ PascalCase and camelCase identifiers are split at case boundaries. Symbol names 
 
 **Scoring.** `ck find-files` uses weighted lexical scoring across path/file/type/method fields, with term-coverage boosts and recency/scope heuristics. `--must` is a soft boost, not a hard filter, so the command can still return best-effort results when exact must terms are missing.
 
+### Automatic candidate reranking
+
+`ck find-files` uses lexical search as its first-stage retriever. Internally, CK may overfetch lexical candidates and rerank that small candidate set using compact metadata cards built from path, type, and member names.
+
+This avoids maintaining a repository-wide semantic index while improving result precision for ambiguous searches. No full source files are read during reranking, and candidate embeddings are not persisted.
+
+For tasks where code keywords are not enough to express intent, use `--task` to provide additional reranking context:
+
+```bash
+ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore card refunds."
+```
+
 **Staleness detection.** The index is keyed by file path + content fingerprint. A file row is refreshed when that file changes (add, remove, rename, content edit). Untracked new files and working-tree deletions are included, not just committed state.
 
 ---
@@ -169,7 +181,7 @@ From the root of any repo you want to use Context King in:
 ck init
 ```
 
-This creates `.ck.json` (with a minimum version requirement), adds `.ck-index/` to `.gitignore`, and creates the `.ck-knowledge/` directory. Commit these files to share the setup with your team.
+This creates `.ck.json` (with a minimum version requirement and default `findFiles` reranking settings), adds `.ck-index/` to `.gitignore`, and creates the `.ck-knowledge/` directory. Commit these files to share the setup with your team.
 
 ### Migrating a legacy repo
 
@@ -273,17 +285,18 @@ A TypeScript plugin (`ck-guards.ts`) is installed to `~/.config/opencode/plugins
 ck init [--force] [--quiet] [--migrate]
 ```
 
-Initializes Context King in the current git repository. Creates `.ck.json`, adds `.ck-index/` to `.gitignore`, and creates `.ck-knowledge/`. Use `--migrate` to remove legacy per-repo deploy artifacts and clean up `settings.json`.
+Initializes Context King in the current git repository. Creates `.ck.json` with default `findFiles` reranking settings, adds `.ck-index/` to `.gitignore`, and creates `.ck-knowledge/`. Use `--migrate` to remove legacy per-repo deploy artifacts and clean up `settings.json`.
 
 ### `ck find-files`
 
 ```
-ck find-files "<query>" [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--explain]
+ck find-files "<query>" [--task <text>] [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--explain]
 ```
 
 Lexical file retrieval using weighted term matching across path, file, type, and method fields.
 `--must` applies soft score boosts (it does not hard-filter to zero results).
-Output rows are `<score>\t<relative-file-path>`, optionally with `types=<n> signatures=<n>` when `--explain` is set.
+`--task` provides optional extra intent for candidate reranking; the lexical query still controls first-stage retrieval.
+Output rows are `<score>\t<relative-file-path>`, optionally with compact score components when `--explain` is set.
 Write `--query` as lexical code terms (path/file/type/member words), not natural-language questions.
 Example: use `terminal refund adyen async` instead of `where is the refund logic implemented`.
 Use this as the default discovery step.

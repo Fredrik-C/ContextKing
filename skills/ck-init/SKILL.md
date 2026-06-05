@@ -15,7 +15,7 @@ Run once per repository after installing Context King globally. Do not confuse w
 .claude/skills/ck/ck init
 ```
 
-Creates `.ck.json` (minimum version requirement), adds `.ck-index/` to `.gitignore`,
+Creates `.ck.json` (minimum version requirement and default `findFiles` settings), adds `.ck-index/` to `.gitignore`,
 and creates the `.ck-knowledge/` directory. Commit these files to share the setup
 with your team.
 

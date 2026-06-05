@@ -7,7 +7,12 @@ namespace ContextKing.Core.Embedding;
 /// Runs the BGE-small-en-v1.5 ONNX model to produce L2-normalised 384-dim embeddings.
 /// The ONNX session is created lazily on first use and reused thereafter.
 /// </summary>
-public sealed class BgeEmbedder : IDisposable
+public interface ITextEmbedder
+{
+    float[] Embed(string text);
+}
+
+public sealed class BgeEmbedder : ITextEmbedder, IDisposable
 {
     private const int HiddenSize = 384;
 

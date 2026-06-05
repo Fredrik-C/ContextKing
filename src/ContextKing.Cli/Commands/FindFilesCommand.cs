@@ -19,7 +19,9 @@ internal static class FindFilesCommand
         if (!reader.TryGetFloat("--min-score", out var minScore)) minScore = 0.25f;
         var explain = reader.HasFlag("--explain");
         var verbose = reader.HasFlag("--verbose");
+        var taskDescription = reader.GetString("--task");
         var mustTerms = reader.GetStringList("--must");
+        var repo = reader.GetString("--repo");
         _ = reader.HasFlag("--quiet");
         var positional = reader.RemainingPositionals();
         if (positional.Count < 1)
@@ -46,7 +48,7 @@ internal static class FindFilesCommand
         string repoRoot;
         try
         {
-            repoRoot = GitTracker.GetWorktreeRoot(reader.GetString("--repo"));
+            repoRoot = GitTracker.GetWorktreeRoot(repo);
         }
         catch (Exception ex)
         {
@@ -91,19 +93,49 @@ internal static class FindFilesCommand
         }
 
         var dbPath = SourceMapBuilder.GetDbPath(repoRoot);
+        var settings = CkSettings.Load(repoRoot, verbose);
+        var lexicalTopK = settings.FindFiles.OverfetchTopK(top);
         var searcher = new FileMapSearcher();
-        var selected = searcher.Search(
+        var lexicalCandidates = searcher.SearchHits(
             dbPath,
             query,
-            topK: top,
+            topK: lexicalTopK,
             minScore: minScore,
             allowedFolders: normalizedRoots,
             mustTerms: mustTerms);
 
-        if (selected.Count == 0)
+        if (lexicalCandidates.Count == 0)
         {
             Console.Error.WriteLine("[ck find-files] No matches found.");
             return 1;
+        }
+
+        IReadOnlyList<FileSearchHit> selected;
+        var semanticUnavailable = false;
+        if (settings.FindFiles.SemanticRerank)
+        {
+            try
+            {
+                using var embedder = ModelLocator.CreateEmbedder();
+                selected = new CandidateSemanticReranker(embedder).Rerank(
+                    lexicalQuery: query,
+                    taskDescription: taskDescription,
+                    lexicalCandidates: lexicalCandidates,
+                    topK: top,
+                    options: settings.FindFiles.ToSemanticOptions(),
+                    mustTerms: mustTerms);
+            }
+            catch (Exception ex)
+            {
+                semanticUnavailable = true;
+                Console.Error.WriteLine(
+                    $"[ck find-files] WARN: semantic rerank unavailable: {ex.Message}. Falling back to lexical results.");
+                selected = lexicalCandidates.Take(top).ToArray();
+            }
+        }
+        else
+        {
+            selected = lexicalCandidates.Take(top).ToArray();
         }
 
         foreach (var hit in selected)
@@ -115,7 +147,12 @@ internal static class FindFilesCommand
                 continue;
             }
 
-            var summary = $"types={hit.TypeCount} signatures={hit.SignatureCount}";
+            var lexical = hit.LexicalScore.ToString("0.0000", CultureInfo.InvariantCulture);
+            var semantic = semanticUnavailable
+                ? "unavailable"
+                : hit.SemanticScore?.ToString("0.0000", CultureInfo.InvariantCulture) ?? "-";
+            var matched = hit.MatchedTerms.Count == 0 ? "-" : string.Join(",", hit.MatchedTerms);
+            var summary = $"types={hit.TypeCount} signatures={hit.SignatureCount} lexical={lexical} semantic={semantic} matched={matched}";
             Console.WriteLine($"{score}\t{hit.Path}\t{summary}");
         }
 
@@ -124,6 +161,9 @@ internal static class FindFilesCommand
 
     private static string NormalizeRootToRelative(string root, string repoRoot)
     {
+        if (Path.IsPathRooted(root))
+            root = Path.GetRelativePath(repoRoot, root);
+
         var normalized = SymbolSearchCommon.NormalizePath(root);
         if (normalized.StartsWith('/'))
         {
@@ -139,17 +179,18 @@ internal static class FindFilesCommand
             ck find-files — lexical file retrieval from path/type/method names
 
             Usage:
-              ck find-files "<query>" [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--repo <path>] [--explain] [--verbose]
+              ck find-files "<query>" [--task <text>] [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--repo <path>] [--explain] [--verbose]
               ck find-files "<query>" <folder-or-file> [more paths...]
 
             Defaults:
               - Searches repo `src/` when no path is supplied.
               - top=20, min-score=0.25
               - --must applies soft boosts (does not hard-filter to zero results)
+              - --task adds optional reranking context; lexical search still uses <query>
 
             Output (stdout):
               <score>\t<file>
-              <score>\t<file>\ttypes=<n> signatures=<n>   (with --explain)
+              <score>\t<file>\ttypes=<n> signatures=<n> lexical=<f> semantic=<f|unavailable> matched=<terms>   (with --explain)
             """);
     }
 }

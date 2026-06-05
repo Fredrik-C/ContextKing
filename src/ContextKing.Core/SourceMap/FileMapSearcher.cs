@@ -1,16 +1,45 @@
 namespace ContextKing.Core.SourceMap;
 
+public sealed record FileSearchHit(
+    string Path,
+    float Score,
+    float LexicalScore,
+    float? SemanticScore,
+    int TypeCount,
+    int SignatureCount,
+    string FolderPath,
+    string FileName,
+    string TypeNames,
+    string EmbeddingText,
+    string MethodNames,
+    IReadOnlyList<string> MatchedTerms);
+
 public readonly record struct ScoredFile(
     string Path,
     float Score,
     int TypeCount,
     int SignatureCount,
     string EmbeddingText,
-    string MethodNames);
+    string MethodNames)
+{
+    public static ScoredFile FromHit(FileSearchHit hit) =>
+        new(hit.Path, hit.Score, hit.TypeCount, hit.SignatureCount, hit.EmbeddingText, hit.MethodNames);
+}
 
 public sealed class FileMapSearcher
 {
     public IReadOnlyList<ScoredFile> Search(
+        string dbPath,
+        string query,
+        int topK = 20,
+        float minScore = 0f,
+        IReadOnlyList<string>? allowedFolders = null,
+        IReadOnlyList<string>? mustTerms = null)
+        => SearchHits(dbPath, query, topK, minScore, allowedFolders, mustTerms)
+            .Select(ScoredFile.FromHit)
+            .ToArray();
+
+    public IReadOnlyList<FileSearchHit> SearchHits(
         string dbPath,
         string query,
         int topK = 20,
@@ -44,24 +73,30 @@ public sealed class FileMapSearcher
             return [];
         var docFreq = BuildDocumentFrequency(files);
         var totalDocs = Math.Max(1, files.Count);
-        var scored = new List<ScoredFile>(Math.Min(topK, files.Count));
+        var scored = new List<FileSearchHit>(Math.Min(topK, files.Count));
 
         foreach (var file in files)
         {
             if (allowed is not null && !IsAllowed(file.Path, file.FolderPath, allowed))
                 continue;
 
-            var score = LexicalScore(file, queryTerms, docFreq, totalDocs, mustTerms);
+            var (score, matchedTerms) = LexicalScore(file, queryTerms, docFreq, totalDocs, mustTerms);
             if (score < minScore)
                 continue;
 
-            scored.Add(new ScoredFile(
+            scored.Add(new FileSearchHit(
                 file.Path,
                 score,
+                score,
+                null,
                 file.TypeCount,
                 file.SignatureCount,
+                file.FolderPath,
+                Path.GetFileName(file.Path),
+                file.TypeNames,
                 file.EmbeddingText,
-                file.MethodNames));
+                file.MethodNames,
+                matchedTerms));
         }
 
         return scored
@@ -125,7 +160,7 @@ public sealed class FileMapSearcher
         }
     }
 
-    private static float LexicalScore(
+    private static (float Score, IReadOnlyList<string> MatchedTerms) LexicalScore(
         IndexedFile file,
         IReadOnlyList<string> queryTerms,
         IReadOnlyDictionary<string, int> docFreq,
@@ -138,7 +173,7 @@ public sealed class FileMapSearcher
         var methodText = file.MethodNames.ToLowerInvariant();
 
         float score = 0f;
-        var matched = 0;
+        var matchedTerms = new List<string>(queryTerms.Count);
         foreach (var term in queryTerms)
         {
             var idf = docFreq.TryGetValue(term, out var df)
@@ -149,12 +184,12 @@ public sealed class FileMapSearcher
             if (typeText.Contains(term, StringComparison.Ordinal)) termHit += 2.5f;
             if (fileText.Contains(term, StringComparison.Ordinal)) termHit += 2.0f;
             if (pathText.Contains(term, StringComparison.Ordinal)) termHit += 1.2f;
-            if (termHit > 0f) matched++;
+            if (termHit > 0f) matchedTerms.Add(term);
             score += termHit * idf;
         }
 
-        if (matched > 0)
-            score += 1.5f * ((float)matched / queryTerms.Count);
+        if (matchedTerms.Count > 0)
+            score += 1.5f * ((float)matchedTerms.Count / queryTerms.Count);
 
         if (mustTerms is { Count: > 0 })
         {
@@ -177,6 +212,6 @@ public sealed class FileMapSearcher
                 score += 6.0f * ((float)mustMatches / mustTerms.Count);
         }
 
-        return score;
+        return (score, matchedTerms);
     }
 }

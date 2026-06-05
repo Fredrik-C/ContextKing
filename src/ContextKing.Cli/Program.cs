@@ -120,7 +120,7 @@ static void PrintHelp()
         Commands:
           ck init                Initialize Context King in the current git repository
           ck index               Build or update the semantic source-map index
-          ck find-files          Semantic search to find the most relevant source files
+          ck find-files          Source discovery over path/type/member names
           ck get-keyword-map     Inspect related indexed keywords for each query term
           ck expand-folder       List files in a folder with filtered signatures
           ck signatures          Extract method signatures from source files (always live)
