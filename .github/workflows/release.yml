@@ -125,6 +125,7 @@ jobs:
             cp agents/explore.md               "$stage/agents/"
             cp THIRD_PARTY_LICENSES.md         "$stage/"
             cp scripts/install-global.sh       "$stage/scripts/"
+            cp scripts/uninstall-global.sh     "$stage/scripts/"
             chmod +x "$stage/scripts/"*.sh
 
             tar -czf "/tmp/$archive" -C "/tmp/stage-${platform}" context-king
@@ -154,6 +155,7 @@ jobs:
           cp agents/explore.md               "$win_stage/agents/"
           cp THIRD_PARTY_LICENSES.md         "$win_stage/"
           cp scripts/install-global.ps1      "$win_stage/scripts/"
+          cp scripts/uninstall-global.ps1    "$win_stage/scripts/"
 
           cd /tmp/stage-win && zip -r /tmp/context-king-windows.zip context-king
           echo "Built: context-king-windows.zip"
@@ -186,6 +188,20 @@ jobs:
 
             Or download the archive for your platform and run `bash scripts/install-global.sh` from within it.
 
+            ## Uninstall
+
+            **Mac / Linux:**
+            ```bash
+            curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/uninstall-global.sh | bash
+            ```
+
+            **Windows (PowerShell 7+):**
+            ```powershell
+            irm https://github.com/Fredrik-C/ContextKing/releases/latest/download/uninstall-global.ps1 | iex
+            ```
+
+            Preview first with `--dry-run` (PowerShell: `-DryRun`). Per-repo files from `ck init` are left untouched.
+
             ## Platform archives
             | File | Platform |
             |------|----------|
@@ -207,3 +223,5 @@ jobs:
             /tmp/binaries/ck-win-x64.exe
             scripts/install-global.sh
             scripts/install-global.ps1
+            scripts/uninstall-global.sh
+            scripts/uninstall-global.ps1
