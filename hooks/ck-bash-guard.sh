@@ -37,8 +37,10 @@ emit_guard_json() {
 # ── Knowledge JSONL guardrail ────────────────────────────────────────────────
 # Prevent direct raw reads/writes of the knowledge store from shell tools.
 # Backfill and persistence are centralized in ck commands.
+# Exempt `ck` (the sanctioned path) and `git` — version-control operations such as
+# `git diff/status/log/show/add` on the store are legitimate and must not be blocked.
 if printf '%s' "$COMMAND" | grep -qE '(^|[[:space:]])((\./)?\.ck-knowledge[/\\].*\.jsonl)([[:space:]]|$)'; then
-  if ! printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])([^[:space:]]*/)?ck(\.exe)?[[:space:]]'; then
+  if ! printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])([^[:space:]]*/)?(ck(\.exe)?|git)[[:space:]]'; then
     jq -n \
       --arg reason "[ck-guard] BLOCKED — direct access to CK knowledge JSONL files is not allowed.
 

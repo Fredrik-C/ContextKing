@@ -21,8 +21,10 @@ $command = if ($obj.tool_input.command) { $obj.tool_input.command }
 if (-not $command) { exit 0 }
 
 # Knowledge JSONL guardrail: block direct raw reads/writes outside CK commands.
+# Exempt `ck` (the sanctioned path) and `git` — version-control operations such as
+# `git diff/status/log/show/add` on the store are legitimate and must not be blocked.
 if ($command -match '(^|\s)((\./)?\.ck-knowledge[/\\].*\.jsonl)(\s|$)') {
-    if ($command -notmatch '(^|[;&|\s])([^ \t]+/)?ck(\.exe)?\s') {
+    if ($command -notmatch '(^|[;&|\s])([^ \t]+/)?(ck(\.exe)?|git)\s') {
         @{
             hookSpecificOutput = @{
                 hookEventName = 'PreToolUse'

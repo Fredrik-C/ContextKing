@@ -955,10 +955,12 @@ cat wastes tokens by dumping entire files into command output without line numbe
           knowledgeReminderCount += 1
           lastKnowledgeReminderAtMs = now
           output.output +=
-            `\n[ck-hint] Knowledge capture (MUST before final response): run ` +
-            `\`${CK} learn --content "<2-4 sentences>" --folders "<folder1,folder2>" --tags "<keywords>"\`. ` +
-            `Record non-obvious WHY only (constraints, architecture, cross-module behavior). ` +
-            `If nothing non-obvious was learned, skip.`
+            `\n[ck-hint] Knowledge capture (optional): if this session produced a durable, ` +
+            `non-obvious conclusion a future engineer could NOT get by reading the code ` +
+            `(a WHY, a gotcha, a cross-module relationship), record it with ` +
+            `\`${CK} learn --content "<1-3 sentences, no file/symbol names>" --folders "<folder1,folder2>" --tags "<keywords>"\`. ` +
+            `Do NOT record a description of the changes you made — that's a changelog, not knowledge. ` +
+            `Most turns warrant no snippet; skipping is the correct, common outcome.`
         }
       }
     },
@@ -1005,7 +1007,8 @@ cat wastes tokens by dumping entire files into command output without line numbe
 
       const pendingLearn =
         !isBrainDisabled() && fs.existsSync(CK_LEARN_PENDING_FILE)
-          ? ` A previous turn ended with CK tools used but no \`ck learn\` — run it before finishing.`
+          ? ` A previous turn used CK tools without an \`ck learn\` — optionally consider whether a` +
+            ` durable, non-obvious conclusion is worth recording. If not, no action is needed.`
           : ""
 
       output.system.unshift(
@@ -1017,7 +1020,9 @@ cat wastes tokens by dumping entire files into command output without line numbe
         `When any other tool (CallGraph, language servers, etc.) returns empty results or fails, ` +
         `the NEXT step is CK tools — never raw grep. ` +
         `grep is only allowed inside folders already returned by find-files. ` +
-        `MANDATORY: if CK tools were used this session, run \`${CK} learn\` before the final response.` +
+        `Knowledge capture is OPTIONAL: only run \`${CK} learn\` when the session produced a durable, ` +
+        `non-obvious conclusion that cannot be understood by reading the code — never to describe the ` +
+        `changes made. Most sessions warrant no snippet.` +
         pendingLearn
       )
     },

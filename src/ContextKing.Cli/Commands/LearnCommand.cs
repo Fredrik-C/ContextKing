@@ -62,14 +62,17 @@ internal static class LearnCommand
         Console.WriteLine("""
             ck learn — append a knowledge snippet to a session JSONL file under .ck-knowledge/
 
+            Knowledge capture is OPTIONAL and is a no-op on most sessions. Run it only when you
+            have reached a durable, non-obvious conclusion — never to describe the changes you made.
+
             Usage:
               ck learn --content "<text>" [--tags <t1,t2,...>] [--folders <f1,f2,...>]
                        [--source <human|agent>] [--repo <path>]
 
             Options:
-              --content <text>       The knowledge to record (required). Write in plain English.
-                                     Aim for 1–4 sentences that would be useful to a future agent
-                                     working in this area for the first time.
+              --content <text>       The conclusion to record (required when calling). Plain English,
+                                     1–3 sentences. Capture only what a future engineer could NOT
+                                     recover by reading the code. No file paths or symbol names.
               --tags <t1,t2,...>     Comma-separated keywords for exact-match boost during recall
               --folders <f1,f2,...>  Comma-separated folder paths this snippet applies to
               --source <name>        Source label (default: "agent")
@@ -80,10 +83,14 @@ internal static class LearnCommand
               The new snippet's UUID (stdout). Creates .ck-knowledge/sessions/ if absent.
 
             Guidelines:
-              Record: domain rules not obvious from code, architectural decisions + reasons,
-                      gotchas/constraints, cross-module relationships.
-              Skip:   things derivable from reading the code, implementation details,
+              Record: the WHY behind a non-obvious decision, gotchas/constraints that cost time,
+                      cross-module relationships not visible in any single file.
+              Skip:   a description/changelog of the changes you made (git history has that),
+                      anything derivable by reading the code or via `ck signatures`
+                      (method/symbol names, parameter types, file paths),
                       task-specific observations that don't generalise.
+              Litmus: if your draft restates the diff or could be answered by opening the file,
+                      it is not knowledge — skip it. Skipping is the common, correct outcome.
             """);
     }
 }

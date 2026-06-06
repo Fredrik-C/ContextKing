@@ -29,7 +29,7 @@ Use whichever resolves in your environment.
               ck read-full-file <file>                            ← use this when you already know the file and need full context
               ck build-check <project.csproj>                     ← compact build diagnostics (instead of build|tail/grep)
 7. EDIT     → make your changes
-8. LEARN    → ck learn — MUST run before final response if CK tools were used this session
+8. LEARN    → ck learn — OPTIONAL; only for a durable, non-obvious conclusion (often a no-op)
 ```
 
 **Keyword-map first, file-first retrieval second.** Start source discovery with `ck get-keyword-map`, then run `ck find-files` using compact lexical code terms from the same intent.
@@ -56,11 +56,16 @@ Run it after `ck expand-folder` or `ck signatures` has confirmed relevance — n
 Run it **before** reading any method body — it may surface exactly what you need and save targeted reads entirely.
 Silent output means no knowledge exists yet — proceed normally.
 
-**Learn:** You MUST run `ck learn` before your final response if you used any CK tool this session
-(find-files, signatures, find-symbol, refs, get-method-source, recall, expand-folder). Record what would have been
-useful to know at the start: routing logic not visible from folder structure, architectural
-constraints, cross-module dependencies, or design decisions made. Do not record implementation
-details findable via signatures. If nothing non-obvious was learned, verify this explicitly, then skip.
+**Learn:** `ck learn` is **optional, not mandatory** — a no-op on most turns. A long,
+tool-heavy session is a *signal* that there *may* be something worth recording; it is not an
+obligation to write one. Run it only when the session produced a durable, non-obvious
+conclusion that a future engineer could **not** recover by reading the code: routing logic not
+visible from folder structure, architectural constraints, cross-module dependencies, or the WHY
+behind a non-obvious decision. **Never use it to describe the changes you made** — that is a
+changelog, and git history already holds it. Do not record implementation details findable via
+signatures (method/symbol names, parameter types, file paths). Litmus test: if your draft
+restates the diff or could be answered by reading the file, skip it. Finishing with no
+`ck learn` is a correct, common outcome.
 
 `ck find-files` output rows are `<score>\t<file-path>`. The score is a **relevance score** —
 higher means more relevant. It is not a percentage; scores are relative values used for
@@ -143,5 +148,5 @@ grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
 11. **Don't guess symbol names.** If you don't know the name, run `ck signatures` first, then `ck find-symbol` to locate the declaration.
 12. **Prefer `ck refs` over broad text search for usage checks.** Once a symbol is confirmed, use `ck refs "<symbol>" --path <scoped-folder>` before fallback grep. Use grep/rg when references include dynamic strings or non-symbol patterns.
 13. **Use `ck recall --query "<text>"` for unfamiliar domain concepts** that span multiple folders — e.g., "how does X work across the system?" This is optional and supplementary; folder-scoped recall covers most cases.
-14. **You MUST run `ck learn`** before your final response if you used any CK tool this session. Record the WHY and cross-cutting relationships — not implementation details. If nothing non-obvious was learned, verify this explicitly, then skip.
+14. **`ck learn` is optional — often a no-op.** Run it only when the session produced a durable, non-obvious conclusion that cannot be understood by reading the code (the WHY, gotchas, cross-cutting relationships). Never use it to describe the changes you made — that is a changelog, not knowledge. If your draft restates the diff or is findable via signatures, skip it. Skipping is the common, correct outcome.
 15. **Never manipulate `.ck-knowledge/**/*.jsonl` directly.** No `cat/sed/awk/python` edits or ad-hoc appends. Knowledge writes and lazy backfill must go through CK commands only (`ck recall`, `ck learn`, `ck forget`).

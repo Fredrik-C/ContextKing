@@ -25,6 +25,14 @@ public static class GitTracker
     public static string GetBranch(string repoRoot)
         => GitProcess.GetBranch(repoRoot);
 
+    /// <summary>
+    /// Returns the current branch name even before the first commit, or an empty string
+    /// in detached-HEAD state / when git is unavailable. Unlike <see cref="GetBranch"/>,
+    /// this never returns the literal "HEAD" or "unknown".
+    /// </summary>
+    public static string GetCurrentBranch(string repoRoot)
+        => GitProcess.GetCurrentBranch(repoRoot);
+
     private static readonly string SourceFilePathspec = SupportedLanguages.GitPathspec;
 
     /// <summary>

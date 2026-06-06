@@ -83,6 +83,30 @@ public sealed class KnowledgeStoreTests : IDisposable
     }
 
     [Fact]
+    public void Append_WithoutSessionEnv_SharesOneBranchScopedFileAcrossInstances()
+    {
+        // Each `ck learn` is a separate process → a fresh KnowledgeStore. Without a
+        // CK_SESSION_ID, every entry on the same branch must land in one file rather
+        // than spawning a new session file per invocation.
+        using var env = new EnvironmentVariableScope("CK_SESSION_ID", null);
+
+        var processA = new KnowledgeStore(_repo.Root);
+        var processB = new KnowledgeStore(_repo.Root);
+        processA.Append(Snippet("a1", "From invocation A"));
+        processB.Append(Snippet("b2", "From invocation B"));
+
+        processA.FilePath.Should().Be(processB.FilePath);
+
+        var branch = ContextKing.Core.Git.GitTracker.GetCurrentBranch(_repo.Root);
+        var expected = KnowledgeStore.SessionSnippetsPath(_repo.Root, $"branch-{branch}");
+        processA.FilePath.Should().Be(expected);
+
+        var store = new KnowledgeStore(_repo.Root);
+        store.KnowledgeFiles().Should().ContainSingle();
+        store.ReadAll().Select(s => s.Id).Should().BeEquivalentTo(["a1", "b2"]);
+    }
+
+    [Fact]
     public void Append_PreservesExistingSnippets()
     {
         var store = new KnowledgeStore(_repo.Root);
@@ -242,7 +266,7 @@ public sealed class KnowledgeStoreTests : IDisposable
         private readonly string _name;
         private readonly string? _previous;
 
-        public EnvironmentVariableScope(string name, string value)
+        public EnvironmentVariableScope(string name, string? value)
         {
             _name = name;
             _previous = Environment.GetEnvironmentVariable(name);
