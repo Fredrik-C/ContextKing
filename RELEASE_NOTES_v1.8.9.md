@@ -13,6 +13,24 @@ cd /path/to/your-repo
 ck init
 ```
 
+## Uninstall
+
+To reverse the global install:
+
+Mac / Linux:
+`curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/uninstall-global.sh | bash`
+
+Windows (PowerShell 7+):
+`irm https://github.com/Fredrik-C/ContextKing/releases/latest/download/uninstall-global.ps1 | iex`
+
+Dry-run option:
+```bash
+curl -fsSL https://github.com/Fredrik-C/ContextKing/releases/latest/download/uninstall-global.sh -o uninstall-global.sh
+bash uninstall-global.sh --dry-run
+```
+
+Per-repo files created by `ck init` are not removed automatically because they may be git-tracked.
+
 ## Highlights
 
 - CK Brain no longer depends on one shared knowledge file. New snippets are stored in scoped JSONL files under `.ck-knowledge/sessions/`, reducing merge conflicts when several agents or developers learn from the same repository.
