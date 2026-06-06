@@ -432,12 +432,12 @@ This codebase uses Context King (CK) for source navigation. Follow this protocol
 
 \`\`\`
 0. ck get-keyword-map --query "<domain concept operation>"   ← FIRST — keyword grounding
-1. ck find-files --query "<domain concept operation>"        ← SECOND — primary file-level retrieval
+1. ck find-files --query "<domain concept operation>" --task "<task intent>"  ← SECOND — primary file-level retrieval
 2. ck recall --folder <confirmed-folder>                     ← before reading any method body
 3. ck find-symbol "<name>" --path <folder-or-file>           ← locate declaration
    ck refs "<name>" --path <folder-or-file>                  ← find call-sites
 3.5 Fallback only when file-first results are weak/noisy:
-    ck find-files --query "<refined terms>"
+    ck find-files --query "<refined terms>" --task "<task intent>"
     ck expand-folder --pattern "<keyword>" <folder>
     ck signatures <folder>/                                  ← when no keyword available
 4. ck get-method-source <file> <Member>                      ← read one method (prefer over full file)

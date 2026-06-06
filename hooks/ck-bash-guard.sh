@@ -179,7 +179,7 @@ Run keyword mapping before more expand-folder calls:
 
   ck get-keyword-map --query \"$pending_query\"
 
-Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-files with refined terms."
+Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-files with refined terms and required --task."
   exit 0
 fi
 
@@ -188,7 +188,7 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+find-files\b' && [ "$COMMAND" = "$las
 
 Do not rerun the same scope command unchanged. If previous output was broad:
   ck get-keyword-map --query \"<same query>\"
-Then rerun find-files with refined terms."
+Then rerun find-files with refined terms and required --task."
   exit 0
 fi
 
@@ -214,7 +214,7 @@ if printf '%s' "$COMMAND" | grep -qE 'ck\s+expand-folder\b' && \
     --arg reason "[ck-guard] BLOCKED — this folder already had 2 consecutive expand-folder no-match results.
 
 Stop expanding the same folder. Either:
-  1) run ck get-keyword-map + refined ck find-files, or
+  1) run ck get-keyword-map + refined ck find-files with --task, or
   2) switch to another scoped folder." \
     '{
       "hookSpecificOutput": {
@@ -239,7 +239,7 @@ Next step in this direction:
   ck get-method-source \"$known_target_file\" <MemberName>
 
 If your direction changed, reset scope explicitly with:
-  ck find-files --query \"<new direction query>\"" \
+  ck find-files --query \"<new direction query>\" --task \"<task intent>\"" \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -262,7 +262,7 @@ Use targeted reads now:
 
 If still uncharted, reset direction first:
   ck get-keyword-map --query \"<same query>\"
-  ck find-files --query \"<refined query>\"" \
+  ck find-files --query \"<refined query>\" --task \"<task intent>\"" \
     '{
       "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -404,11 +404,11 @@ if [ "${#scoped_folders[@]}" -eq 0 ] && \
 
 Before grep/glob/find-style searching, run:
   ck get-keyword-map --query \"<domain concept operation>\"
-  ck find-files --query \"<domain concept operation>\" --path src/
+  ck find-files --query \"<domain concept operation>\" --task \"<task intent>\" --path src/
 
 If results are weak/noisy, fallback to:
   ck get-keyword-map --query \"<domain concept operation>\"
-  ck find-files --query \"<refined query from keyword-map>\"
+  ck find-files --query \"<refined query from keyword-map>\" --task \"<task intent>\"
 
 Then keep searches inside returned boundaries."
     exit 0
@@ -430,7 +430,7 @@ Active boundaries were set by latest ck find-files. Keep signatures inside:
 
 If direction changed, run:
   ck get-keyword-map --query \"<new direction>\"
-  ck find-files --query \"<new direction>\"" \
+  ck find-files --query \"<new direction>\" --task \"<task intent>\"" \
           '{
             "hookSpecificOutput": {
               "hookEventName": "PreToolUse",
@@ -456,7 +456,7 @@ Keep grep/rg/find inside boundaries from latest ck find-files:
 
 If this is a new direction, refresh scope first:
   ck get-keyword-map --query \"<new direction>\"
-  ck find-files --query \"<new direction>\"" \
+  ck find-files --query \"<new direction>\" --task \"<task intent>\"" \
           '{
             "hookSpecificOutput": {
               "hookEventName": "PreToolUse",
@@ -506,10 +506,10 @@ if printf '%s' "$COMMAND" | grep -qE '(^|[;&|[:space:]])(grep|rg)\b' && \
 
 Recursive grep from src/ or a module root scans too much. Use CK to narrow first:
 
-  ck find-files --query \"<domain concept operation>\" --path src/
+  ck find-files --query \"<domain concept operation>\" --task \"<task intent>\" --path src/
 
 Fallback if needed:
-  ck find-files --query \"<domain concept operation>\" --explain
+  ck find-files --query \"<domain concept operation>\" --task \"<task intent>\" --explain
 
 If you already have focused folders, grep those exact folders."
   exit 0
@@ -524,10 +524,10 @@ if printf '%s' "$COMMAND" | grep -qE '\bfind\s+([^|;]*\s)?(src|\./src|src/Module
 
 Plain find across src/ returns unranked paths and often floods context. Use:
 
-  ck find-files --query \"<domain concept operation>\" --path src/
+  ck find-files --query \"<domain concept operation>\" --task \"<task intent>\" --path src/
 
 Fallback if needed:
-  ck find-files --query \"<domain concept operation>\"
+  ck find-files --query \"<domain concept operation>\" --task \"<task intent>\"
 
 If you already know the exact narrow folder, run find inside that folder only."
   exit 0

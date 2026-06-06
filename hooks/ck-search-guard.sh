@@ -42,11 +42,11 @@ GUIDE_MSG='[ck-guard] ALLOW (guidance) — source search works better with file-
 Before Grep/Glob searching in source files, run:
 
   ck get-keyword-map --query "<what you are looking for>"
-  ck find-files --query "<what you are looking for>" --path src/
+  ck find-files --query "<what you are looking for>" --task "<task intent>" --path src/
 
 If results are weak/noisy, fallback to:
   ck get-keyword-map --query "<what you are looking for>"
-  ck find-files --query "<what you are looking for>"
+  ck find-files --query "<what you are looking for>" --task "<task intent>"
 
 Then keep Grep/Glob paths inside those returned paths/folders.'
 

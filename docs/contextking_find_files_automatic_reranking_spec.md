@@ -61,12 +61,13 @@ The project should still teach agents to use compact lexical queries.
 
 ## 4. User-facing behavior
 
-### 4.1 Normal usage remains unchanged
+### 4.1 Normal usage includes task intent
 
 Agents continue to call:
 
 ```bash
-ck find-files "adyen terminal refund retry"
+ck find-files "adyen terminal refund retry" \
+  --task "Find retry handling for terminal refunds after transient provider errors."
 ```
 
 No extra semantic flags are introduced.
@@ -77,20 +78,20 @@ The command remains easy to teach:
 Use code terms: path names, file names, type names, method names, domain words.
 ```
 
-### 4.2 Optional task description
+### 4.2 Required task description
 
-Add one optional parameter:
+Require one task-intent parameter:
 
 ```bash
 ck find-files "adyen terminal refund retry" \
   --task "Find retry handling for terminal refunds after transient provider errors. Ignore normal card refunds."
 ```
 
-`--task` is **not** used for first-stage search. It is only used as richer semantic intent for reranking.
+`--task` is **not** used for first-stage search. It is required as richer semantic intent for reranking.
 
 ```text
 lexical query -> candidate generation
-task description, if present -> semantic rerank query text
+task description -> semantic rerank query text
 ```
 
 This keeps lexical retrieval grounded while giving the reranker better intent when the task is hard to express as keywords.
@@ -154,7 +155,7 @@ Update `FindFilesCommand` to do this internally:
 
 ```text
 1. Parse existing find-files arguments.
-2. Parse optional --task.
+2. Parse required --task.
 3. Load repository settings from .ck.json.
 4. Ensure index is fresh, as today.
 5. Calculate internal lexical overfetch count.
@@ -612,9 +613,9 @@ Required tests:
 Required tests:
 
 ```text
-1. Existing `ck find-files` usage still works.
+1. `ck find-files` usage with required `--task` works.
 2. `--task` is accepted and passed to reranker.
-3. No removed options are documented or required.
+3. Missing `--task` fails with a clear error.
 4. `--explain` shows semantic fields when reranking is active.
 5. Lexical fallback still returns results when reranker fails.
 ```
@@ -633,12 +634,12 @@ Recommended wording:
 Use `ck find-files` first for source discovery. Write the query as compact lexical code terms: path names, file names, type names, method names, and domain words.
 
 Good:
-`ck find-files "adyen terminal refund retry"`
+`ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds."`
 
 Avoid:
-`ck find-files "where is the refund retry logic implemented"`
+`ck find-files "where is the refund retry logic implemented" --task "Find retry handling for terminal refunds."`
 
-If the task has important intent that is hard to express as code terms, add `--task`:
+Always keep the main query lexical and pass the task intent separately with `--task`:
 
 `ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore normal card refund flows."`
 ```
@@ -665,7 +666,7 @@ Add a short developer-facing section:
 
 This avoids maintaining a repository-wide semantic index while improving result precision for ambiguous searches. No full source files are read during reranking, and candidate embeddings are not persisted.
 
-For tasks where code keywords are not enough to express intent, use `--task` to provide additional reranking context:
+Always pass `--task` to provide reranking context while keeping the main query lexical:
 
 ```bash
 ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore card refunds."
@@ -715,8 +716,8 @@ The implementation is accepted when:
 
 ```text
 - `ck find-files` remains simple and does not expose semantic tuning flags.
-- Existing usage continues to work unchanged.
-- `--task` is the only new user-facing option.
+- Usage with required `--task` succeeds.
+- Missing `--task` fails clearly.
 - Lexical search remains the first-stage retriever.
 - Internal overfetch is controlled by settings, not CLI flags.
 - Semantic reranking embeds only compact candidate metadata.

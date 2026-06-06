@@ -97,7 +97,7 @@ internal static class ExpandFolderCommand
             if (pattern is null && !allowBroad)
             {
                 Console.Error.WriteLine(
-                    "[ck expand-folder] Run 'ck find-files \"<what you are looking for>\" --path src/' " +
+                    "[ck expand-folder] Run 'ck find-files \"<what you are looking for>\" --task \"<task intent>\" --path src/' " +
                     "to narrow to relevant files/folders first, then expand a focused folder.");
                 return Task.FromResult(1);
             }
@@ -112,7 +112,7 @@ internal static class ExpandFolderCommand
                 $"[ck expand-folder] Refusing unfiltered expansion of {allFiles.Count} files in '{folderPath}'.");
             Console.Error.WriteLine(
                 "[ck expand-folder] Add --pattern with at least one precise symbol/domain word, " +
-                "or rerun ck find-files with a narrower query/path. Use --all only when broad output is intentional.");
+                "or rerun ck find-files with a narrower query, required --task, and path. Use --all only when broad output is intentional.");
             return Task.FromResult(1);
         }
 

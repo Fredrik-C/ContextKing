@@ -26,7 +26,7 @@ ck init
   Adds in-memory semantic reranking over compact candidate cards built from path, file, type, and member metadata. Full source files are not read and candidate embeddings are not persisted.
 
 - `src/ContextKing.Cli/Commands/FindFilesCommand.cs`
-  Adds `--task` as optional reranking context, internal lexical overfetch, lexical fallback when reranking is unavailable, and richer `--explain` score components.
+  Adds `--task` as reranking context, internal lexical overfetch, lexical fallback when reranking is unavailable, and richer `--explain` score components.
 
 - `src/ContextKing.Cli/CkSettings.cs`
   Adds repository-level `findFiles` settings with semantic rerank enabled by default and bounded/clamped reranking defaults.

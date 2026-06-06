@@ -49,7 +49,7 @@ Weak:
 
 ## Usage pattern
 
-1. Run `ck find-files --query "..."` first
+1. Run `ck find-files --query "..." --task "..."` first
 2. If file-first results are weak/noisy, run `ck get-keyword-map --query "..."`
-3. Then run `ck find-files --query "..."` using precision terms from step 2
+3. Then run `ck find-files --query "..." --task "..."` using precision terms from step 2
 4. Folders from `find-files` are source of truth for fallback exploration

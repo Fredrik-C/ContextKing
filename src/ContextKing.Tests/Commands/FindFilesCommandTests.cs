@@ -9,15 +9,32 @@ public class FindFilesCommandTests : IDisposable
     private readonly TempRepo _repo = new();
 
     [Fact]
-    public async Task RunAsync_ExistingUsageStillWorks()
+    public async Task RunAsync_WithTaskStillWorks()
+    {
+        WriteClass("src/Payments/AdyenTerminalRefundService.cs", "AdyenTerminalRefundService", "RetryTerminalRefund");
+        _repo.StageAndCommit();
+
+        var result = await RunCommand(
+            "adyen terminal refund retry",
+            "--task",
+            "Find retry handling for terminal refunds.",
+            "--repo",
+            _repo.Root);
+
+        result.ExitCode.Should().Be(0, $"stdout: {result.Stdout}; stderr: {result.Stderr}");
+        result.Stdout.Should().Contain("src/Payments/AdyenTerminalRefundService.cs");
+    }
+
+    [Fact]
+    public async Task RunAsync_MissingTaskFails()
     {
         WriteClass("src/Payments/AdyenTerminalRefundService.cs", "AdyenTerminalRefundService", "RetryTerminalRefund");
         _repo.StageAndCommit();
 
         var result = await RunCommand("adyen terminal refund retry", "--repo", _repo.Root);
 
-        result.ExitCode.Should().Be(0, $"stdout: {result.Stdout}; stderr: {result.Stderr}");
-        result.Stdout.Should().Contain("src/Payments/AdyenTerminalRefundService.cs");
+        result.ExitCode.Should().Be(1);
+        result.Stderr.Should().Contain("--task is required");
     }
 
     [Fact]
@@ -56,7 +73,13 @@ public class FindFilesCommandTests : IDisposable
         WriteClass("src/Payments/RefundService.cs", "RefundService", "ProcessRefund");
         _repo.StageAndCommit();
 
-        var result = await RunCommand("refund process", "--explain", "--repo", _repo.Root);
+        var result = await RunCommand(
+            "refund process",
+            "--task",
+            "Find refund processing implementation.",
+            "--explain",
+            "--repo",
+            _repo.Root);
 
         result.ExitCode.Should().Be(0, $"stdout: {result.Stdout}; stderr: {result.Stderr}");
         result.Stdout.Should().Contain("lexical=");
@@ -70,6 +93,7 @@ public class FindFilesCommandTests : IDisposable
         var result = Capture(() => FindFilesCommand.RunAsync(["--help"]).GetAwaiter().GetResult());
 
         result.Stdout.Should().Contain("--task <text>");
+        result.Stdout.Should().Contain("--task is required");
         result.Stdout.Should().NotContain("--semantic");
         result.Stdout.Should().NotContain("--overfetch");
         result.Stdout.Should().NotContain("--semantic-weight");
@@ -84,7 +108,14 @@ public class FindFilesCommandTests : IDisposable
         _repo.WriteFile(".ck.json", """{ "findFiles": { "semanticRerank": false } }""");
         _repo.StageAndCommit();
 
-        var result = await RunCommand("refund payment", "--top", "2", "--repo", _repo.Root);
+        var result = await RunCommand(
+            "refund payment",
+            "--task",
+            "Find refund payment workflow files.",
+            "--top",
+            "2",
+            "--repo",
+            _repo.Root);
 
         result.ExitCode.Should().Be(0, $"stdout: {result.Stdout}; stderr: {result.Stderr}");
         result.Stdout.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[0]

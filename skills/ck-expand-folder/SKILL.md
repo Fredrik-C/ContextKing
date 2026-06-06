@@ -80,7 +80,7 @@ Pagination metadata is printed to stderr:
 ## Workflow integration
 
 ```
-0. ck find-files --query "..."                                      → primary file-level entrypoint
+0. ck find-files --query "..." --task "..."                         → primary file-level entrypoint
 1. If needed, fallback: ck get-keyword-map + ck find-files          → folders = source of truth
 2. ck expand-folder --pattern "<2-4 precise keywords>" <folder>     → see which files and members match
 3. ck get-method-source <file> <MemberName>                         → read the method body

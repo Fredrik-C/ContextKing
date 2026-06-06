@@ -19,7 +19,7 @@ internal static class FindFilesCommand
         if (!reader.TryGetFloat("--min-score", out var minScore)) minScore = 0.25f;
         var explain = reader.HasFlag("--explain");
         var verbose = reader.HasFlag("--verbose");
-        var taskDescription = reader.GetString("--task");
+        var taskDescription = reader.GetString("--task")?.Trim();
         var mustTerms = reader.GetStringList("--must");
         var repo = reader.GetString("--repo");
         _ = reader.HasFlag("--quiet");
@@ -35,6 +35,13 @@ internal static class FindFilesCommand
         if (string.IsNullOrWhiteSpace(query))
         {
             Console.Error.WriteLine("[ck find-files] Error: query is required.");
+            return 1;
+        }
+
+        if (string.IsNullOrWhiteSpace(taskDescription))
+        {
+            Console.Error.WriteLine("[ck find-files] Error: --task is required.");
+            PrintHelp();
             return 1;
         }
 
@@ -179,14 +186,14 @@ internal static class FindFilesCommand
             ck find-files — lexical file retrieval from path/type/method names
 
             Usage:
-              ck find-files "<query>" [--task <text>] [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--repo <path>] [--explain] [--verbose]
-              ck find-files "<query>" <folder-or-file> [more paths...]
+              ck find-files "<query>" --task <text> [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--repo <path>] [--explain] [--verbose]
+              ck find-files "<query>" --task <text> <folder-or-file> [more paths...]
 
             Defaults:
               - Searches repo `src/` when no path is supplied.
               - top=20, min-score=0.25
               - --must applies soft boosts (does not hard-filter to zero results)
-              - --task adds optional reranking context; lexical search still uses <query>
+              - --task is required reranking context; lexical search still uses <query>
 
             Output (stdout):
               <score>\t<file>

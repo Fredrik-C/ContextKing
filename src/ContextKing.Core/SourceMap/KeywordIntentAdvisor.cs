@@ -288,12 +288,12 @@ public static class KeywordIntentAdvisor
     private static string BuildNextCommand(string? query, string? must)
     {
         if (string.IsNullOrWhiteSpace(query))
-            return "ck find-files \"<refined query>\" --path src/";
+            return "ck find-files \"<refined query>\" --task \"<task intent>\" --path src/";
 
         if (string.IsNullOrWhiteSpace(must))
-            return $"ck find-files \"{query}\" --path src/";
+            return $"ck find-files \"{query}\" --task \"<task intent>\" --path src/";
 
-        return $"ck find-files \"{query} {must}\" --path src/";
+        return $"ck find-files \"{query} {must}\" --task \"<task intent>\" --path src/";
     }
 
     private sealed record TermEvidence(

@@ -31,6 +31,7 @@ public class KeywordIntentAdvisorTests
         if (advice.SuggestedMust is not null)
             new[] { "stripe", "payouts" }.Should().Contain(advice.SuggestedMust);
         advice.SuggestedNextCommand.Should().Contain("ck find-files");
+        advice.SuggestedNextCommand.Should().Contain("--task");
         advice.Terms.Should().Contain(t => t.Role == KeywordRole.Discriminator);
         advice.Terms.Should().Contain(t => t.Term == "stripe" && t.Role == KeywordRole.Anchor);
     }

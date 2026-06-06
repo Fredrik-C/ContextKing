@@ -138,7 +138,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task RequiresInit_BlocksCommandWhenCkJsonMissing()
     {
-        var (exit, _, stderr) = await RunCk("find-files --query test", _repo.Root);
+        var (exit, _, stderr) = await RunCk("find-files --query test --task \"Test initialization guard.\"", _repo.Root);
         Assert.Equal(1, exit);
         Assert.Contains("not initialized", stderr, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ck init", stderr, StringComparison.OrdinalIgnoreCase);
@@ -152,7 +152,7 @@ public class InitCommandTests : IDisposable
             """{ "minVersion": "999.0.0" }""");
 
         // `ck find-files` should be blocked by the version requirement.
-        var (exit, _, stderr) = await RunCk("find-files --query test", _repo.Root);
+        var (exit, _, stderr) = await RunCk("find-files --query test --task \"Test version guard.\"", _repo.Root);
         Assert.Equal(2, exit);
         Assert.Contains("999.0.0", stderr);
     }

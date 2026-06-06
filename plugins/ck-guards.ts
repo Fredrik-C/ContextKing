@@ -350,7 +350,7 @@ If full-file context is truly required:
 
 Before grep/glob/find-style searching, run:
   ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-files --query "<refined query from keyword-map>"
+  ${CK} find-files --query "<refined query from keyword-map>" --task "<task intent>"
 
 Then keep all searches inside returned folders.`
           )
@@ -365,7 +365,7 @@ Keep searches inside:
 
 If direction changed:
   ${CK} get-keyword-map --query "<new direction>"
-  ${CK} find-files --query "<new direction>"`
+  ${CK} find-files --query "<new direction>" --task "<task intent>"`
           )
         }
 
@@ -374,7 +374,7 @@ If direction changed:
             `[ck-guard] Broad source file glob detected (pattern: "${pattern}", path: "${path || "repo root"}").
 
 Use ck find-files to discover the right area first:
-  ${CK} find-files --query "<multi-keyword description>"
+  ${CK} find-files --query "<multi-keyword description>" --task "<task intent>"
 
 Then explore within those folders:
   ${CK} expand-folder --pattern "<keyword>" <folder>/
@@ -404,7 +404,7 @@ Do NOT use broad glob — it wastes tokens scanning irrelevant files.`
 
 Before grep/glob/find-style searching, run:
   ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-files --query "<refined query from keyword-map>"
+  ${CK} find-files --query "<refined query from keyword-map>" --task "<task intent>"
 
 Then keep all searches inside returned folders.`
           )
@@ -419,7 +419,7 @@ Keep searches inside:
 
 If direction changed:
   ${CK} get-keyword-map --query "<new direction>"
-  ${CK} find-files --query "<new direction>"`
+  ${CK} find-files --query "<new direction>" --task "<task intent>"`
           )
         }
 
@@ -428,7 +428,7 @@ If direction changed:
             `[ck-guard] Broad source file grep detected (path: "${path || "repo root"}").
 
 Use ck find-files to discover the right area first:
-  ${CK} find-files --query "<multi-keyword description>"
+  ${CK} find-files --query "<multi-keyword description>" --task "<task intent>"
 
 Then explore within those folders:
   ${CK} expand-folder --pattern "<keyword>" <folder>/
@@ -475,7 +475,7 @@ Do NOT use broad grep — it wastes tokens scanning irrelevant files.`
 
 Before grep/glob/find-style searching, run:
   ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-files --query "<refined query from keyword-map>"
+  ${CK} find-files --query "<refined query from keyword-map>" --task "<task intent>"
 
 Then keep all searches inside returned folders.`
           )
@@ -495,7 +495,7 @@ Keep operations inside:
 
 If your direction changed:
   ${CK} get-keyword-map --query "<new direction>"
-  ${CK} find-files --query "<new direction>"`
+  ${CK} find-files --query "<new direction>" --task "<task intent>"`
               )
             }
           }
@@ -512,7 +512,7 @@ If your direction changed:
 Run keyword mapping before more scope/explore calls:
   ${CK} get-keyword-map --query "${pendingKeywordMapQuery}"
 
-Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-files once.`
+Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-files once with required --task.`
           )
         }
 
@@ -523,7 +523,7 @@ Then treat keyword-map/session-keyword-atlas as source-of-truth for this directi
 
 Do not rerun the same scope command unchanged. If previous output was broad:
   ${CK} get-keyword-map --query "<same query>"
-Then rerun find-files with refined terms.`
+Then rerun find-files with refined terms and required --task.`
           )
         }
 
@@ -547,7 +547,7 @@ Refine --pattern using add-keyword-hints instead of rerunning the same command.`
             `[ck-guard] This folder already had 2 consecutive expand-folder no-match results.
 
 Stop expanding the same folder. Either:
-  1) run ${CK} get-keyword-map + refined ${CK} find-files, or
+  1) run ${CK} get-keyword-map + refined ${CK} find-files with --task, or
   2) switch to another scoped folder.`
           )
         }
@@ -565,7 +565,7 @@ Next step in this direction:
   ${CK} get-method-source "${knownTargetFile ?? "<file>"}" <MemberName>
 
 If your direction changed, reset scope explicitly with:
-  ${CK} find-files --query "<new direction query>"`
+  ${CK} find-files --query "<new direction query>" --task "<task intent>"`
           )
         }
 
@@ -581,7 +581,7 @@ Use targeted reads now:
 
 If still uncharted, reset direction first:
   ${CK} get-keyword-map --query "<same query>"
-  ${CK} find-files --query "<refined query>"`
+  ${CK} find-files --query "<refined query>" --task "<task intent>"`
           )
         }
 
@@ -715,7 +715,7 @@ Bulk-reading files via find bypasses targeted reads and wastes tokens.`
 
 Plain find across src/ returns unranked paths and often floods context. Use:
 
-  ${CK} find-files --query "<domain concept operation>"
+  ${CK} find-files --query "<domain concept operation>" --task "<task intent>"
   ${CK} expand-folder --pattern "<keyword>" <returned-folder>
 
 If you already know the exact narrow folder, run find inside that folder only.`
@@ -732,7 +732,7 @@ If you already know the exact narrow folder, run find inside that folder only.`
 
 Recursive grep from src/ or a module root scans too much. Use CK to narrow first:
 
-  ${CK} find-files --query "<domain concept operation>" --explain
+  ${CK} find-files --query "<domain concept operation>" --task "<task intent>" --explain
   ${CK} expand-folder --pattern "<keyword>" <returned-folder>
 
 If you already have focused folders, grep only those exact folders.`
@@ -978,7 +978,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
           `[CK PROTOCOL — mandatory for C#, TypeScript, Kotlin, Python source files] ` +
           `Do NOT call this tool for source file search. Use CK tools instead:\n` +
           `  ${CK} get-keyword-map --query "<terms>"           (step 0 — always first)\n` +
-          `  ${CK} find-files --query "<terms>"                (step 1 — establishes scope)\n` +
+          `  ${CK} find-files --query "<terms>" --task "<task intent>"  (step 1 — establishes scope)\n` +
           `  ${CK} expand-folder --pattern "<kw>" <folder>     (step 2 — explore)\n` +
           `grep/glob are only allowed within folders returned by find-files.\n\n` +
           output.description
@@ -1012,7 +1012,7 @@ cat wastes tokens by dumping entire files into command output without line numbe
         `[Context King Protocol — highest priority] This repository has CK initialized. ` +
         `For ANY C#, TypeScript, Kotlin, Python source search: ` +
         `step 0 = \`${CK} get-keyword-map --query "..."\`, ` +
-        `step 1 = \`${CK} find-files --query "..."\`. ` +
+        `step 1 = \`${CK} find-files --query "..." --task "..."\`. ` +
         `These steps are MANDATORY before grep, glob, find, or native Read for exploration. ` +
         `When any other tool (CallGraph, language servers, etc.) returns empty results or fails, ` +
         `the NEXT step is CK tools — never raw grep. ` +

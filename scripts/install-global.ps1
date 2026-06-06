@@ -319,7 +319,7 @@ This codebase uses Context King (CK) for source navigation. Follow this protocol
 
 $fence
 0. ck get-keyword-map --query "<domain concept operation>"   <- FIRST — always before any search
-1. ck find-files --query "<refined terms>"                   <- SECOND — establishes folder scope
+1. ck find-files --query "<refined terms>" --task "<task intent>"  <- SECOND — establishes folder scope
 2. ck expand-folder --pattern "<keyword>" <folder>           <- explore within scoped folders
    ck signatures <folder>/                                   <- when no keyword available
 2.5 ck recall --folder <confirmed-folder>                    <- before reading any method body

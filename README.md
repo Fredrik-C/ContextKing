@@ -50,7 +50,7 @@ Context King installs these commands into your AI CLI tool:
 The file-first flow in practice:
 
 ```
-1. ck find-files --query "order reservation inventory allocation" --top 20 --path src/
+1. ck find-files --query "order reservation inventory allocation" --task "Find inventory reservation allocation logic." --top 20 --path src/
       -> 0.71  src/Modules/Inventory/Reservations/InventoryReservationService.cs
          0.69  src/Modules/Inventory/Allocations/AllocationService.cs
 
@@ -119,7 +119,7 @@ PascalCase and camelCase identifiers are split at case boundaries. Symbol names 
 
 This avoids maintaining a repository-wide semantic index while improving result precision for ambiguous searches. No full source files are read during reranking, and candidate embeddings are not persisted.
 
-For tasks where code keywords are not enough to express intent, use `--task` to provide additional reranking context:
+Always pass `--task` to provide reranking context while keeping the main query lexical:
 
 ```bash
 ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore card refunds."
@@ -290,12 +290,12 @@ Initializes Context King in the current git repository. Creates `.ck.json` with 
 ### `ck find-files`
 
 ```
-ck find-files "<query>" [--task <text>] [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--explain]
+ck find-files "<query>" --task <text> [--must <text>] [--top <n>] [--min-score <f>] [--path <folder-or-file>] [--explain]
 ```
 
 Lexical file retrieval using weighted term matching across path, file, type, and method fields.
 `--must` applies soft score boosts (it does not hard-filter to zero results).
-`--task` provides optional extra intent for candidate reranking; the lexical query still controls first-stage retrieval.
+`--task` is required and provides extra intent for candidate reranking; the lexical query still controls first-stage retrieval.
 Output rows are `<score>\t<relative-file-path>`, optionally with compact score components when `--explain` is set.
 Write `--query` as lexical code terms (path/file/type/member words), not natural-language questions.
 Example: use `terminal refund adyen async` instead of `where is the refund logic implemented`.

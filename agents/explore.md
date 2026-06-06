@@ -11,7 +11,7 @@ When Context King is initialized in the repo (`.ck.json` present), use `bash` wi
 
 ```
 ck get-keyword-map --query "<user query terms>"       ← ALWAYS FIRST
-ck find-files --query "<refined terms from step 0>"   ← ALWAYS SECOND
+ck find-files --query "<refined terms from step 0>" --task "<task intent>"   ← ALWAYS SECOND
 ```
 
 Never skip these two steps before grep/rg/find/glob or broad exploration. Never jump straight to `ck signatures` or `ck expand-folder` without establishing scope first.
@@ -31,7 +31,7 @@ or a targeted CK read for that same file (`ck get-method-source`, `ck get-type-s
 
 ```
 0. ck get-keyword-map --query "..."            → extract precision keywords (search path)
-1. ck find-files --query "..."                 → establish folder scope (search path)
+1. ck find-files --query "..." --task "..."    → establish folder scope (search path)
 2. ck expand-folder --pattern "<kw>" <folder>  → explore (preferred when you have a keyword)
    ck signatures <folder>/                     → when no keyword; smart-ranked for large folders
    grep -rn "<kw>" <folder>/                   → allowed freely within scoped folders only
