@@ -1,6 +1,6 @@
 # Context King
 
-Code navigation toolkit for **Claude Code**, **Codex CLI**, and **OpenCode** on large **C#** and **TypeScript** codebases.
+Code navigation toolkit for **Claude Code**, **Codex CLI**, and **OpenCode** on large **C#**, **TypeScript/TSX**, **Kotlin**, and **Python** codebases.
 
 Most approaches to reducing token usage focus on compacting what the agent reads: tighter prompts, summarised context, leaner encoding. Context King addresses a different problem: the token cost of getting there. On a large codebase, navigating to the right method without guidance means scanning many wrong files before finding the right one, and that over-reading during navigation dominates the total cost.
 
@@ -14,7 +14,7 @@ file-first lexical retrieval -> optional metadata reranking -> scoped exploratio
 
 ## The problem
 
-A large C# solution or TypeScript monorepo has tens of thousands of files spread across thousands of folders. When Claude Code needs to find a specific piece of logic, the typical unguided path is:
+A large solution or monorepo can have tens of thousands of C#, TypeScript/TSX, Kotlin, and Python files spread across thousands of folders. When Claude Code needs to find a specific piece of logic, the typical unguided path is:
 
 1. Grep or Glob across the whole repo, returning dozens of hits across unrelated modules.
 2. Scan candidate files for keywords. Many files touched, and grep misses cross-module naming/context clues.
@@ -35,13 +35,13 @@ Context King installs these commands into your AI CLI tool:
 | `ck expand-folder` | Scoped folder browser: enumerates source files and extracts signatures, with an optional regex filter |
 | `ck signatures` | Live AST extraction. Lists every method/property signature in a set of files |
 | `ck get-method-source` | Reads one named member using AST and returns exact line and char spans |
-| `ck get-type-source` | Reads one C#/TS type declaration by name with exact line and char spans |
-| `ck get-enum-members` | Lists enum members for a named C#/TS enum without reading the full file |
-| `ck read-full-file` | Reads one full C#/TS file with a large-file guardrail and explicit override |
+| `ck get-type-source` | Reads one supported type declaration by name with exact line and char spans |
+| `ck get-enum-members` | Lists enum members for a named enum without reading the full file |
+| `ck read-full-file` | Reads one supported source file with a large-file guardrail and explicit override |
 | `ck build-check` | Runs `dotnet build -v q` and prints compact diagnostics |
 | `ck index` | Builds or refreshes the source-map index (runs automatically on first use) |
 | `ck init` | Initializes Context King in a repository (see Installation) |
-| `ck find-symbol` | Finds type or member declarations in C# and TypeScript/TSX files across a scoped path |
+| `ck find-symbol` | Finds type or member declarations in C#, TypeScript/TSX, Kotlin, and Python files across a scoped path |
 | `ck refs` | Finds textual references (call-sites) for a symbol across a scoped path |
 | `ck recall` | Retrieves knowledge snippets for a folder or a cross-folder ranked query (step 2.5) |
 | `ck learn` | Records a knowledge snippet to a session-specific `.ck-knowledge/**/*.jsonl` file |
@@ -101,7 +101,7 @@ The CK session read zero `.cs` files in full. Two `ck find-files` passes identif
 
 ## How file-first matching works
 
-**File-level lexical index.** Context King indexes each source file (`.cs`, `.ts`, `.tsx`) as one row. A 20,000-file repo typically produces 15,000-20,000 indexed files. The index is incremental and updates only changed files.
+**File-level lexical index.** Context King indexes each supported source file (`.cs`, `.ts`, `.tsx`, `.kt`, `.kts`, `.py`) as one row. A 20,000-file repo typically produces 15,000-20,000 indexed files. The index is incremental and updates only changed files.
 
 Each indexed file stores normalized tokens from:
 
@@ -135,7 +135,7 @@ Navigation solves one problem: getting to the right code fast. But it doesn't he
 
 CK Brain is the knowledge layer on top of the navigation layer. Where `ck find-files` answers "where is the code?", CK Brain answers "what do we know about that code?" — domain rules, architectural decisions, gotchas, cross-module relationships, anything a senior developer would tell a new joiner.
 
-**How knowledge accumulates.** The brain starts empty and grows automatically. A hook runs after every agent turn and scans the new portion of the session transcript for code exploration signals: use of `ck find-files`, `ck signatures`, or `ck get-method-source` are strong signals; reading `.cs`/`.ts`/`.tsx` files, writing code, and running `ck recall` are moderate ones. Large investigation/edit windows can also trigger capture even without a strong signal. When enough signals are present, the hook injects a knowledge-capture prompt asking the agent to reflect on what it just discovered. The agent then calls `ck learn` to record the insight as a short snippet (2-4 sentences). CK writes new snippets to session-specific JSONL files under `.ck-knowledge/sessions/`, while recall reads every `.jsonl` file under `.ck-knowledge/` into one in-memory knowledge set. This keeps knowledge git-tracked and shared without forcing every session to append to the same file. Snippets are stored with schema-aware lifecycle metadata, and recall can lazily backfill older entries without breaking readability. Turns that involve no meaningful code exploration never trigger the prompt. No manual curation required.
+**How knowledge accumulates.** The brain starts empty and grows automatically. A hook runs after every agent turn and scans the new portion of the session transcript for code exploration signals: use of `ck find-files`, `ck signatures`, or `ck get-method-source` are strong signals; reading supported source files, writing code, and running `ck recall` are moderate ones. Large investigation/edit windows can also trigger capture even without a strong signal. When enough signals are present, the hook injects a knowledge-capture prompt asking the agent to reflect on what it just discovered. The agent then calls `ck learn` to record the insight as a short snippet (2-4 sentences). CK writes new snippets to session-specific JSONL files under `.ck-knowledge/sessions/`, while recall reads every `.jsonl` file under `.ck-knowledge/` into one in-memory knowledge set. This keeps knowledge git-tracked and shared without forcing every session to append to the same file. Snippets are stored with schema-aware lifecycle metadata, and recall can lazily backfill older entries without breaking readability. Turns that involve no meaningful code exploration never trigger the prompt. No manual curation required.
 
 After a dozen sessions on an active module, the brain holds the kind of contextual depth that normally takes months to accumulate, and it's available to every agent on every machine from the moment they pull the repo.
 
@@ -153,7 +153,7 @@ For questions that span multiple folders, `ck recall --query "<text>"` performs 
 
 ### Requirements
 
-- .NET 10 runtime (required for C# AST analysis; TypeScript analysis uses bundled tree-sitter)
+- .NET 10 runtime (required for Roslyn C# analysis; TypeScript/TSX, Kotlin, and Python analysis use bundled tree-sitter support)
 - At least one of: Claude Code, Codex CLI, or OpenCode
 - Bash (Mac/Linux) or PowerShell 7+ (Windows)
 - Git
@@ -346,7 +346,7 @@ Use the same lexical query style as `find-files`: path/file/type/member words, n
 ck expand-folder [--pattern <regex>] [--limit <n>] [--offset <n>] [--max-signatures <n>] [--all] <folder> [--repo <path>]
 ```
 
-Enumerates every `.cs`, `.ts`, and `.tsx` file under `<folder>` recursively, extracts signatures, and filters to only files with a matching signature when `--pattern` is given. `\|` in the pattern is normalised to `|` automatically. Results are paged (`--limit`, `--offset`) and include pagination metadata on stderr. `--max-signatures` limits signatures printed per file (`0` = unlimited). Broad matches return a paged shortlist with narrowing hints; use `--all` only when broad output is intentional.
+Enumerates every supported source file under `<folder>` recursively, extracts signatures, and filters to only files with a matching signature when `--pattern` is given. `\|` in the pattern is normalised to `|` automatically. Results are paged (`--limit`, `--offset`) and include pagination metadata on stderr. `--max-signatures` limits signatures printed per file (`0` = unlimited). Broad matches return a paged shortlist with narrowing hints; use `--all` only when broad output is intentional.
 
 ### `ck signatures`
 
@@ -355,7 +355,7 @@ ck signatures <file> [file2 ...]
 ck signatures [--all] <folder>
 ```
 
-Supports `.cs`, `.ts`, and `.tsx` files. Output: `<filepath>:<line>\t<containingType>\t<memberName>\t<signature>`, one line per member. Always live, no index required. For large folders, adaptive relevance ranking is applied unless `--all` is passed.
+Supports `.cs`, `.ts`, `.tsx`, `.kt`, `.kts`, and `.py` files. Output: `<filepath>:<line>\t<containingType>\t<memberName>\t<signature>`, one line per member. Always live, no index required. For large folders, adaptive relevance ranking is applied unless `--all` is passed.
 
 ### `ck get-method-source`
 
@@ -363,7 +363,7 @@ Supports `.cs`, `.ts`, and `.tsx` files. Output: `<filepath>:<line>\t<containing
 ck get-method-source <file> <member-name> [--type <TypeName>] [--mode <mode>]
 ```
 
-Supports `.cs`, `.ts`, and `.tsx` files. Modes: `signature_plus_body` (default), `signature_only`, `body_only`, `body_without_comments`. Output: JSON array with `file`, `member_name`, `containing_type`, `signature`, `mode`, `start_line`, `end_line`, `start_char`, `end_char`, and `content`.
+Supports `.cs`, `.ts`, `.tsx`, `.kt`, `.kts`, and `.py` files. Modes: `signature_plus_body` (default), `signature_only`, `body_only`, `body_without_comments`. Output: JSON array with `file`, `member_name`, `containing_type`, `signature`, `mode`, `start_line`, `end_line`, `start_char`, `end_char`, and `content`.
 
 ### `ck get-type-source`
 
@@ -371,7 +371,7 @@ Supports `.cs`, `.ts`, and `.tsx` files. Modes: `signature_plus_body` (default),
 ck get-type-source <file> <TypeName> [--kind <class|interface|struct|record|enum|type_alias>]
 ```
 
-Supports `.cs`, `.ts`, and `.tsx` files. Output: JSON array with `file`, `type_name`, `kind`, `start_line`, `end_line`, `start_char`, `end_char`, and `content`.
+Supports `.cs`, `.ts`, `.tsx`, `.kt`, `.kts`, and `.py` files. Output: JSON array with `file`, `type_name`, `kind`, `start_line`, `end_line`, `start_char`, `end_char`, and `content`.
 
 ### `ck get-enum-members`
 
@@ -379,7 +379,7 @@ Supports `.cs`, `.ts`, and `.tsx` files. Output: JSON array with `file`, `type_n
 ck get-enum-members <file> <EnumName>
 ```
 
-Supports `.cs`, `.ts`, and `.tsx` files. Output: JSON object with `file`, `enum_name`, `start_line`, `end_line`, and `members`.
+Supports `.cs`, `.ts`, `.tsx`, `.kt`, `.kts`, and `.py` files. Output: JSON object with `file`, `enum_name`, `start_line`, `end_line`, and `members`.
 
 ### `ck read-full-file`
 
@@ -387,7 +387,7 @@ Supports `.cs`, `.ts`, and `.tsx` files. Output: JSON object with `file`, `enum_
 ck read-full-file <file> [--max-lines <n>] [--allow-large]
 ```
 
-Reads a full `.cs` / `.ts` / `.tsx` file. By default it refuses files above 300 lines and points to targeted commands (`get-method-source`, `get-type-source`, `get-usings`, etc). If full context is truly required, rerun with `--allow-large`.
+Reads one supported source file. By default it refuses files above 300 lines and points to targeted commands (`get-method-source`, `get-type-source`, `get-usings`, etc). If full context is truly required, rerun with `--allow-large`.
 
 ### `ck find-symbol`
 
@@ -396,7 +396,7 @@ ck find-symbol <symbol> [--path <folder-or-file>] [--kind type|member] [--top <n
 ck find-symbol <symbol> <folder-or-file> [more paths...]
 ```
 
-Finds type or member declarations in C# and TypeScript/TSX files. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries. Output: `<score>\t<file:line>\t<kind>\t<symbol>\t<container>\t<signature>`. Works on live disk content (uncommitted edits included).
+Finds type or member declarations in C#, TypeScript/TSX, Kotlin, and Python files. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries. Output: `<score>\t<file:line>\t<kind>\t<symbol>\t<container>\t<signature>`. Works on live disk content (uncommitted edits included).
 
 ### `ck refs`
 
@@ -405,7 +405,7 @@ ck refs <symbol> [--path <folder-or-file>] [--top <n>] [--ignore-case]
 ck refs <symbol> <folder-or-file> [more paths...]
 ```
 
-Finds textual references (call-sites) for a symbol in C# and TypeScript/TSX files. Uses identifier-boundary matching on the symbol's right-most segment. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries. Output: `<score>\t<file:line>\t<line snippet>`. Works on live disk content.
+Finds textual references (call-sites) for a symbol in C#, TypeScript/TSX, Kotlin, and Python files. Uses identifier-boundary matching on the symbol's right-most segment. Uses `--path` roots when provided; otherwise falls back to the latest CK boundaries. Output: `<score>\t<file:line>\t<line snippet>`. Works on live disk content.
 
 ### `ck build-check`
 
