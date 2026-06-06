@@ -130,52 +130,50 @@ fi
 [ "$STRONG" -eq 0 ] && [ "$MODERATE" -lt 2 ] && [ "$LARGE_SESSION" -eq 0 ] && exit 0
 
 # ── Inject knowledge-capture prompt ───────────────────────────────────────────
-CONTEXT="## Knowledge capture (ck-postsession)
+CONTEXT="## Knowledge capture (ck-postsession) — optional
 
-Before this session ends, record institutional knowledge and review existing snippets.
+This was a tool-heavy turn, so pause and ask: did you reach a durable, non-obvious conclusion
+that a future engineer could NOT recover by reading the code? If so, record it. If not — and
+this is the common case — **do nothing.** \`ck learn\` is a no-op by default; only act when the
+bar below is genuinely met. Do not write a snippet just because this prompt appeared.
 
-**1. Record new discoveries**
+**The bar — record ONLY a conclusion, never a changelog**
+
+A snippet must capture a finding that survives the diff and isn't visible in any single file:
+the WHY behind a non-obvious decision, a constraint or gotcha that cost you time, a cross-module
+relationship or routing rule that no one file reveals.
+
+Do NOT record:
+- A description or summary of the changes you just made — git history already has that.
+- Anything findable by opening the file or running \`ck signatures\` (method/helper names,
+  parameter types, file paths, flag names) — implementation detail, not a conclusion.
+- Task-specific observations that won't generalise to future work here.
+
+Litmus test: if your draft restates what the diff did, or could be answered by reading the
+file, it is not knowledge — **skip it.** Most turns produce no snippet, and that is correct.
+
+**Good** (a conclusion you can't read off the code): \"Commander backend rendering: C# renders
+placeholder divs; AMD page scripts push React components into a Zustand store; BackendComponents
+portals each into its placeholder. A feature flag routes DOM/JSX refs to module-level Maps to
+prevent detached DOM retention in memoized props after navigation — without it, navigating away
+leaks memory.\"
+
+**Bad** (a changelog / findable detail): \"Updated BackendComponents to portal components and
+added a feature flag in getInitChainWithCheck\" — that just describes the diff and names symbols
+findable via \`ck signatures\`.
+
+**If (and only if) the bar is met:**
 
 \`\`\`bash
 $CK learn \\
-  --content \"<2-4 sentences>\" \\
+  --content \"<1-3 sentences: the conclusion, no file paths or symbol names>\" \\
   --folders \"<comma-separated folder paths>\" \\
   --tags \"<comma-separated keywords>\"
 \`\`\`
 
-**What to record:** architectural patterns not obvious from folder structure, the WHY behind
-decisions, gotchas and constraints, cross-module relationships that span folders.
-
-**Before writing the content, strip:**
-- File paths — those go in \`--folders\`, not in the text
-- Function/method names discovered via \`ck signatures\` — an agent can find those in 1 call
-- Internal helper names, parameter types, specific flag names — implementation detail
-- Anything a future agent would see immediately by reading the relevant file
-
-**Length check:** if your draft is more than 4 sentences, you are including implementation
-detail. Cut until only the non-obvious insight remains.
-
-**Good:** \"Commander backend rendering: C# renders placeholder divs; AMD page scripts push
-React components into a Zustand store; BackendComponents portals each into its placeholder.
-A feature flag routes DOM/JSX refs to module-level Maps to prevent detached DOM retention
-in memoized props after navigation — without it, navigating away leaks memory.\"
-
-**Bad:** the same text with file paths in the prose and internal helper names like
-\`getInitChainWithCheck\` or \`getMountElement\` — those are findable via signatures.
-
-**2. Review existing snippets for staleness**
-
-\`\`\`bash
-$CK recall --folder <path-you-worked-in>
-\`\`\`
-
-If a snippet describes something refactored, renamed, or no longer true — remove it:
-
-\`\`\`bash
-$CK forget --id <snippet-id>
-\`\`\`
-
-If you worked in no source folders or found nothing worth recording, do nothing."
+**Optional:** while here, you may review existing snippets for staleness with
+\`$CK recall --folder <path-you-worked-in>\` and drop any now-wrong ones with
+\`$CK forget --id <snippet-id>\`. Finishing with no \`ck learn\` is a correct, common outcome."
 
 jq -n --arg ctx "$CONTEXT" '{
   "additionalContext": $ctx
