@@ -1,3 +1,4 @@
+#!/usr/bin/env pwsh
 # ck-postsession: Stop hook (PowerShell) — knowledge capture gating.
 #
 # Fires after every supported CLI turn (Claude/Codex Stop hook). Guards against over-firing by scoring

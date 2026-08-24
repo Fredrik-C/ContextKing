@@ -1,3 +1,4 @@
+#!/usr/bin/env pwsh
 # agent-usage-guard.ps1: SubagentStart hook (Windows PowerShell).
 # On Mac/Linux the .sh variant handles this — exit silently here.
 if ($IsLinux -or $IsMacOS) { exit 0 }

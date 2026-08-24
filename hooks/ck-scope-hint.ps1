@@ -1,3 +1,4 @@
+#!/usr/bin/env pwsh
 # ck-scope-hint: PostToolUse hook for the Bash tool (PowerShell).
 #
 # Responsibilities:
