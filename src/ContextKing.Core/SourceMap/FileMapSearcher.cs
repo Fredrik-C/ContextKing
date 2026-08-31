@@ -20,10 +20,11 @@ public readonly record struct ScoredFile(
     int TypeCount,
     int SignatureCount,
     string EmbeddingText,
-    string MethodNames)
+    string MethodNames,
+    string TypeNames = "")
 {
     public static ScoredFile FromHit(FileSearchHit hit) =>
-        new(hit.Path, hit.Score, hit.TypeCount, hit.SignatureCount, hit.EmbeddingText, hit.MethodNames);
+        new(hit.Path, hit.Score, hit.TypeCount, hit.SignatureCount, hit.EmbeddingText, hit.MethodNames, hit.TypeNames);
 }
 
 public sealed class FileMapSearcher

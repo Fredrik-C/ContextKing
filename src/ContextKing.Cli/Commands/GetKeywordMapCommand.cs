@@ -89,7 +89,9 @@ internal static class GetKeywordMapCommand
         var seedTerms = matchedTerms.Length > 0 ? matchedTerms : queryTerms.ToArray();
 
         var map = BuildKeywordMap(results, seedTerms, queryTerms, perKeyword);
-        var globalHints = BuildGlobalHints(results, queryTerms, Math.Max(6, perKeyword * 2));
+        var relatedHints = BuildGlobalHints(results, queryTerms, 3);
+        var semanticHints = BuildSemanticHints(dbPath, query, mustTexts, queryTerms, relatedHints, verbose);
+        var globalHints = relatedHints.Concat(semanticHints).Distinct(StringComparer.Ordinal).ToArray();
         var advice = KeywordIntentAdvisor.BuildAdvice(
             dbPath,
             queryTerms,
@@ -99,6 +101,10 @@ internal static class GetKeywordMapCommand
 
         PersistSessionAtlas(repoRoot, query, queryTerms, mustTexts, matchedTerms, unmatchedTerms, globalHints, map, advice);
 
+        if (relatedHints.Count > 0)
+            Console.WriteLine($"[ck get-keyword-map] related-keyword-hints: {FormatList(relatedHints)}");
+        if (semanticHints.Count > 0)
+            Console.WriteLine($"[ck get-keyword-map] semantic-keyword-hints: {FormatList(semanticHints)}");
         Console.WriteLine($"[ck get-keyword-map] suggested-next-step: {advice.SuggestedNextCommand}");
 
         if (verbose)
@@ -128,6 +134,51 @@ internal static class GetKeywordMapCommand
                 $"df={term.GlobalDocumentFrequency} lift={term.LocalLiftScore:F3} " +
                 $"matched={(term.IsMatchedQueryTerm ? "yes" : "no")}");
         }
+    }
+
+    private static IReadOnlyList<string> BuildSemanticHints(
+        string dbPath,
+        string query,
+        IReadOnlyList<string> mustTerms,
+        IReadOnlyCollection<string> queryTerms,
+        IReadOnlyCollection<string> relatedHints,
+        bool verbose)
+    {
+        try
+        {
+            using var embedder = ModelLocator.CreateEmbedder();
+            var semanticResults = new SourceMapSearcher(embedder).SearchDetailed(
+                dbPath,
+                query,
+                topK: 8,
+                mustTexts: mustTerms.Count > 0 ? mustTerms : null);
+
+            return SelectSemanticHints(semanticResults, queryTerms, relatedHints, 3);
+        }
+        catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException or InvalidOperationException)
+        {
+            if (verbose)
+                Console.Error.WriteLine($"[ck get-keyword-map] Semantic hints unavailable: {ex.Message}");
+            return [];
+        }
+    }
+
+    internal static IReadOnlyList<string> SelectSemanticHints(
+        IReadOnlyList<ScoredFolderDetails> semanticResults,
+        IReadOnlyCollection<string> queryTerms,
+        IReadOnlyCollection<string> relatedHints,
+        int maxHints)
+    {
+        if (semanticResults.Count == 0 || maxHints <= 0)
+            return [];
+
+        var excluded = queryTerms.Concat(relatedHints).ToHashSet(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return semanticResults
+            .SelectMany(result => result.UnmatchedFolderTerms)
+            .Where(term => IsUsefulKeyword(term, excluded, seen))
+            .Take(maxHints)
+            .ToArray();
     }
 
     internal static IReadOnlyList<KeywordMapEntry> BuildKeywordMap(
@@ -171,7 +222,7 @@ internal static class GetKeywordMapCommand
             var rankWeight = 1f / (index + 1);
             var seenInFolder = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var term in fileTerms)
+            foreach (var (term, sourceWeight) in FileHintTerms(result))
             {
                 if (!IsUsefulKeyword(term, excludedTerms, seenInFolder))
                     continue;
@@ -180,7 +231,7 @@ internal static class GetKeywordMapCommand
                     seedStats[term] = stats = new HintStats();
 
                 stats.DocumentCount++;
-                stats.ScoreWeight += folderWeight * rankWeight;
+                stats.ScoreWeight += folderWeight * rankWeight * sourceWeight;
                 if (result.Score > stats.BestScore)
                     stats.BestScore = result.Score;
             }
@@ -215,14 +266,14 @@ internal static class GetKeywordMapCommand
             var fileWeight = Math.Max(0.10f, result.Score - lowestScore + 0.20f);
             var rankWeight = 1f / (index + 1);
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var term in FileTerms(result))
+            foreach (var (term, sourceWeight) in FileHintTerms(result))
             {
                 if (!IsUsefulKeyword(term, excludedTerms, seen))
                     continue;
                 if (!stats.TryGetValue(term, out var hint))
                     stats[term] = hint = new HintStats();
                 hint.DocumentCount++;
-                hint.ScoreWeight += fileWeight * rankWeight;
+                hint.ScoreWeight += fileWeight * rankWeight * sourceWeight;
                 if (result.Score > hint.BestScore)
                     hint.BestScore = result.Score;
             }
@@ -277,17 +328,31 @@ internal static class GetKeywordMapCommand
 
     private static HashSet<string> FileTerms(ScoredFile file)
     {
-        var terms = new HashSet<string>(StringComparer.Ordinal);
+        return FileHintTerms(file).Select(x => x.Term).ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<(string Term, float SourceWeight)> FileHintTerms(ScoredFile file)
+    {
         var folder = Path.GetDirectoryName(file.Path)?.Replace('\\', '/') ?? ".";
         foreach (var token in PathTokenizer.TokenizePath(folder).Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            terms.Add(token);
+            yield return (token, 1.25f);
         foreach (var token in PathTokenizer.TokenizeFileName(Path.GetFileName(file.Path)).Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            terms.Add(token);
+            yield return (token, 2.25f);
+        foreach (var token in ExtractLexicalTerms(file.TypeNames))
+            yield return (token, 4f);
         foreach (var token in ExtractTerms(file.EmbeddingText))
-            terms.Add(token);
-        foreach (var token in ExtractTerms(file.MethodNames))
-            terms.Add(token);
-        return terms;
+            yield return (token, 1f);
+        foreach (var token in ExtractLexicalTerms(file.MethodNames))
+            yield return (token, 0.75f);
+    }
+
+    private static IEnumerable<string> ExtractLexicalTerms(string text)
+    {
+        foreach (var name in text.Split([';', ',', '.', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            foreach (var token in PathTokenizer.MethodNameToPhrase(name).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                yield return token.ToLowerInvariant();
+        }
     }
 
     private static IEnumerable<string> ExtractTerms(string text)
@@ -376,6 +441,8 @@ internal static class GetKeywordMapCommand
               --help, -h             Show this help
 
             Output (stdout):
+              - up to three type-name-weighted related keyword hints
+              - up to three semantic keyword hints from the source-map index, when available
               - one compact, copyable `ck find-files` next step
               - use --verbose to inspect keyword evidence and the persisted map
 
