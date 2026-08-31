@@ -10,11 +10,10 @@ When Context King is initialized in the repo (`.ck.json` present), use `bash` wi
 ## Mandatory opening sequence — before any source search
 
 ```
-ck get-keyword-map --query "<user query terms>"       ← ALWAYS FIRST
-ck find-files --query "<refined terms from step 0>" --task "<task intent>"   ← ALWAYS SECOND
+ck find-files --query "<user query terms>" --task "<task intent>"   ← ALWAYS FIRST
 ```
 
-Never skip these two steps before grep/rg/find/glob or broad exploration. Never jump straight to `ck signatures` or `ck expand-folder` without establishing scope first.
+If results are broad, weak, or vocabulary-mismatched, run `ck get-keyword-map --query "<same terms>"`, choose one or two hints, and rerun `ck find-files`. Never jump straight to `ck signatures` or `ck expand-folder` without establishing scope first.
 
 ### Known-file exception (use this immediately)
 
@@ -30,8 +29,8 @@ or a targeted CK read for that same file (`ck get-method-source`, `ck get-type-s
 ## Full workflow
 
 ```
-0. ck get-keyword-map --query "..."            → extract precision keywords (search path)
 1. ck find-files --query "..." --task "..."    → establish folder scope (search path)
+   ck get-keyword-map --query "..."             → only if results are weak; choose 1-2 hints, then rerun find-files
 2. ck expand-folder --pattern "<kw>" <folder>  → explore (preferred when you have a keyword)
    ck signatures <folder>/                     → when no keyword; smart-ranked for large folders
    grep -rn "<kw>" <folder>/                   → allowed freely within scoped folders only
@@ -51,7 +50,7 @@ or a targeted CK read for that same file (`ck get-method-source`, `ck get-type-s
 
 ## Rules
 
-- Steps 0 and 1 are mandatory before source search/broad exploration.
+- `find-files` is mandatory before source search/broad exploration. Use `get-keyword-map` only to recover from weak/noisy results; do not append every hint wholesale.
 - Exception: when a concrete file path is already known, start directly with `ck read-full-file` or targeted reads for that file.
 - Native `read` is allowed only as a pre-edit step on a known target file. Do not use native `read` for exploration.
 - Step 2.5 is mandatory once you have confirmed the folder you will work in — before any `ck get-method-source` call.

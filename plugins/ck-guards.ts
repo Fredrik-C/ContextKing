@@ -349,8 +349,9 @@ If full-file context is truly required:
             `[ck-guard] Source search attempted before scope was established (repeat #${preScopeSearchViolationCount}).
 
 Before grep/glob/find-style searching, run:
-  ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-files --query "<refined query from keyword-map>" --task "<task intent>"
+  ${CK} find-files --query "<domain concept operation>" --task "<task intent>"
+
+If that result is broad or weak, use keyword-map, choose 1-2 hints, and rerun find-files.
 
 Then keep all searches inside returned folders.`
           )
@@ -403,8 +404,9 @@ Do NOT use broad glob — it wastes tokens scanning irrelevant files.`
             `[ck-guard] Source search attempted before scope was established (repeat #${preScopeSearchViolationCount}).
 
 Before grep/glob/find-style searching, run:
-  ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-files --query "<refined query from keyword-map>" --task "<task intent>"
+  ${CK} find-files --query "<domain concept operation>" --task "<task intent>"
+
+If that result is broad or weak, use keyword-map, choose 1-2 hints, and rerun find-files.
 
 Then keep all searches inside returned folders.`
           )
@@ -474,8 +476,9 @@ Do NOT use broad grep — it wastes tokens scanning irrelevant files.`
             `[ck-guard] Source search attempted before scope was established (repeat #${preScopeSearchViolationCount}).
 
 Before grep/glob/find-style searching, run:
-  ${CK} get-keyword-map --query "<domain concept operation>"
-  ${CK} find-files --query "<refined query from keyword-map>" --task "<task intent>"
+  ${CK} find-files --query "<domain concept operation>" --task "<task intent>"
+
+If that result is broad or weak, use keyword-map, choose 1-2 hints, and rerun find-files.
 
 Then keep all searches inside returned folders.`
           )
@@ -512,7 +515,7 @@ If your direction changed:
 Run keyword mapping before more scope/explore calls:
   ${CK} get-keyword-map --query "${pendingKeywordMapQuery}"
 
-Then treat keyword-map/session-keyword-atlas as source-of-truth for this direction. Pick 3-7 precision terms (provider/domain + workflow + symbol/DTO/type), then rerun ck find-files once with required --task.`
+Then choose at most 1-2 keyword-map hints, retain the original terms, and rerun ck find-files once with required --task.`
           )
         }
 
@@ -979,8 +982,8 @@ cat wastes tokens by dumping entire files into command output without line numbe
         output.description =
           `[CK PROTOCOL — mandatory for C#, TypeScript, Kotlin, Python source files] ` +
           `Do NOT call this tool for source file search. Use CK tools instead:\n` +
-          `  ${CK} get-keyword-map --query "<terms>"           (step 0 — always first)\n` +
           `  ${CK} find-files --query "<terms>" --task "<task intent>"  (step 1 — establishes scope)\n` +
+          `  ${CK} get-keyword-map --query "<same terms>"      (only if file results are weak/broad; choose 1-2 hints)\n` +
           `  ${CK} expand-folder --pattern "<kw>" <folder>     (step 2 — explore)\n` +
           `grep/glob are only allowed within folders returned by find-files.\n\n` +
           output.description
@@ -1014,9 +1017,9 @@ cat wastes tokens by dumping entire files into command output without line numbe
       output.system.unshift(
         `[Context King Protocol — highest priority] This repository has CK initialized. ` +
         `For ANY C#, TypeScript, Kotlin, Python source search: ` +
-        `step 0 = \`${CK} get-keyword-map --query "..."\`, ` +
         `step 1 = \`${CK} find-files --query "..." --task "..."\`. ` +
-        `These steps are MANDATORY before grep, glob, find, or native Read for exploration. ` +
+        `If file results are broad, weak, or vocabulary-mismatched, step 2 = \`${CK} get-keyword-map --query "..."\`, then retain the original terms and choose only 1-2 hints for one refined retry. ` +
+        `The initial find-files step is MANDATORY before grep, glob, find, or native Read for exploration. ` +
         `When any other tool (CallGraph, language servers, etc.) returns empty results or fails, ` +
         `the NEXT step is CK tools — never raw grep. ` +
         `grep is only allowed inside folders already returned by find-files. ` +

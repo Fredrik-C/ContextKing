@@ -98,10 +98,10 @@ public class GetKeywordMapCommandTests
     {
         var semanticResults = new[]
         {
-            new ScoredFolderDetails("src/Products", 0.92f, 0.90f, 0f, 0f, 0f, 1, 10, [],
-                ["repricer", "rounding", "price"]),
-            new ScoredFolderDetails("src/Orders", 0.85f, 0.84f, 0f, 0f, 0f, 1, 10, [],
-                ["rounding", "amount", "order"])
+            new ScoredFile("src/Products/ProductRepricer.cs", 0.92f, 1, 1,
+                "price repricer rounding", "CalculatePrice", "ProductRepricer"),
+            new ScoredFile("src/Orders/OrderAmount.cs", 0.85f, 1, 1,
+                "order rounding amount", "CalculateAmount", "OrderAmount")
         };
 
         var hints = GetKeywordMapCommand.SelectSemanticHints(
@@ -110,6 +110,10 @@ public class GetKeywordMapCommandTests
             relatedHints: ["amount"],
             maxHints: 3);
 
-        hints.Should().Equal("repricer", "rounding", "order");
+        hints.Should().HaveCount(3);
+        hints.Should().Contain("repricer");
+        hints.Should().NotContain("price");
+        hints.Should().NotContain("calculate");
+        hints.Should().NotContain("amount");
     }
 }

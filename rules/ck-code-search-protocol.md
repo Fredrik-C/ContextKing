@@ -9,9 +9,9 @@ Use whichever resolves in your environment.
 ### The workflow
 
 ```
-1. KEYWORDS → ck get-keyword-map --query "domain area concept operation"                ← REQUIRED FIRST
-2. FILES    → ck find-files "domain area concept operation" --task "<task intent>" [--path <root>]  ← PRIMARY RETRIEVAL
-              ck find-files "refined lexical terms" --task "<task intent>"              ← when keyword-map suggests better terms
+1. FILES    → ck find-files "domain area concept operation" --task "<task intent>" [--path <root>]  ← REQUIRED FIRST / PRIMARY RETRIEVAL
+2. KEYWORDS → ck get-keyword-map --query "same lexical terms"                            ← ONLY when file results are weak, broad, or vocabulary-mismatched
+              ck find-files "original terms plus 1-2 selected hints" --task "<task intent>" ← refined retry
 3. RECALL   → ck recall --folder <confirmed-folder>                                      ← BEFORE reading any method body
 4. LOCATE   → ck find-symbol "<symbol>" --path <folder-or-file> [--kind type|member]
               ck refs "<symbol>" --path <folder-or-file>                                 ← use when you need call-sites/usages
@@ -32,8 +32,7 @@ Use whichever resolves in your environment.
 8. LEARN    → ck learn — OPTIONAL; only for a durable, non-obvious conclusion (often a no-op)
 ```
 
-**Keyword-map first, file-first retrieval second.** Start source discovery with `ck get-keyword-map`, then run `ck find-files` using compact lexical code terms from the same intent.
-Use keyword-map hints to refine the `find-files` query when the initial wording is broad or noisy.
+**File-first retrieval, keyword-map only as a fallback.** Start source discovery with `ck find-files` using compact lexical code terms. If results are broad, weak, or vocabulary-mismatched, run `ck get-keyword-map` and add only one or two useful hints to the original query.
 Use `expand-folder` only after `find-files` has identified a plausible folder and you still need to narrow within it.
 
 **`find-files` query text must be lexical.** Phrase queries as code-like tokens that can match indexed fields:
@@ -76,14 +75,12 @@ type/signature counts, lexical and semantic score components, and matched query 
 
 ```bash
 # C# example:
-ck get-keyword-map --query "adyen terminal card-present refund"
 ck find-files "adyen terminal card-present refund" --task "Find card-present terminal refund implementation."
 ck expand-folder --pattern "Refund" <folder>
 ck find-symbol "RefundInPersonPaymentAsync" --path <folder> --kind member
 ck get-method-source <file.cs> <ExactMemberName>
 
 # TypeScript example:
-ck get-keyword-map --query "backend rendering template fetcher"
 ck find-files "backend rendering template fetcher" --task "Find backend invoice template rendering implementation."
 ck expand-folder --pattern "fetch\|render" <folder>
 ck find-symbol "renderInvoiceTemplate" --path <folder> --kind member
@@ -95,7 +92,6 @@ ck get-method-source <file.ts> <functionOrMethodName>
 ```bash
 # 1. Establish keywords then scope both the reference and the target
 #    Use --must to prevent competing providers from bleeding into results
-ck get-keyword-map --query "terminal card-present refund payment"
 ck find-files "terminal card-present refund payment" --task "Find the reference terminal refund payment implementation." --must "stripe"
 ck find-files "terminal card-present refund payment" --task "Find the target terminal refund payment implementation." --must "adyen"
 
@@ -115,7 +111,6 @@ ck get-method-source <file> RefundPaymentAsync
 ### Playbook C — Impact analysis (cross-cutting change)
 
 ```bash
-ck get-keyword-map --query "payment gateway refund async"
 ck find-files "payment gateway refund async" --task "Find async refund handling across payment gateways." --min-score 0.5 --top 30 --explain
 # returns top files above threshold; group by folder before deeper exploration
 ck signatures <folder1>/
@@ -128,8 +123,8 @@ grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
 
 ### Rules
 
-1. **Start with `ck get-keyword-map` for source discovery.**
-2. **Then run `ck find-files` with lexical terms from the same intent and a required `--task`, refined by keyword-map hints when useful.**
+1. **Start with `ck find-files` for source discovery.**
+2. **If its results are broad, weak, or vocabulary-mismatched, run `ck get-keyword-map`; retain the original terms and add at most one or two useful hints before one refined retry.**
 3. **When fallback scope is used, folders become source of truth.** Keep grep/rg/glob/find inside returned folders. If scope seems wrong, use `--explain` and refine.
 4. **Use `ck expand-folder` as the preferred exploration tool within scoped folders.** Always pass `--pattern` with 2-4 high-signal terms (domain + workflow + symbol/DTO/type), for example `Refund|Terminal|Interac` or `CardPresent|Refund|Command`. Use `ck signatures <folder>` when you have no useful keyword or want to see all members — for large folders, `signatures` applies adaptive relevance ranking unless `--all` is passed intentionally. Budget: at most 3 `expand-folder` calls per direction before moving to targeted file reads.
 5. **Run `ck recall --folder <path>` before reading any method body.** Do this once per folder you intend to edit — not for every find-files result. Run it before targeted reads, not after — recall may surface exactly what you need and save the read entirely. Silent output means no knowledge exists yet, or brain is disabled for this repo.

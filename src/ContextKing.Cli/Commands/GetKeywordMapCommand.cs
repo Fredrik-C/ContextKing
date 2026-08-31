@@ -65,14 +65,21 @@ internal static class GetKeywordMapCommand
 
         var dbPath = SourceMapBuilder.GetDbPath(repoRoot);
         var searcher = new FileMapSearcher();
-        var results = searcher.Search(
+        // Keep a small private candidate pool for optional ad-hoc semantic hints.
+        // Nothing is embedded or persisted during indexing; embeddings are computed only
+        // when this explicit fallback command is invoked.
+        var lexicalCandidates = searcher.SearchHits(
             dbPath,
             query,
-            topFolders,
+            topK: Math.Max(12, topFolders),
             minScore: 0f,
             mustTerms: mustTexts.Count > 0 ? mustTexts : null);
+        var results = lexicalCandidates
+            .Take(topFolders)
+            .Select(ScoredFile.FromHit)
+            .ToArray();
 
-        if (results.Count == 0)
+        if (results.Length == 0)
         {
             Console.Error.WriteLine("[ck get-keyword-map] No results found.");
             return 0;
@@ -90,7 +97,7 @@ internal static class GetKeywordMapCommand
 
         var map = BuildKeywordMap(results, seedTerms, queryTerms, perKeyword);
         var relatedHints = BuildGlobalHints(results, queryTerms, 3);
-        var semanticHints = BuildSemanticHints(dbPath, query, mustTexts, queryTerms, relatedHints, verbose);
+        var semanticHints = BuildSemanticHints(query, mustTexts, lexicalCandidates, queryTerms, relatedHints, verbose);
         var globalHints = relatedHints.Concat(semanticHints).Distinct(StringComparer.Ordinal).ToArray();
         var advice = KeywordIntentAdvisor.BuildAdvice(
             dbPath,
@@ -137,9 +144,9 @@ internal static class GetKeywordMapCommand
     }
 
     private static IReadOnlyList<string> BuildSemanticHints(
-        string dbPath,
         string query,
         IReadOnlyList<string> mustTerms,
+        IReadOnlyList<FileSearchHit> lexicalCandidates,
         IReadOnlyCollection<string> queryTerms,
         IReadOnlyCollection<string> relatedHints,
         bool verbose)
@@ -147,15 +154,21 @@ internal static class GetKeywordMapCommand
         try
         {
             using var embedder = ModelLocator.CreateEmbedder();
-            var semanticResults = new SourceMapSearcher(embedder).SearchDetailed(
-                dbPath,
+            var semanticResults = new CandidateSemanticReranker(embedder).Rerank(
                 query,
-                topK: 8,
-                mustTexts: mustTerms.Count > 0 ? mustTerms : null);
+                taskDescription: null,
+                lexicalCandidates: lexicalCandidates.Take(6).ToArray(),
+                topK: 6,
+                options: new SemanticRerankOptions(MaxCandidateTextChars: 1200),
+                mustTerms: mustTerms.Count > 0 ? mustTerms : null);
 
-            return SelectSemanticHints(semanticResults, queryTerms, relatedHints, 3);
+            return SelectSemanticHints(
+                semanticResults.Select(ScoredFile.FromHit).ToArray(),
+                queryTerms,
+                relatedHints,
+                3);
         }
-        catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException or InvalidOperationException)
+        catch (Exception ex)
         {
             if (verbose)
                 Console.Error.WriteLine($"[ck get-keyword-map] Semantic hints unavailable: {ex.Message}");
@@ -164,7 +177,7 @@ internal static class GetKeywordMapCommand
     }
 
     internal static IReadOnlyList<string> SelectSemanticHints(
-        IReadOnlyList<ScoredFolderDetails> semanticResults,
+        IReadOnlyList<ScoredFile> semanticResults,
         IReadOnlyCollection<string> queryTerms,
         IReadOnlyCollection<string> relatedHints,
         int maxHints)
@@ -175,7 +188,13 @@ internal static class GetKeywordMapCommand
         var excluded = queryTerms.Concat(relatedHints).ToHashSet(StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         return semanticResults
-            .SelectMany(result => result.UnmatchedFolderTerms)
+            .SelectMany((result, index) => FileHintTerms(result)
+                .Select(hint => (hint.Term, Score: hint.SourceWeight / (index + 1f))))
+            .GroupBy(hint => hint.Term, StringComparer.Ordinal)
+            .Select(group => (Term: group.Key, Score: group.Sum(hint => hint.Score)))
+            .OrderByDescending(hint => hint.Score)
+            .ThenBy(hint => hint.Term, StringComparer.Ordinal)
+            .Select(hint => hint.Term)
             .Where(term => IsUsefulKeyword(term, excluded, seen))
             .Take(maxHints)
             .ToArray();
@@ -433,7 +452,7 @@ internal static class GetKeywordMapCommand
             Options:
               --query <text>         Natural language description of the code area (required)
               --must <text>          Required provider/concept to focus on (repeatable)
-              --top <n>              Number of top indexed files to analyze (default: 8)
+              --top <n>              Number of top lexical files to analyze (default: 8)
               --per-keyword <n>      Max related keywords kept per seed keyword (default: 3)
               --repo <path>          Path to git repo root (default: git rev-parse from cwd)
               --verbose              Include diagnostic keyword evidence and index progress
@@ -442,7 +461,7 @@ internal static class GetKeywordMapCommand
 
             Output (stdout):
               - up to three type-name-weighted related keyword hints
-              - up to three semantic keyword hints from the source-map index, when available
+              - up to three semantic keyword hints from an on-demand rerank of six lexical candidates
               - one compact, copyable `ck find-files` next step
               - use --verbose to inspect keyword evidence and the persisted map
 

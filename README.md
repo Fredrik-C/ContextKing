@@ -31,7 +31,7 @@ Context King installs these commands into your AI CLI tool:
 | Command | What it does |
 |---|---|
 | `ck find-files` | Lexical file search over path/file/type/method names |
-| `ck get-keyword-map` | Returns a seed→related keyword map from indexed results to refine broad queries |
+| `ck get-keyword-map` | Returns bounded lexical and semantic hints to refine weak or broad file searches |
 | `ck expand-folder` | Scoped folder browser: enumerates source files and extracts signatures, with an optional regex filter |
 | `ck signatures` | Live AST extraction. Lists every method/property signature in a set of files |
 | `ck get-method-source` | Reads one named member using AST and returns exact line and char spans |
@@ -337,7 +337,7 @@ Use this as the default discovery step.
 ck get-keyword-map --query "<multi-keyword description>" [--must <text>] [--top <n>] [--per-keyword <n>] [--repo <path>] [--verbose]
 ```
 
-Builds a keyword neighborhood map from the top file-first results for your query. Output includes matched query keywords, unmatched query keywords, global keyword hints, and a per-seed map (`seed: related1, related2, ...`). Default `--per-keyword` is `12` with adaptive quality cut-off (returns fewer when signal is weak). The command also persists a session keyword atlas in `.ck-index/session-keyword-atlas.json`, which is reused by later refinements until direction shifts.
+Use this only after `find-files` returns broad, weak, or vocabulary-mismatched results. It returns up to three type-name-weighted related hints and, when the local embedding model is available, up to three semantic hints from an on-demand rerank of six lexical candidates. Keep the original query and add only one or two useful hints for the next `find-files` retry; do not append every hint wholesale. The command also persists a session keyword atlas in `.ck-index/session-keyword-atlas.json`.
 Use the same lexical query style as `find-files`: path/file/type/member words, not natural-language questions.
 
 ### `ck expand-folder`
