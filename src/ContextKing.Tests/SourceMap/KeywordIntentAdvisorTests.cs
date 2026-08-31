@@ -56,6 +56,29 @@ public class KeywordIntentAdvisorTests
         advice.SuggestedNextCommand.Should().Contain("adyen");
     }
 
+    [Fact]
+    public void BuildAdvice_PreservesTheOriginalQueryAndDoesNotDuplicateMustTerms()
+    {
+        var dbPath = CreateTestDb(new[]
+        {
+            new IndexedFolder("src/Products", [0.9f], "price calculate repricer", "", 1, 8),
+            new IndexedFolder("src/Tax", [0.7f], "calculated exemption", "", 1, 8)
+        });
+
+        var advice = KeywordIntentAdvisor.BuildAdvice(
+            dbPath,
+            queryTerms: ["price", "calculate"],
+            matchedTerms: ["price"],
+            mustTerms: ["price calculate"],
+            globalHints: ["application", "citytaxcalculatedexemption"]);
+
+        advice.SuggestedQueries.Should().Equal("price calculate");
+        advice.SuggestedNextCommand.Should().Contain("ck find-files \"price calculate\"");
+        advice.SuggestedNextCommand.Should().Contain("--must \"price calculate\"");
+        advice.SuggestedNextCommand.Should().Contain("--top 8");
+        advice.SuggestedNextCommand.Should().NotContain("price calculate price calculate");
+    }
+
     private static string CreateTestDb(IReadOnlyList<IndexedFolder> folders)
     {
         var path = Path.Combine(Path.GetTempPath(), $"ck-keyword-intent-{Guid.NewGuid():N}.db");

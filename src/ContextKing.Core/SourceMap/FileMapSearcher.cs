@@ -191,25 +191,30 @@ public sealed class FileMapSearcher
         if (matchedTerms.Count > 0)
             score += 1.5f * ((float)matchedTerms.Count / queryTerms.Count);
 
-        if (mustTerms is { Count: > 0 })
+        var normalizedMustTerms = mustTerms is { Count: > 0 }
+            ? mustTerms
+                .SelectMany(PathTokenizer.TokenizeQuery)
+                .Where(term => term.Length >= 3)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray()
+            : [];
+
+        if (normalizedMustTerms.Length > 0)
         {
             var mustMatches = 0;
-            foreach (var must in mustTerms)
+            foreach (var must in normalizedMustTerms)
             {
-                if (string.IsNullOrWhiteSpace(must))
-                    continue;
-                var m = must.ToLowerInvariant();
-                if (pathText.Contains(m, StringComparison.Ordinal)
-                    || fileText.Contains(m, StringComparison.Ordinal)
-                    || typeText.Contains(m, StringComparison.Ordinal)
-                    || methodText.Contains(m, StringComparison.Ordinal))
+                if (pathText.Contains(must, StringComparison.Ordinal)
+                    || fileText.Contains(must, StringComparison.Ordinal)
+                    || typeText.Contains(must, StringComparison.Ordinal)
+                    || methodText.Contains(must, StringComparison.Ordinal))
                 {
                     mustMatches++;
                 }
             }
 
             if (mustMatches > 0)
-                score += 6.0f * ((float)mustMatches / mustTerms.Count);
+                score += 6.0f * ((float)mustMatches / normalizedMustTerms.Length);
         }
 
         return (score, matchedTerms);

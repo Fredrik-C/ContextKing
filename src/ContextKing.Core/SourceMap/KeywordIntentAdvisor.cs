@@ -70,30 +70,26 @@ public static class KeywordIntentAdvisor
         if (workflow.Length == 0)
             workflow = assignments.Where(a => a.IsMatchedQueryTerm && a.Role != KeywordRole.Noise).Select(a => a.Term).Take(1).ToArray();
 
-        var suggestions = new List<string>(maxQueries);
-        var primaryTokens = ComposeQuery(anchor, discriminator, workflow, 1, 1);
-        if (primaryTokens.Length > 0)
-            suggestions.Add(string.Join(' ', primaryTokens));
-
-        var secondaryTokens = ComposeQuery(anchor, discriminator, workflow, 2, 2);
-        if (secondaryTokens.Length > 0)
-            suggestions.Add(string.Join(' ', secondaryTokens));
-
-        var tertiaryTokens = ComposeQuery(anchor, discriminator.Skip(1).ToArray(), workflow, 2, 2);
-        if (tertiaryTokens.Length > 0)
-            suggestions.Add(string.Join(' ', tertiaryTokens));
-
-        var finalQueries = suggestions
-            .Where(q => !string.IsNullOrWhiteSpace(q))
+        // Keep the user's lexical intent intact. The atlas is a fallback aid, not permission to
+        // replace query terms with names from a small and potentially mixed result set.
+        var finalQueries = queryTerms
+            .Where(t => !string.IsNullOrWhiteSpace(t))
             .Distinct(StringComparer.Ordinal)
-            .Take(Math.Max(1, maxQueries))
+            .Take(7)
+            .Select(t => t.Trim())
             .ToArray();
+
+        var primaryQuery = finalQueries.Length == 0 ? null : string.Join(' ', finalQueries);
 
         var suggestedMust = mustTerms.FirstOrDefault() ?? SelectSuggestedMust(evidence, anchorTerms);
 
-        var next = BuildNextCommand(finalQueries.FirstOrDefault(), suggestedMust);
+        var next = BuildNextCommand(primaryQuery, suggestedMust);
 
-        return new QueryCompositionAdvice(assignments, finalQueries, suggestedMust, next);
+        return new QueryCompositionAdvice(
+            assignments,
+            primaryQuery is null ? [] : [primaryQuery],
+            suggestedMust,
+            next);
     }
 
     private static IReadOnlyList<TermEvidence> BuildEvidence(
@@ -288,12 +284,12 @@ public static class KeywordIntentAdvisor
     private static string BuildNextCommand(string? query, string? must)
     {
         if (string.IsNullOrWhiteSpace(query))
-            return "ck find-files \"<refined query>\" --task \"<task intent>\" --path src/";
+            return "ck find-files \"<refined query>\" --task \"<task intent>\" --top 8 --path src/";
 
         if (string.IsNullOrWhiteSpace(must))
-            return $"ck find-files \"{query}\" --task \"<task intent>\" --path src/";
+            return $"ck find-files \"{query}\" --task \"<task intent>\" --top 8 --path src/";
 
-        return $"ck find-files \"{query} {must}\" --task \"<task intent>\" --path src/";
+        return $"ck find-files \"{query}\" --must \"{must}\" --task \"<task intent>\" --top 8 --path src/";
     }
 
     private sealed record TermEvidence(

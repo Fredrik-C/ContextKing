@@ -22,10 +22,10 @@ internal static class GetKeywordMapCommand
         _ = reader.HasFlag("--quiet"); // Accepted for scripts; output is already concise.
 
         var topFoldersSet = reader.TryGetInt("--top", out var topFolders) && topFolders > 0;
-        if (!topFoldersSet) topFolders = 12;
+        if (!topFoldersSet) topFolders = 8;
 
         var perKeywordSet = reader.TryGetInt("--per-keyword", out var perKeyword) && perKeyword > 0;
-        if (!perKeywordSet) perKeyword = 12;
+        if (!perKeywordSet) perKeyword = 3;
 
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -89,7 +89,7 @@ internal static class GetKeywordMapCommand
         var seedTerms = matchedTerms.Length > 0 ? matchedTerms : queryTerms.ToArray();
 
         var map = BuildKeywordMap(results, seedTerms, queryTerms, perKeyword);
-        var globalHints = BuildGlobalHints(results, queryTerms, Math.Max(24, perKeyword * 2));
+        var globalHints = BuildGlobalHints(results, queryTerms, Math.Max(6, perKeyword * 2));
         var advice = KeywordIntentAdvisor.BuildAdvice(
             dbPath,
             queryTerms,
@@ -99,41 +99,35 @@ internal static class GetKeywordMapCommand
 
         PersistSessionAtlas(repoRoot, query, queryTerms, mustTexts, matchedTerms, unmatchedTerms, globalHints, map, advice);
 
-        Console.WriteLine($"[ck get-keyword-map] matched-query-keywords: {FormatList(matchedTerms)}");
-        Console.WriteLine($"[ck get-keyword-map] unmatched-query-keywords: {FormatList(unmatchedTerms)}");
-        Console.WriteLine($"[ck get-keyword-map] global-keyword-hints: {FormatList(globalHints.Take(24).ToArray())}");
-        Console.WriteLine("[ck get-keyword-map] keyword-map:");
-
-        foreach (var (seed, terms) in map)
-            Console.WriteLine($"[ck get-keyword-map]   {seed}: {FormatList(terms.Take(12).ToArray())}");
-
-        var anchorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Anchor).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(6).ToArray();
-        var discriminatorTerms = advice.Terms.Where(t => t.Role == KeywordRole.Discriminator).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(12).ToArray();
-        var workflowTerms = advice.Terms.Where(t => t.Role == KeywordRole.Workflow).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(12).ToArray();
-        var noiseTerms = advice.Terms.Where(t => t.Role == KeywordRole.Noise).Select(t => t.Term).Distinct(StringComparer.Ordinal).Take(12).ToArray();
-
-        Console.WriteLine($"[ck get-keyword-map] role-anchor: {FormatList(anchorTerms)}");
-        Console.WriteLine($"[ck get-keyword-map] role-discriminator: {FormatList(discriminatorTerms)}");
-        Console.WriteLine($"[ck get-keyword-map] role-workflow: {FormatList(workflowTerms)}");
-        Console.WriteLine($"[ck get-keyword-map] role-noise: {FormatList(noiseTerms)}");
-        Console.WriteLine("[ck get-keyword-map] term-evidence:");
-        foreach (var term in advice.Terms.Take(10))
-        {
-            Console.WriteLine(
-                $"[ck get-keyword-map]   {term.Term}: role={term.Role.ToString().ToLowerInvariant()} " +
-                $"df={term.GlobalDocumentFrequency} " +
-                $"dfp={term.DocumentFrequencyPercentile:F3} " +
-                $"lift={term.LocalLiftScore:F3} " +
-                $"conc={term.ScopeConcentrationScore:F3} " +
-                $"broad={term.BroadRiskScore:F3} " +
-                $"matched={(term.IsMatchedQueryTerm ? "yes" : "no")}");
-        }
-        Console.WriteLine($"[ck get-keyword-map] suggested-must: {advice.SuggestedMust ?? "-"}");
-        for (var i = 0; i < advice.SuggestedQueries.Count; i++)
-            Console.WriteLine($"[ck get-keyword-map] suggested-query-{i + 1}: {advice.SuggestedQueries[i]}");
         Console.WriteLine($"[ck get-keyword-map] suggested-next-step: {advice.SuggestedNextCommand}");
 
+        if (verbose)
+            WriteDiagnostics(matchedTerms, unmatchedTerms, globalHints, map, advice);
+
         return 0;
+    }
+
+    private static void WriteDiagnostics(
+        IReadOnlyList<string> matchedTerms,
+        IReadOnlyList<string> unmatchedTerms,
+        IReadOnlyList<string> globalHints,
+        IReadOnlyList<KeywordMapEntry> map,
+        QueryCompositionAdvice advice)
+    {
+        Console.WriteLine($"[ck get-keyword-map] matched-query-keywords: {FormatList(matchedTerms)}");
+        Console.WriteLine($"[ck get-keyword-map] unmatched-query-keywords: {FormatList(unmatchedTerms)}");
+        Console.WriteLine($"[ck get-keyword-map] global-keyword-hints: {FormatList(globalHints)}");
+        Console.WriteLine("[ck get-keyword-map] keyword-map:");
+        foreach (var (seed, terms) in map)
+            Console.WriteLine($"[ck get-keyword-map]   {seed}: {FormatList(terms)}");
+
+        foreach (var term in advice.Terms)
+        {
+            Console.WriteLine(
+                $"[ck get-keyword-map] evidence: {term.Term} role={term.Role.ToString().ToLowerInvariant()} " +
+                $"df={term.GlobalDocumentFrequency} lift={term.LocalLiftScore:F3} " +
+                $"matched={(term.IsMatchedQueryTerm ? "yes" : "no")}");
+        }
     }
 
     internal static IReadOnlyList<KeywordMapEntry> BuildKeywordMap(
@@ -374,17 +368,16 @@ internal static class GetKeywordMapCommand
             Options:
               --query <text>         Natural language description of the code area (required)
               --must <text>          Required provider/concept to focus on (repeatable)
-              --top <n>              Number of top semantic folders to analyze (default: 12)
-              --per-keyword <n>      Max related keywords returned per seed keyword (default: 12, adaptive)
+              --top <n>              Number of top indexed files to analyze (default: 8)
+              --per-keyword <n>      Max related keywords kept per seed keyword (default: 3)
               --repo <path>          Path to git repo root (default: git rev-parse from cwd)
-              --verbose              Print index build/refresh progress to stderr
+              --verbose              Include diagnostic keyword evidence and index progress
               --quiet                Accepted for compatibility; concise output is default
               --help, -h             Show this help
 
             Output (stdout):
-              - matched/unmatched query keywords
-              - global keyword hints from the scoped result set
-              - keyword-map: one row per seed keyword (seed -> related keywords)
+              - one compact, copyable `ck find-files` next step
+              - use --verbose to inspect keyword evidence and the persisted map
 
             Also persists a session keyword atlas in .ck-index/session-keyword-atlas.json
             for stable keyword guidance across retries until direction shifts.

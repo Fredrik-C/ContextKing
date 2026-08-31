@@ -55,6 +55,18 @@ public class SourceMapSearcherMustTests : IDisposable
         withNull.Select(x => x.Path).Should().Equal(withEmpty.Select(x => x.Path));
     }
 
+    [Fact]
+    public void Must_MultiWordText_BoostsEachKeyword()
+    {
+        var withoutMust = Searcher().Search(_dbPath, "payment gateway processing", topK: int.MaxValue);
+        var withMust = Searcher().Search(_dbPath, "payment gateway processing", topK: int.MaxValue, mustTerms: ["stripe payment"]);
+
+        var stripeBoost = withMust.First(r => r.Path == StripeFile).Score - withoutMust.First(r => r.Path == StripeFile).Score;
+        var adyenBoost = withMust.First(r => r.Path == AdyenFile).Score - withoutMust.First(r => r.Path == AdyenFile).Score;
+
+        stripeBoost.Should().BeGreaterThan(adyenBoost);
+    }
+
     private FileMapSearcher Searcher() => new();
 
     private void WriteIndexedClass(string relativePath, string typeName, string methodName)
