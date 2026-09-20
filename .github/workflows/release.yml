@@ -15,6 +15,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - rid: osx-arm64

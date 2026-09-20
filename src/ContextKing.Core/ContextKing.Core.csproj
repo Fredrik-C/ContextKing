@@ -24,7 +24,7 @@
   <ItemGroup>
     <!-- TreeSitterLanguagePack 1.8.1 ships native assets under runtimes/runtimes/...;
          copy them into the expected runtimes/... layout for app execution and publish. -->
-    <None Include="$(PkgTreeSitterLanguagePack)\runtimes\runtimes\**\ts_pack_core_ffi.*">
+    <None Include="$(PkgTreeSitterLanguagePack)\runtimes\runtimes\**\*ts_pack_core_ffi.*">
       <Link>runtimes\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
