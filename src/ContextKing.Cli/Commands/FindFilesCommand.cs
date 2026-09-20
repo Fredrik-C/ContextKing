@@ -160,10 +160,11 @@ internal static class FindFilesCommand
             var watch = Stopwatch.StartNew();
             var extraction = new MethodExtractionResult([], 0, 0);
             MethodRerankResult? scored = null;
+            var methodCandidates = MethodRerankCandidateSelector.Select(lexicalCandidates);
             try
             {
                 var codeEmbedder = (methodEmbedderFactory ?? CodeModelLocator.GetEmbedder)(settings.FindFiles.MethodRerankModel);
-                extraction = new MethodCandidateExtractor().Extract(repoRoot, lexicalCandidates, query, taskDescription,
+                extraction = new MethodCandidateExtractor().Extract(repoRoot, methodCandidates, query, taskDescription,
                     settings.FindFiles.ToMethodExtractionOptions(), cancellationToken);
                 scored = new MethodSemanticReranker(codeEmbedder).Score(taskDescription, extraction.Cards,
                     settings.FindFiles.MaxMethodCardChars, settings.FindFiles.MaxBodyChars, settings.FindFiles.FlatMethodThreshold, cancellationToken);
@@ -195,7 +196,7 @@ internal static class FindFilesCommand
             }
             if (verbose)
             {
-                Console.Error.WriteLine($"[ck find-files] lexical candidates: {lexicalCandidates.Count}; method candidate files: {extraction.ParsedFiles}; methods extracted: {extraction.Cards.Count}; method cards embedded: {scored?.EmbeddedCount ?? 0}");
+                Console.Error.WriteLine($"[ck find-files] lexical candidates: {lexicalCandidates.Count}; method rerank candidates: {methodCandidates.Count}; method candidate files: {extraction.ParsedFiles}; methods extracted: {extraction.Cards.Count}; method cards embedded: {scored?.EmbeddedCount ?? 0}");
                 Console.Error.WriteLine($"[ck find-files] parse failures: {extraction.Failures}; embedding failures: {scored?.FailureCount ?? 0}; method stage duration: {watch.ElapsedMilliseconds} ms; method stage status: {methodStatus}");
                 if (methodScores.Count > 0)
                     Console.Error.WriteLine(FormattableString.Invariant($"[ck find-files] method semantic range: {methodScores.Values.Min(m => m.Score):0.0000}..{methodScores.Values.Max(m => m.Score):0.0000}"));
