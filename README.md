@@ -50,7 +50,7 @@ Context King installs these commands into your AI CLI tool:
 The file-first flow in practice:
 
 ```
-1. ck find-files --query "order reservation inventory allocation" --task "Find inventory reservation allocation logic." --top 20 --path src/
+1. ck find-files --query "order reservation inventory allocation" --task "Find inventory reservation allocation logic." --top 5 --path src/
       -> 0.71  src/Modules/Inventory/Reservations/InventoryReservationService.cs
          0.69  src/Modules/Inventory/Allocations/AllocationService.cs
 
@@ -133,7 +133,7 @@ Verbose mode warns once about obvious negative phrasing without rewriting it.
 
 Method reranking is enabled by default. Standard release archives and installers include the [CodeRankEmbed model pack](models/code-reranker/README.md), installed at `~/.ck/models/code-reranker`. Set `findFiles.methodRerank` to `false` in `.ck.json` to opt out. Searches never download the model. Missing models and inference failures preserve successful file search through metadata/lexical fallback. The broader held-out evaluation remains in progress; see [implementation status](docs/method-reranking-implementation-status.md).
 
-Default stdout remains `<score>\t<path>`. `--explain` adds `lexical`, `metadata`, `method`, `best_member`, and at most three structural evidence identifiers; source bodies and literals are not printed. `--verbose` reports counts, stage duration, failures, and status. See [advanced configuration](docs/method-reranking-configuration.md) for bounded extraction settings and fusion weights.
+Default stdout remains `<score>\t<path>`, with five results by default to keep the initial discovery response small. Use `--top` to request a larger shortlist only when those first matches are ambiguous. `--explain` adds `lexical`, `metadata`, `method`, `best_member`, and at most three structural evidence identifiers; source bodies and literals are not printed. `--verbose` reports counts, stage duration, failures, and status. See [advanced configuration](docs/method-reranking-configuration.md) for bounded extraction settings and fusion weights.
 
 **Staleness detection.** The index is keyed by file path + content fingerprint. A file row is refreshed when that file changes (add, remove, rename, content edit). Untracked new files and working-tree deletions are included, not just committed state.
 

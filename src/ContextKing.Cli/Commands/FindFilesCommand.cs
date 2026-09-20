@@ -19,7 +19,9 @@ internal static class FindFilesCommand
             return 0;
         }
 
-        if (!reader.TryGetInt("--top", out var top) || top <= 0) top = 20;
+        // Keep the first discovery response small. Agents can request a larger
+        // shortlist explicitly after judging the initial matches insufficient.
+        if (!reader.TryGetInt("--top", out var top) || top <= 0) top = 5;
         if (!reader.TryGetFloat("--min-score", out var minScore)) minScore = 0.25f;
         var explain = reader.HasFlag("--explain");
         var verbose = reader.HasFlag("--verbose");
@@ -266,7 +268,7 @@ internal static class FindFilesCommand
 
             Defaults:
               - Searches repo `src/` when no path is supplied.
-              - top=20, min-score=0.25
+              - top=5, min-score=0.25
               - --must applies soft boosts (does not hard-filter to zero results)
               - --task is required reranking context; lexical search still uses <query>
 

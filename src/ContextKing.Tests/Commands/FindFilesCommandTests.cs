@@ -27,6 +27,25 @@ public class FindFilesCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_DefaultTopLimitsFirstDiscoveryResponseToFiveFiles()
+    {
+        for (var i = 1; i <= 6; i++)
+            WriteClass($"src/Payments/RefundService{i}.cs", $"RefundService{i}", "ProcessRefund");
+        _repo.WriteFile(".ck.json", """{ "findFiles": { "semanticRerank": false, "methodRerank": false } }""");
+        _repo.StageAndCommit();
+
+        var result = await RunCommand(
+            "refund service process",
+            "--task",
+            "Find refund service processing implementation.",
+            "--repo",
+            _repo.Root);
+
+        result.ExitCode.Should().Be(0, $"stdout: {result.Stdout}; stderr: {result.Stderr}");
+        result.Stdout.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Should().HaveCount(5);
+    }
+
+    [Fact]
     public async Task RunAsync_MissingTaskFails()
     {
         WriteClass("src/Payments/AdyenTerminalRefundService.cs", "AdyenTerminalRefundService", "RetryTerminalRefund");

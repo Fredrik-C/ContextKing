@@ -46,7 +46,7 @@ Weak:
 |---|---|
 | `--must <text>` | Soft boost for required concepts (not a hard filter) |
 | `--task <text>` | Required task intent for candidate reranking context |
-| `--top <n>` | Number of ranked matches to return |
+| `--top <n>` | Number of ranked matches to return (defaults to 5) |
 | `--min-score <f>` | Filter out low-confidence results |
 | `--path <folder-or-file>` | Scope retrieval to a specific subtree |
 | `--explain` | Include lexical/metadata/method scores, best member, and up to three evidence identifiers |
@@ -55,10 +55,12 @@ Weak:
 ## Typical Usage
 
 ```bash
-.claude/skills/ck/ck find-files "order reservation inventory allocation" --task "Find inventory reservation allocation logic." --top 20 --path src/
-.claude/skills/ck/ck find-files "terminal refund adyen async" --task "Find async terminal refund handling for Adyen." --must payment --top 15
+.claude/skills/ck/ck find-files "order reservation inventory allocation" --task "Find inventory reservation allocation logic." --top 5 --path src/
+.claude/skills/ck/ck find-files "terminal refund adyen async" --task "Find async terminal refund handling for Adyen." --must payment --top 5
 .claude/skills/ck/ck find-files "adyen terminal refund retry transient" --task "Find terminal refund handling that retries after transient provider errors."
 ```
+
+Start with the five-result default (or fewer when you have a specific target). Increase `--top` only after the initial shortlist is ambiguous; this keeps discovery output from crowding the agent context.
 
 ### Write `--task` as positive retrieval intent
 
