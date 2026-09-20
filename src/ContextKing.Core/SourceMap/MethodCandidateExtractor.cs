@@ -9,7 +9,10 @@ using TreeSitterLanguagePack;
 namespace ContextKing.Core.SourceMap;
 
 public sealed record MethodExtractionOptions(int CandidateFiles = 50, int MaxMethodsPerFile = 24,
-    int MaxMethodsTotal = 500, int MaxCardChars = 6000, int MaxBodyChars = 3500);
+    int MaxMethodsTotal = 500, int MaxCardChars = 6000, int MaxBodyChars = 3500,
+    int LargeMethodThresholdChars = 8000, int LargeMethodExcerptChars = 800,
+    int MaxMethodSourceChars = 20000, int DenseMethodThreshold = 100,
+    int DenseMethodExcerptChars = 800, int DenseMethodMaxCards = 300);
 public sealed record MethodExtractionResult(IReadOnlyList<MethodCandidateCard> Cards, int ParsedFiles, int Failures);
 
 /// <summary>Parses only supplied lexical candidates. Cards and syntax trees are never persisted.</summary>
@@ -45,12 +48,15 @@ public sealed class MethodCandidateExtractor
             }
             catch (Exception) { failures++; }
         }
-        return new(cards, parsed, failures);
+        return new(ApplyDenseBodyLimit(cards, options), parsed, failures);
     }
 
     public IReadOnlyList<MethodCandidateCard> ExtractSource(string relativePath, string source,
         string query, string task, MethodExtractionOptions? options = null)
-        => ExtractSourceWithDiagnostics(relativePath, source, query, task, options ?? new(), out _);
+    {
+        options ??= new();
+        return ApplyDenseBodyLimit(ExtractSourceWithDiagnostics(relativePath, source, query, task, options, out _), options);
+    }
 
     private static IReadOnlyList<MethodCandidateCard> ExtractSourceWithDiagnostics(string relativePath, string source,
         string query, string task, MethodExtractionOptions options, out bool parseFailure)
@@ -58,7 +64,9 @@ public sealed class MethodCandidateExtractor
         var lexicalTerms = Terms(query);
         var taskTerms = Terms(task);
         var extension = Path.GetExtension(relativePath).ToLowerInvariant();
-        var cards = extension == ".cs" ? ExtractCSharp(relativePath, source, out parseFailure) : ExtractTree(relativePath, source, extension, out parseFailure);
+        var cards = extension == ".cs"
+            ? ExtractCSharp(relativePath, source, options, out parseFailure)
+            : ExtractTree(relativePath, source, extension, options, out parseFailure);
         return cards.Where(c => !IsTrivial(c.BodyExcerpt) || Matches(c.MemberName, lexicalTerms) > 0)
             .OrderByDescending(c => Matches(c.MemberName + " " + c.ContainingType, lexicalTerms))
             .ThenByDescending(c => Matches(c.MemberName + " " + c.ContainingType, taskTerms))
@@ -73,7 +81,8 @@ public sealed class MethodCandidateExtractor
             }).ToArray();
     }
 
-    private static IReadOnlyList<MethodCandidateCard> ExtractCSharp(string path, string source, out bool parseFailure)
+    private static IReadOnlyList<MethodCandidateCard> ExtractCSharp(string path, string source,
+        MethodExtractionOptions options, out bool parseFailure)
     {
         var tree = CSharpSyntaxTree.ParseText(source);
         parseFailure = tree.GetDiagnostics().Any(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error);
@@ -139,7 +148,7 @@ public sealed class MethodCandidateExtractor
             if (containingDeclaration?.BaseList is { } bases)
                 foreach (var baseType in bases.Types) Add("base", baseType.Type.ToString());
             cards.Add(new(path, "CSharp", type, name, source[node.SpanStart..body.SpanStart].Trim(),
-                string.Join('\n', summary.Distinct().Take(64)), source[node.SpanStart..node.Span.End],
+                string.Join('\n', summary.Distinct().Take(64)), Excerpt(source, node.SpanStart, node.Span.End, options),
                 lines.StartLinePosition.Line + 1, lines.EndLinePosition.Line + 1, evidence.Distinct().Take(32).ToArray()));
 
             void Add(string kind, string value)
@@ -152,7 +161,8 @@ public sealed class MethodCandidateExtractor
         return cards;
     }
 
-    private static IReadOnlyList<MethodCandidateCard> ExtractTree(string path, string source, string extension, out bool parseFailure)
+    private static IReadOnlyList<MethodCandidateCard> ExtractTree(string path, string source, string extension,
+        MethodExtractionOptions options, out bool parseFailure)
     {
         parseFailure = false;
         var language = extension switch { ".ts" => "typescript", ".tsx" => "tsx", ".py" => "python", ".kt" or ".kts" => "kotlin", _ => null };
@@ -214,8 +224,10 @@ public sealed class MethodCandidateExtractor
                     }
                     Gather(node, 0);
                     var signature = Encoding.UTF8.GetString(bytes, checked((int)spanNode.StartByte()), checked((int)(body.StartByte() - spanNode.StartByte()))).Trim();
+                    var methodStart = checked((int)spanNode.StartByte());
+                    var methodLength = checked((int)(spanNode.EndByte() - spanNode.StartByte()));
                     cards.Add(new(path, language, containingType, name, signature,
-                        string.Join('\n', summary.Distinct().Take(64)), Slice(spanNode),
+                        string.Join('\n', summary.Distinct().Take(64)), ExcerptUtf8(bytes, methodStart, methodLength, options),
                         checked((int)spanNode.StartPosition().Row + 1), checked((int)spanNode.EndPosition().Row + 1), evidence.Distinct().Take(32).ToArray()));
 
                     void Gather(Node n, int level)
@@ -276,6 +288,50 @@ public sealed class MethodCandidateExtractor
             if (n.Kind() is "identifier" or "type_identifier" or "simple_identifier") yield return n;
             foreach (var child in Children(n)) foreach (var item in DescendantIdentifiers(child, depth + 1)) yield return item;
         }
+    }
+
+    private static string Excerpt(string source, int start, int end, MethodExtractionOptions options)
+    {
+        var length = end - start;
+        var maxSourceChars = Math.Clamp(options.MaxMethodSourceChars, 1, 1_000_000);
+        if (length > maxSourceChars) return "";
+        var threshold = Math.Clamp(options.LargeMethodThresholdChars, 1, maxSourceChars);
+        if (length <= threshold) return source[start..end];
+        return Excerpt(source, start, length, Math.Clamp(options.LargeMethodExcerptChars, 0, 12000));
+    }
+
+    private static string ExcerptUtf8(byte[] source, int start, int length, MethodExtractionOptions options)
+    {
+        var maxSourceChars = Math.Clamp(options.MaxMethodSourceChars, 1, 1_000_000);
+        if (length > maxSourceChars) return "";
+        var threshold = Math.Clamp(options.LargeMethodThresholdChars, 1, maxSourceChars);
+        if (length <= threshold) return Encoding.UTF8.GetString(source, start, length);
+        return MethodCandidateCard.Bound(Encoding.UTF8.GetString(source, start, length),
+            Math.Clamp(options.LargeMethodExcerptChars, 0, 12000));
+    }
+
+    private static string Excerpt(string source, int start, int length, int maxChars)
+    {
+        if (maxChars <= 0) return "";
+        if (length <= maxChars) return source.Substring(start, length);
+        const string omission = "\n<omitted>\n";
+        if (maxChars < omission.Length) return source.Substring(start, maxChars);
+        var remaining = maxChars - omission.Length;
+        var headLength = (remaining + 1) / 2;
+        var tailLength = remaining / 2;
+        return source.Substring(start, headLength) + omission + source.Substring(start + length - tailLength, tailLength);
+    }
+
+    private static IReadOnlyList<MethodCandidateCard> ApplyDenseBodyLimit(IReadOnlyList<MethodCandidateCard> cards,
+        MethodExtractionOptions options)
+    {
+        var threshold = Math.Clamp(options.DenseMethodThreshold, 1, 2000);
+        if (cards.Count <= threshold) return cards;
+        var maxChars = Math.Clamp(options.DenseMethodExcerptChars, 0, 12000);
+        var maxCards = Math.Clamp(options.DenseMethodMaxCards, threshold, 2000);
+        return cards.Take(maxCards)
+            .Select(card => card with { BodyExcerpt = MethodCandidateCard.Bound(card.BodyExcerpt, maxChars) })
+            .ToArray();
     }
 
     private static bool IsCallable(string kind) => kind is "function_definition" or "function_declaration" or "method_definition"

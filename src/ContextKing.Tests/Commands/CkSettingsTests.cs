@@ -27,13 +27,19 @@ public class CkSettingsTests : IDisposable
     [Fact]
     public void MethodDefaultsAreEnabledAndUseIndependentFusionWeights()
     {
-        _repo.WriteFile(".ck.json", """{"findFiles":{"methodRerank":true,"semanticRerank":false}}""");
+        _repo.WriteFile(".ck.json", """{"findFiles":{"methodRerank":true,"semanticRerank":false,"largeMethodThresholdChars":9000,"largeMethodExcerptChars":700,"maxMethodSourceChars":25000,"denseMethodThreshold":120,"denseMethodExcerptChars":600,"denseMethodMaxCards":240}}""");
         var settings = CkSettings.Load(_repo.Root).FindFiles;
         settings.MethodRerank.Should().BeTrue();
         settings.MaxOverfetch.Should().Be(100);
         settings.OverfetchTopK(20).Should().Be(100);
         settings.ToMethodFusionOptions().LexicalWeight.Should().Be(0.45f);
         settings.ToSemanticOptions().LexicalWeight.Should().Be(0.65f);
+        settings.LargeMethodThresholdChars.Should().Be(9000);
+        settings.LargeMethodExcerptChars.Should().Be(700);
+        settings.MaxMethodSourceChars.Should().Be(25000);
+        settings.DenseMethodThreshold.Should().Be(120);
+        settings.DenseMethodExcerptChars.Should().Be(600);
+        settings.DenseMethodMaxCards.Should().Be(240);
         new FindFilesSettings().MethodRerank.Should().BeTrue();
     }
 

@@ -71,6 +71,12 @@ internal sealed record FindFilesSettings(
     int MaxMethodsTotal = 500,
     int MaxMethodCardChars = 6000,
     int MaxBodyChars = 3500,
+    int LargeMethodThresholdChars = 8000,
+    int LargeMethodExcerptChars = 800,
+    int MaxMethodSourceChars = 20000,
+    int DenseMethodThreshold = 100,
+    int DenseMethodExcerptChars = 800,
+    int DenseMethodMaxCards = 300,
     float MethodLexicalWeight = 0.45f,
     float MetadataSemanticWeight = 0.15f,
     float MethodSemanticWeight = 0.35f,
@@ -101,6 +107,12 @@ internal sealed record FindFilesSettings(
             Math.Clamp(ReadInt(element, "maxMethodsTotal") ?? 500, 1, 2000),
             Math.Clamp(ReadInt(element, "maxMethodCardChars") ?? 6000, 128, 16000),
             Math.Clamp(ReadInt(element, "maxBodyChars") ?? 3500, 0, 12000),
+            Math.Clamp(ReadInt(element, "largeMethodThresholdChars") ?? 8000, 1, 1_000_000),
+            Math.Clamp(ReadInt(element, "largeMethodExcerptChars") ?? 800, 0, 12000),
+            Math.Clamp(ReadInt(element, "maxMethodSourceChars") ?? 20000, 1, 1_000_000),
+            Math.Clamp(ReadInt(element, "denseMethodThreshold") ?? 100, 1, 2000),
+            Math.Clamp(ReadInt(element, "denseMethodExcerptChars") ?? 800, 0, 12000),
+            Math.Clamp(ReadInt(element, "denseMethodMaxCards") ?? 300, 1, 2000),
             ClampWeight(ReadFloat(element, "lexicalWeight") ?? 0.45f, 0.45f),
             ClampWeight(ReadFloat(element, "metadataSemanticWeight") ?? 0.15f, 0.15f),
             ClampWeight(ReadFloat(element, "methodSemanticWeight") ?? 0.35f, 0.35f),
@@ -114,7 +126,9 @@ internal sealed record FindFilesSettings(
             : top;
 
     public MethodExtractionOptions ToMethodExtractionOptions() =>
-        new(MethodCandidateFiles, MaxMethodsPerFile, MaxMethodsTotal, MaxMethodCardChars, MaxBodyChars);
+        new(MethodCandidateFiles, MaxMethodsPerFile, MaxMethodsTotal, MaxMethodCardChars, MaxBodyChars,
+            LargeMethodThresholdChars, LargeMethodExcerptChars, MaxMethodSourceChars,
+            DenseMethodThreshold, DenseMethodExcerptChars, DenseMethodMaxCards);
 
     public MethodFusionOptions ToMethodFusionOptions() =>
         new(MethodLexicalWeight, MetadataSemanticWeight, MethodSemanticWeight, StructuralBoostMax, GenericPenaltyMax);

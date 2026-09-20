@@ -48,6 +48,45 @@ public class MethodCandidateExtractorTests
         cards[0].BodyExcerpt.Length.Should().BeLessThanOrEqualTo(20);
     }
 
+    [Fact]
+    public void LargeMethodsUseSmallHeadAndTailExcerpts()
+    {
+        var source = "class A { void Retry() { Start(); " + new string('x', 400) + " Finish(); } }";
+        var cards = new MethodCandidateExtractor().ExtractSource("A.cs", source, "retry", "Find recovery",
+            new(LargeMethodThresholdChars: 100, LargeMethodExcerptChars: 80, MaxMethodSourceChars: 1000));
+
+        var card = cards.Should().ContainSingle().Subject;
+        card.BodyExcerpt.Length.Should().BeLessThanOrEqualTo(80);
+        card.BodyExcerpt.Should().Contain("Start()").And.Contain("Finish()").And.Contain("<omitted>");
+    }
+
+    [Fact]
+    public void ExtremelyLargeMethodsKeepStructuralDataButSkipBodyExcerpt()
+    {
+        var source = "class A { void Retry() { Start(); " + new string('x', 400) + " Finish(); } }";
+        var cards = new MethodCandidateExtractor().ExtractSource("A.cs", source, "retry", "Find recovery",
+            new(LargeMethodThresholdChars: 100, LargeMethodExcerptChars: 80, MaxMethodSourceChars: 200));
+
+        var card = cards.Should().ContainSingle().Subject;
+        card.MemberName.Should().Be("Retry");
+        card.Signature.Should().Contain("Retry");
+        card.Evidence.Should().Contain("call:Start");
+        card.BodyExcerpt.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DenseMethodSetsUseSmallHeadAndTailExcerpts()
+    {
+        var methods = string.Join("\n", Enumerable.Range(0, 3)
+            .Select(i => $"void Retry{i}() {{ Start{i}(); {new string('x', 120)} Finish{i}(); }}"));
+        var cards = new MethodCandidateExtractor().ExtractSource("A.cs", "class A { " + methods + " }", "retry", "Find recovery",
+            new(DenseMethodThreshold: 2, DenseMethodExcerptChars: 80, DenseMethodMaxCards: 2));
+
+        cards.Should().HaveCount(2);
+        cards.Should().OnlyContain(card => card.BodyExcerpt.Length <= 80 && card.BodyExcerpt.Contains("<omitted>"));
+        cards.Should().OnlyContain(card => card.BodyExcerpt.Contains("Start") && card.BodyExcerpt.Contains("Finish"));
+    }
+
     [Theory]
     [InlineData("cs", "class A { void Broken( { retry(")]
     [InlineData("ts", "class A { broken( { retry(")]
