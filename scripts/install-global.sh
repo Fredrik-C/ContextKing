@@ -259,6 +259,29 @@ else
   echo "  Set CK_MODEL_DIR env var or run from a local clone that has models/bge-small-en-v1.5/."
 fi
 
+# Code model is included in release archives. Source checkouts can acquire it first.
+CODE_PACK="$ASSETS_DIR/models/code-reranker"
+if [ -f "$CODE_PACK/model.onnx" ] && [ -f "$CODE_PACK/SHA256SUMS" ]; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$CODE_PACK" && sha256sum -c SHA256SUMS) || die "Code model checksum verification failed"
+  else
+    (cd "$CODE_PACK" && shasum -a 256 -c SHA256SUMS) || die "Code model checksum verification failed"
+  fi
+  CODE_STAGE="$(mktemp -d "$CK_MODEL_DIR/.code-reranker-XXXXXX")"
+  cp -R "$CODE_PACK/." "$CODE_STAGE/"
+  if [ -e "$CK_MODEL_DIR/code-reranker" ]; then
+    CODE_BACKUP="$(mktemp -d "$CK_MODEL_DIR/.code-reranker-backup-XXXXXX")"
+    mv "$CK_MODEL_DIR/code-reranker" "$CODE_BACKUP/"
+    info "Previous code model retained at $CODE_BACKUP/code-reranker"
+  fi
+  mv "$CODE_STAGE" "$CK_MODEL_DIR/code-reranker"
+  ok "Code model installed: $CK_MODEL_DIR/code-reranker"
+elif command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File "$ASSETS_DIR/scripts/install-code-model.ps1" -Destination "$CK_MODEL_DIR/code-reranker"
+else
+  die "Code model is missing from these assets. Use the complete release archive or acquire it with scripts/install-code-model.ps1."
+fi
+
 # ── Add ~/.ck/bin to PATH ──────────────────────────────────────────────────────
 if [ "$MODIFY_PATH" = true ]; then
   PATH_LINE="export PATH=\"\$PATH:$CK_BIN_DIR\""
@@ -425,6 +448,8 @@ if [ "$DO_CODEX" = true ]; then
 ## CODE NAVIGATION (Context King)
 
 This codebase uses Context King (CK) for source navigation. Follow this protocol for ALL C# and TypeScript/TSX source file search.
+
+Write --task as positive retrieval intent. Describe only wanted behavior; avoid "not", "exclude", or "ignore" because excluded terms can still increase similarity. Narrow positively by provider, channel, operation, error type, or behavior. --task does not implement exclusion logic.
 
 **Binary:** \`${CK_BIN}\` (or \`ck\` if in PATH)
 

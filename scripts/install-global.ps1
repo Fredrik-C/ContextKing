@@ -124,6 +124,9 @@ if (Test-Path $ModelSrc) {
   Write-Warning "Model not found in assets — embedding commands (find-files, get-keyword-map, recall --query) will not work."
 }
 
+& "$AssetsDir\scripts\install-code-model.ps1" -Destination "$CkModelDir\code-reranker" -SourceDirectory "$AssetsDir\models\code-reranker"
+Write-Ok "Code model installed: $CkModelDir\code-reranker"
+
 # ── Add to PATH ────────────────────────────────────────────────────────────────
 if (-not $NoPath) {
   $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
@@ -312,6 +315,8 @@ if (-not $NoCodex) {
 ## CODE NAVIGATION (Context King)
 
 This codebase uses Context King (CK) for source navigation. Follow this protocol for ALL C# and TypeScript/TSX source file search.
+
+Write --task as positive retrieval intent. Describe only wanted behavior; avoid "not", "exclude", or "ignore" because excluded terms can still increase similarity. Narrow positively by provider, channel, operation, error type, or behavior. --task does not implement exclusion logic.
 
 **Binary:** $bt$CkBin$bt (or ${bt}ck${bt} if in PATH)
 

@@ -1,4 +1,5 @@
 using ContextKing.Cli.Commands;
+using ContextKing.Core.Embedding;
 using ContextKing.Tests.Helpers;
 using FluentAssertions;
 
@@ -105,7 +106,7 @@ public class FindFilesCommandTests : IDisposable
     {
         WriteClass("src/A/RefundPaymentService.cs", "RefundPaymentService", "RefundPayment");
         WriteClass("src/B/PaymentWorkflow.cs", "PaymentWorkflow", "Payment");
-        _repo.WriteFile(".ck.json", """{ "findFiles": { "semanticRerank": false } }""");
+        _repo.WriteFile(".ck.json", """{ "findFiles": { "semanticRerank": false, "methodRerank": false } }""");
         _repo.StageAndCommit();
 
         var result = await RunCommand(
@@ -120,6 +121,98 @@ public class FindFilesCommandTests : IDisposable
         result.ExitCode.Should().Be(0, $"stdout: {result.Stdout}; stderr: {result.Stderr}");
         result.Stdout.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)[0]
             .Should().Contain("src/A/RefundPaymentService.cs");
+    }
+
+    [Fact]
+    public async Task MethodStageRanksBehaviorAndExplainsWithoutSource()
+    {
+        _repo.WriteFile("src/Target/Refund.cs", "class Refund { void Execute() { try { Send(); } catch (TimeoutException) { Retry(); } Log(\"secret-value\"); } }");
+        _repo.WriteFile("src/Card/Refund.cs", "class Refund { void Execute() { Send(); } }");
+        _repo.WriteFile(".ck.json", """{"findFiles":{"semanticRerank":false,"methodRerank":true}}""");
+        _repo.StageAndCommit();
+        var embedder = new BehaviorEmbedder();
+        var result = await CaptureAsync(() => FindFilesCommand.RunAsync(
+            ["refund", "--task", "Find terminal refund handling that retries after transient provider errors.", "--explain", "--repo", _repo.Root], _ => embedder));
+        result.ExitCode.Should().Be(0);
+        result.Stdout.Split(Environment.NewLine)[0].Should().Contain("src/Target/Refund.cs");
+        result.Stdout.Should().Contain("best_member=Execute").And.Contain("method=1.0000").And.NotContain("secret-value");
+        result.Stderr.Should().BeEmpty();
+        embedder.Query.Should().Be("Find terminal refund handling that retries after transient provider errors.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NegativeIntentIsUnchangedAndWarnsOnlyOnceWhenVerbose(bool verbose)
+    {
+        _repo.WriteFile("src/Refund.cs", "class Refund { void Execute() { Retry(); } }");
+        _repo.WriteFile(".ck.json", """{"findFiles":{"semanticRerank":false,"methodRerank":true}}""");
+        _repo.StageAndCommit();
+        var task = "Find refund retry. Ignore cards. Exclude tests without recovery.";
+        var args = new List<string> { "refund", "--task", task, "--repo", _repo.Root };
+        if (verbose) args.Add("--verbose");
+        var embedder = new BehaviorEmbedder();
+        var result = await CaptureAsync(() => FindFilesCommand.RunAsync(args.ToArray(), _ => embedder));
+        result.ExitCode.Should().Be(0);
+        embedder.Query.Should().Be(task);
+        result.Stderr.Split("appears to contain an exclusion").Length.Should().Be(verbose ? 2 : 1);
+        result.Stdout.Trim().Split('\t').Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task MissingOptionalModelSucceedsAndDoesNotLogSourceException()
+    {
+        _repo.WriteFile("src/Refund.cs", "class Refund { void Execute() { Retry(); } }");
+        _repo.WriteFile(".ck.json", """{"findFiles":{"semanticRerank":false,"methodRerank":true}}""");
+        _repo.StageAndCommit();
+        var result = await CaptureAsync(() => FindFilesCommand.RunAsync(
+            ["refund", "--task", "Find refund retries", "--explain", "--repo", _repo.Root],
+            _ => throw new FileNotFoundException("secret-source-input")));
+        result.ExitCode.Should().Be(0);
+        result.Stdout.Should().Contain("method=unavailable");
+        result.Stderr.Should().Contain("method rerank unavailable").And.NotContain("secret-source-input");
+    }
+
+    [Fact]
+    public async Task DisabledMethodStageDoesNotLoadModel()
+    {
+        WriteClass("src/Refund.cs", "Refund", "Retry");
+        _repo.WriteFile(".ck.json", """{"findFiles":{"semanticRerank":false,"methodRerank":false}}""");
+        _repo.StageAndCommit();
+        var result = await CaptureAsync(() => FindFilesCommand.RunAsync(
+            ["refund", "--task", "Find refund", "--explain", "--repo", _repo.Root],
+            _ => throw new InvalidOperationException("should not load")));
+        result.ExitCode.Should().Be(0);
+        result.Stdout.Should().Contain("method=-");
+        result.Stderr.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PathScopingPrecedesExtractionAndLiveEditsAreEmbedded()
+    {
+        _repo.WriteFile("src/In/Refund.cs", "class Refund { void Execute() { Send(); } }");
+        _repo.WriteFile("src/Out/Refund.cs", "class Refund { void Execute() { OutOfScope(); } }");
+        _repo.WriteFile(".ck.json", """{"findFiles":{"semanticRerank":false,"methodRerank":true}}""");
+        _repo.StageAndCommit();
+        _repo.WriteFile("src/In/Refund.cs", "class Refund { void Execute() { Retry(); } }");
+        var embedder = new BehaviorEmbedder();
+        var result = await CaptureAsync(() => FindFilesCommand.RunAsync(
+            ["refund", "--task", "Find refund retries", "--path", "src/In", "--repo", _repo.Root], _ => embedder));
+        result.ExitCode.Should().Be(0);
+        embedder.Documents.Should().ContainSingle().Which.Should().Contain("Retry();").And.NotContain("OutOfScope");
+        result.Stdout.Should().Contain("src/In/Refund.cs").And.NotContain("src/Out/");
+    }
+
+    private sealed class BehaviorEmbedder : IBatchTextEmbedder
+    {
+        public string? Query { get; private set; }
+        public List<string> Documents { get; } = [];
+        public float[] Embed(string text) { Query = text; return [1, 0]; }
+        public IReadOnlyList<float[]> EmbedBatch(IReadOnlyList<string> texts)
+        {
+            Documents.AddRange(texts);
+            return texts.Select(t => t.Contains("Retry();") ? new[] { 1f, 0f } : [-1f, 0f]).ToArray();
+        }
     }
 
     private async Task<(int ExitCode, string Stdout, string Stderr)> RunCommand(params string[] args)

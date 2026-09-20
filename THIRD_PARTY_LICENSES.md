@@ -2,6 +2,11 @@
 
 Context King bundles, links against, or redistributes the following third-party components. Their licenses and copyright notices are reproduced below as required.
 
+## CodeRankEmbed and Microsoft.ML.Tokenizers
+
+- **Code model:** `nomic-ai/CodeRankEmbed`, ONNX INT8 export `mrsladoje/CodeRankEmbed-onnx-int8` at revision `e74f446dc6e67e29fcee77213472c142f73a6bbb` (MIT). Release archives include the complete upstream license in `models/code-reranker/LICENSE`, the source/author attribution in `models/code-reranker/README.md`, and per-asset SHA-256 checksums. Used for local method retrieval embeddings.
+- **Tokenizer:** `Microsoft.ML.Tokenizers` 2.0.0, https://github.com/dotnet/machinelearning (MIT; .NET Foundation and Contributors, see the notice below). Used for BERT tokenization of code-model inputs.
+
 ---
 
 ## TypeScriptParser

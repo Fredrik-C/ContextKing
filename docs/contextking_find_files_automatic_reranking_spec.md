@@ -1,5 +1,7 @@
 # Specification: Automatic Candidate Reranking for `ck find-files`
 
+Method-level extensions and positive-intent guidance are specified in [Method-Level Semantic Reranking](contextking_method_level_semantic_reranking_spec.md). Starting with v1.8.14, method reranking is enabled by default alongside metadata reranking, with a repository opt-out.
+
 ## 1. Reason
 
 Context King currently uses fast lexical comparison for `find-files`, keyword maps, and related filtering tools. This keeps indexing cheap and avoids the earlier problem where indexing and embedding all keywords made index creation too slow.
@@ -84,7 +86,7 @@ Require one task-intent parameter:
 
 ```bash
 ck find-files "adyen terminal refund retry" \
-  --task "Find retry handling for terminal refunds after transient provider errors. Ignore normal card refunds."
+  --task "Find terminal refund handling that retries after transient provider errors."
 ```
 
 `--task` is **not** used for first-stage search. It is required as richer semantic intent for reranking.
@@ -641,7 +643,7 @@ Avoid:
 
 Always keep the main query lexical and pass the task intent separately with `--task`:
 
-`ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore normal card refund flows."`
+`ck find-files "adyen terminal refund retry transient" --task "Find terminal refund handling that retries after transient provider errors."`
 ```
 
 Do not mention:
@@ -669,7 +671,7 @@ This avoids maintaining a repository-wide semantic index while improving result 
 Always pass `--task` to provide reranking context while keeping the main query lexical:
 
 ```bash
-ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore card refunds."
+ck find-files "adyen terminal refund retry transient" --task "Find terminal refund handling that retries after transient provider errors."
 ```
 ```
 

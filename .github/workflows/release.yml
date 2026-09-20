@@ -56,6 +56,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Publish ${{ matrix.rid }}
+        # Cross-compiled targets are packaged below; native runners verify inference.
         shell: bash
         run: |
           dotnet publish src/ContextKing.Cli/ContextKing.Cli.csproj \
@@ -65,6 +66,16 @@ jobs:
           [[ "${{ matrix.rid }}" == win-* ]] && ext=".exe"
           cp /tmp/ck-publish/ck${ext} ${{ matrix.binary }}
           chmod +x ${{ matrix.binary }} 2>/dev/null || true
+
+      - name: Verify native code model and extraction
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'win-x64' || matrix.rid == 'osx-arm64'
+        shell: pwsh
+        run: |
+          $pack = Join-Path $env:RUNNER_TEMP 'ck-code-model-test'
+          ./scripts/install-code-model.ps1 -Destination $pack
+          $env:CK_CODE_MODEL_TEST_DIR = $pack
+          dotnet test src/ContextKing.Tests/ContextKing.Tests.csproj -c Release --filter 'FullyQualifiedName~CodeEmbeddingModelTests|FullyQualifiedName~MethodCandidateExtractorTests|FullyQualifiedName~CkSettingsTests' -v minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -96,8 +107,11 @@ jobs:
           chmod +x /tmp/binaries/ck-linux-arm64
 
       - name: Build per-platform archives
+        # Fetch once at packaging time; every archive carries the checked model.
+        shell: bash
         run: |
           VERSION="${RELEASE_TAG}"
+          pwsh -NoProfile -File scripts/install-code-model.ps1 -Destination /tmp/ck-code-reranker
 
           build_archive() {
             local platform="$1"   # osx-arm64 | osx-x64 | linux-x64
@@ -120,6 +134,8 @@ jobs:
             chmod +x "$stage/skills/ck/$binary" "$stage/skills/ck/ck"
             find "$stage/hooks" -type f -name '*.sh' -exec chmod +x {} \;
             cp -r models/bge-small-en-v1.5/.  "$stage/models/bge-small-en-v1.5/"
+            cp -r /tmp/ck-code-reranker "$stage/models/code-reranker"
+            cp scripts/install-code-model.ps1 "$stage/scripts/"
             cp rules/ck-code-search-protocol.md "$stage/rules/"
             cp plugins/ck-guards.ts            "$stage/plugins/"
             cp agents/explore.md               "$stage/agents/"
@@ -150,6 +166,8 @@ jobs:
           cp -r hooks/. "$win_stage/hooks/"
           cp /tmp/binaries/ck-win-x64.exe    "$win_stage/skills/ck/"
           cp -r models/bge-small-en-v1.5/.  "$win_stage/models/bge-small-en-v1.5/"
+          cp -r /tmp/ck-code-reranker "$win_stage/models/code-reranker"
+          cp scripts/install-code-model.ps1 "$win_stage/scripts/"
           cp rules/ck-code-search-protocol.md "$win_stage/rules/"
           cp plugins/ck-guards.ts            "$win_stage/plugins/"
           cp agents/explore.md               "$win_stage/agents/"

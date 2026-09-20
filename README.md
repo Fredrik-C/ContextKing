@@ -117,13 +117,23 @@ PascalCase and camelCase identifiers are split at case boundaries. Symbol names 
 
 `ck find-files` uses lexical search as its first-stage retriever. Internally, CK may overfetch lexical candidates and rerank that small candidate set using compact metadata cards built from path, type, and member names.
 
-This avoids maintaining a repository-wide semantic index while improving result precision for ambiguous searches. No full source files are read during reranking, and candidate embeddings are not persisted.
+This avoids maintaining a repository-wide semantic index while improving result precision for ambiguous searches. Metadata reranking uses indexed names. Method reranking reads only bounded lexical candidate files, builds live Roslyn/tree-sitter method cards, and aggregates method scores into file scores. Candidate embeddings are never persisted or transmitted.
 
 Always pass `--task` to provide reranking context while keeping the main query lexical:
 
 ```bash
-ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore card refunds."
+ck find-files "adyen terminal refund retry transient" --task "Find terminal refund handling that retries after transient provider errors."
 ```
+
+`--task` improves positive semantic matching; it does not implement exclusion
+logic. Terms appearing in negative phrases such as "not", "exclude", or
+"ignore" may still increase semantic similarity. Omit unwanted concepts from
+both inputs and narrow positively by provider, channel, operation, or behavior.
+Verbose mode warns once about obvious negative phrasing without rewriting it.
+
+Method reranking is enabled by default. Standard release archives and installers include the [CodeRankEmbed model pack](models/code-reranker/README.md), installed at `~/.ck/models/code-reranker`. Set `findFiles.methodRerank` to `false` in `.ck.json` to opt out. Searches never download the model. Missing models and inference failures preserve successful file search through metadata/lexical fallback. The broader held-out evaluation remains in progress; see [implementation status](docs/method-reranking-implementation-status.md).
+
+Default stdout remains `<score>\t<path>`. `--explain` adds `lexical`, `metadata`, `method`, `best_member`, and at most three structural evidence identifiers; source bodies and literals are not printed. `--verbose` reports counts, stage duration, failures, and status. See [advanced configuration](docs/method-reranking-configuration.md) for bounded extraction settings and fusion weights.
 
 **Staleness detection.** The index is keyed by file path + content fingerprint. A file row is refreshed when that file changes (add, remove, rename, content edit). Untracked new files and working-tree deletions are included, not just committed state.
 

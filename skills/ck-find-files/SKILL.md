@@ -49,15 +49,49 @@ Weak:
 | `--top <n>` | Number of ranked matches to return |
 | `--min-score <f>` | Filter out low-confidence results |
 | `--path <folder-or-file>` | Scope retrieval to a specific subtree |
-| `--explain` | Include compact diagnostics (`types=<n> signatures=<n>`) |
+| `--explain` | Include lexical/metadata/method scores, best member, and up to three evidence identifiers |
+| `--verbose` | Report stage counts, failures, duration, and advisory task warnings |
 
 ## Typical Usage
 
 ```bash
 .claude/skills/ck/ck find-files "order reservation inventory allocation" --task "Find inventory reservation allocation logic." --top 20 --path src/
 .claude/skills/ck/ck find-files "terminal refund adyen async" --task "Find async terminal refund handling for Adyen." --must payment --top 15
-.claude/skills/ck/ck find-files "adyen terminal refund retry" --task "Find retry handling for terminal refunds after transient provider errors. Ignore normal card refund flows."
+.claude/skills/ck/ck find-files "adyen terminal refund retry transient" --task "Find terminal refund handling that retries after transient provider errors."
 ```
+
+### Write `--task` as positive retrieval intent
+
+Describe only the code and behavior you want to find. Avoid negations,
+exclusions, and instructions about what to ignore; embedding-based reranking
+may treat excluded concepts as relevant signals.
+
+Good:
+
+```bash
+ck find-files "adyen terminal refund retry transient" \
+  --task "Find terminal refund handling that retries after transient provider errors."
+```
+
+Avoid:
+
+```bash
+ck find-files "adyen terminal refund retry" \
+  --task "Find retry handling for terminal refunds. Ignore card refunds."
+```
+
+When unwanted concepts must be excluded, omit them from both the lexical query
+and `--task`. Narrow positively using provider, channel, operation, error type,
+or expected behavior.
+
+`--task` improves positive semantic matching; it does not implement exclusion
+logic. Terms appearing in negative phrases such as "not", "exclude", or
+"ignore" may still increase semantic similarity.
+
+Method reranking is enabled by default and uses the local code model included in
+standard installations. Set `findFiles.methodRerank=false` to opt out. It keeps file-level results,
+does not persist method embeddings, and falls back when unavailable. Do not
+interpret semantic similarity as proof of behavior; inspect the ranked code.
 
 ## Protocol Placement
 

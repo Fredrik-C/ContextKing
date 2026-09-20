@@ -66,8 +66,10 @@ public class InitCommandTests : IDisposable
         Assert.True(findFiles.GetProperty("semanticRerank").GetBoolean());
         Assert.Equal(5, findFiles.GetProperty("overfetchMultiplier").GetInt32());
         Assert.Equal(50, findFiles.GetProperty("minOverfetch").GetInt32());
-        Assert.Equal(200, findFiles.GetProperty("maxOverfetch").GetInt32());
-        Assert.Equal(0.65f, findFiles.GetProperty("lexicalWeight").GetSingle());
+        Assert.True(findFiles.GetProperty("methodRerank").GetBoolean());
+        Assert.Equal("code-reranker", findFiles.GetProperty("methodRerankModel").GetString());
+        Assert.Equal(100, findFiles.GetProperty("maxOverfetch").GetInt32());
+        Assert.Equal(0.45f, findFiles.GetProperty("lexicalWeight").GetSingle());
         Assert.Equal(0.30f, findFiles.GetProperty("semanticWeight").GetSingle());
         Assert.Equal(0.10f, findFiles.GetProperty("mustWeight").GetSingle());
         Assert.Equal(0.10f, findFiles.GetProperty("genericPenaltyMax").GetSingle());

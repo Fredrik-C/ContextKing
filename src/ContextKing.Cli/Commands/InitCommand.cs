@@ -107,17 +107,19 @@ internal static class InitCommand
                   "brain": true,
                   "findFiles": {
                     "semanticRerank": true,
+                    "methodRerank": true,
+                    "methodRerankModel": "code-reranker",
                     "overfetchMultiplier": 5,
                     "minOverfetch": 50,
-                    "maxOverfetch": 200,
-                    "lexicalWeight": 0.65,
+                    "maxOverfetch": 100,
+                    "lexicalWeight": 0.45,
                     "semanticWeight": 0.30,
                     "mustWeight": 0.10,
                     "genericPenaltyMax": 0.10
                   }
                 }
                 """);
-            Print($"  Created .ck.json (minVersion: {Program.Version}, brain: true, findFiles.semanticRerank: true)");
+            Print($"  Created .ck.json (minVersion: {Program.Version}, brain: true, findFiles.semanticRerank: true, findFiles.methodRerank: true)");
             anyChange = true;
         }
         else

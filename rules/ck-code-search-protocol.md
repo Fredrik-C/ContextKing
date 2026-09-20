@@ -46,6 +46,20 @@ questions. Prefer 3-7 concrete terms (domain + workflow + operation/symbol), for
 Always pass `--task` with the concrete task intent. Keep the main query lexical;
 `--task` is required reranking context, not first-stage retrieval text.
 
+Write `--task` as positive retrieval intent: describe only the code and behavior
+to find. Avoid negations and exclusions; terms following "not", "exclude", or
+"ignore" can still increase embedding similarity. Omit unwanted concepts from
+both the lexical query and task, and narrow positively by provider, channel,
+operation, error type, or behavior. Example:
+
+```bash
+ck find-files "adyen terminal refund retry transient" --task "Find terminal refund handling that retries after transient provider errors."
+```
+
+Default local method reranking retains file-level results. Use `--explain` for
+method scores, the best member, and identifier-only evidence. A similarity score
+does not establish exclusion logic or prove behavior; inspect the result.
+
 **`get-keyword-map --query` uses the same lexical rule.** Keep wording aligned with code/index tokens
 (path/file/type/member vocabulary), since keyword expansion quality depends on those lexical anchors.
 

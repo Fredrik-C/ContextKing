@@ -1,0 +1,23 @@
+{
+  "modelId": "nomic-ai/CodeRankEmbed",
+  "modelVersion": "onnx-int8-e74f446dc6e67e29fcee77213472c142f73a6bbb",
+  "sha256": "4eae31d09b1843103a1ebd5e2b2e24b5a5cad441a33906b35b12b1e2ed91d1db",
+  "dimensions": 768,
+  "maxTokens": 8192,
+  "pooling": "pooled",
+  "normalized": true,
+  "quantization": "int8-reduced-range",
+  "license": "MIT",
+  "tokenizer": "bert-uncased",
+  "queryPrefix": "Represent this query for searching relevant code: ",
+  "documentPrefix": "",
+  "outputName": "sentence_embedding",
+  "batchAgreementMinCosine": 0.95,
+  "files": {
+    "model.onnx": "4eae31d09b1843103a1ebd5e2b2e24b5a5cad441a33906b35b12b1e2ed91d1db",
+    "vocab.txt": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+    "tokenizer_config.json": "8de9ab7560d7fb63338c00736faac7bb9d85d49da44c774c607e7766b59614ea",
+    "config.json": "d9cac600c987632c33d61a7ed7f7b3ff0a52e7eb41440b661266a9c88f75ebcd",
+    "LICENSE": "7a9d86a2e80f5acae8d5bff7ef3393b5051b705de45d2e70530f5f801b3a1440"
+  }
+}
