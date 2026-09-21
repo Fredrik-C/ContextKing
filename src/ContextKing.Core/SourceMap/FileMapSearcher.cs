@@ -29,6 +29,8 @@ public readonly record struct ScoredFile(
 
 public sealed class FileMapSearcher
 {
+    private const float MemberHit = 3.5f;
+    private const float RestatedMemberHit = 1.5f;
     private static readonly char[] MemberSeparators = [';', ','];
     private const StringSplitOptions SplitMembers = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
 
@@ -232,10 +234,15 @@ public sealed class FileMapSearcher
                 ? MathF.Log(1f + (float)totalDocs / (1f + df))
                 : MathF.Log(1f + totalDocs);
             termIdf[term] = idf;
+            var inType = typeText.Contains(term, StringComparison.Ordinal);
+            var inFile = fileText.Contains(term, StringComparison.Ordinal);
             var termHit = 0f;
-            if (methodText.Contains(term, StringComparison.Ordinal)) termHit += 3.5f;
-            if (typeText.Contains(term, StringComparison.Ordinal)) termHit += 2.5f;
-            if (fileText.Contains(term, StringComparison.Ordinal)) termHit += 2.0f;
+            // A member that repeats the term already in its file or type name restates what the
+            // file name said; only a member introducing the term is new evidence.
+            if (methodText.Contains(term, StringComparison.Ordinal))
+                termHit += inType || inFile ? RestatedMemberHit : MemberHit;
+            if (inType) termHit += 2.5f;
+            if (inFile) termHit += 2.0f;
             if (pathText.Contains(term, StringComparison.Ordinal)) termHit += 1.2f;
             if (termHit > 0f) matchedTerms.Add(term);
             score += termHit * idf;
