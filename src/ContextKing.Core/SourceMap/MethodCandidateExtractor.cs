@@ -91,10 +91,14 @@ public sealed class MethodCandidateExtractor
         {
             SyntaxNode? body = null;
             string? name = null;
+            // An interface or abstract method has no body, yet its name and signature are exactly
+            // what a caller searches for. Such a declaration is carded with an empty excerpt.
+            var declarationOnly = false;
             switch (node)
             {
                 case BaseMethodDeclarationSyntax method:
                     body = (SyntaxNode?)method.Body ?? method.ExpressionBody;
+                    declarationOnly = body is null;
                     name = method switch
                     {
                         MethodDeclarationSyntax m => m.Identifier.ValueText,
@@ -114,7 +118,7 @@ public sealed class MethodCandidateExtractor
                 case PropertyDeclarationSyntax property when property.ExpressionBody is not null:
                     body = property.ExpressionBody; name = property.Identifier.ValueText; break;
             }
-            if (body is null || name is null || node.ContainsDiagnostics) continue;
+            if ((body is null && !declarationOnly) || name is null || node.ContainsDiagnostics) continue;
             var evidence = new List<string>();
             var summary = new List<string>();
             foreach (var child in node.DescendantNodes(n => n == node || n is not (LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax)))
@@ -147,8 +151,11 @@ public sealed class MethodCandidateExtractor
             var type = containingDeclaration?.Identifier.ValueText ?? "<global>";
             if (containingDeclaration?.BaseList is { } bases)
                 foreach (var baseType in bases.Types) Add("base", baseType.Type.ToString());
-            cards.Add(new(path, "CSharp", type, name, source[node.SpanStart..body.SpanStart].Trim(),
-                string.Join('\n', summary.Distinct().Take(64)), Excerpt(source, node.SpanStart, node.Span.End, options),
+            var signature = (body is null ? source[node.SpanStart..node.Span.End] : source[node.SpanStart..body.SpanStart])
+                .Trim().TrimEnd(';');
+            cards.Add(new(path, "CSharp", type, name, signature,
+                string.Join('\n', summary.Distinct().Take(64)),
+                body is null ? "" : Excerpt(source, node.SpanStart, node.Span.End, options),
                 lines.StartLinePosition.Line + 1, lines.EndLinePosition.Line + 1, evidence.Distinct().Take(32).ToArray()));
 
             void Add(string kind, string value)

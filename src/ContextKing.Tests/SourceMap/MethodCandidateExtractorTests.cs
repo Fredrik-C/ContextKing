@@ -29,13 +29,25 @@ public class MethodCandidateExtractorTests
     }
 
     [Theory]
-    [InlineData("cs", "interface I { void Execute(); int Value { get; set; } }")]
     [InlineData("ts", "interface I { execute(): void; value: number; }")]
     [InlineData("kt", "interface I { fun execute(): Unit }")]
     public void SkipsBodylessDeclarations(string extension, string source)
     {
         new MethodCandidateExtractor().ExtractSource("src/Test." + extension, source, "execute", "Find execution")
             .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CardsCSharpInterfaceMethodWithoutBody()
+    {
+        var cards = new MethodCandidateExtractor().ExtractSource(
+            "src/Test.cs", "interface I { void Execute(int count); int Value { get; set; } }", "execute", "Find execution");
+
+        var card = cards.Should().ContainSingle().Subject;
+        card.MemberName.Should().Be("Execute");
+        card.ContainingType.Should().Be("I");
+        card.Signature.Should().Be("void Execute(int count)");
+        card.BodyExcerpt.Should().BeEmpty();
     }
 
     [Fact]
