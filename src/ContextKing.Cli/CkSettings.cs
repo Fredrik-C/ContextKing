@@ -81,7 +81,10 @@ internal sealed record FindFilesSettings(
     float MetadataSemanticWeight = 0.15f,
     float MethodSemanticWeight = 0.35f,
     float StructuralBoostMax = 0.08f,
-    float FlatMethodThreshold = 0.03f)
+    float FlatMethodThreshold = 0.03f,
+    bool MethodEmbeddingCache = true,
+    int MethodEmbeddingCacheMaxMb = 128,
+    int MethodEmbeddingCacheMaxAgeDays = 30)
 {
     public static FindFilesSettings FromJson(JsonElement element)
     {
@@ -117,7 +120,10 @@ internal sealed record FindFilesSettings(
             ClampWeight(ReadFloat(element, "metadataSemanticWeight") ?? 0.15f, 0.15f),
             ClampWeight(ReadFloat(element, "methodSemanticWeight") ?? 0.35f, 0.35f),
             Math.Min(0.08f, ClampWeight(ReadFloat(element, "structuralBoostMax") ?? 0.08f, 0.08f)),
-            ClampWeight(ReadFloat(element, "flatMethodThreshold") ?? 0.03f, 0.03f));
+            ClampWeight(ReadFloat(element, "flatMethodThreshold") ?? 0.03f, 0.03f),
+            ReadBool(element, "methodEmbeddingCache") ?? defaults.MethodEmbeddingCache,
+            Math.Clamp(ReadInt(element, "methodEmbeddingCacheMaxMb") ?? defaults.MethodEmbeddingCacheMaxMb, 1, 4096),
+            Math.Clamp(ReadInt(element, "methodEmbeddingCacheMaxAgeDays") ?? defaults.MethodEmbeddingCacheMaxAgeDays, 1, 3650));
     }
 
     public int OverfetchTopK(int top) =>

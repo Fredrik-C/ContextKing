@@ -17,7 +17,10 @@ Method reranking defaults to enabled, including existing `.ck.json` files that o
     "metadataSemanticWeight": 0.15,
     "methodSemanticWeight": 0.35,
     "structuralBoostMax": 0.08,
-    "flatMethodThreshold": 0.03
+    "flatMethodThreshold": 0.03,
+    "methodEmbeddingCache": true,
+    "methodEmbeddingCacheMaxMb": 128,
+    "methodEmbeddingCacheMaxAgeDays": 30
   }
 }
 ```
@@ -34,6 +37,21 @@ Standard installations include the [model pack](../models/code-reranker/README.m
 | Fusion weights | shown above | 0–1 |
 | `structuralBoostMax` | 0.08 | 0–0.08 |
 | `flatMethodThreshold` | 0.03 | 0–1 |
+| `methodEmbeddingCache` | true | true/false |
+| `methodEmbeddingCacheMaxMb` | 128 | 1–4096 |
+| `methodEmbeddingCacheMaxAgeDays` | 30 | 1–3650 |
+
+## Card embedding cache
+
+Card text is a pure function of file content and member, never of the query, so a vector is reused
+only when the exact same card text recurs — a repeated or near-repeated search, most often. Entries
+live in `.ck-index/embeddings.db` beside the index and are keyed by the hash of model identity plus
+card text, so changing the model pack misses rather than returning a stale vector.
+
+The store is bounded on every run: entries unused for `methodEmbeddingCacheMaxAgeDays` are dropped,
+then the least recently used are trimmed back under the size cap, and freed pages are returned to
+the file system. Deleting `embeddings.db` is always safe; the next search refills what it needs.
+`--verbose` reports hits and misses.
 
 With methods enabled, default lexical overfetch is 50–100 candidates; metadata-only mode retains its existing maximum of 200. Explicit `minOverfetch` and `maxOverfetch` are capped at 1000. A larger requested `--top` is retained, while extraction remains capped independently. Each candidate source file has a 2 MB parser safety ceiling.
 
