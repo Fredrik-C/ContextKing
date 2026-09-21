@@ -34,6 +34,35 @@ public class FileScoreFusionTests
     }
 
     [Fact]
+    public void CompressedMethodScoresAreSpreadAcrossTheCandidatePool()
+    {
+        // Cosine-derived scores arrive in a narrow band. Two files with identical lexical scores
+        // must still be separated by the full method weight, not by the raw 0.12. With no metadata
+        // the method weight is redistributed to 0.40 over a denominator of 0.95.
+        var candidates = new[] { Hit("a", 5), Hit("b", 5) };
+        var files = new Dictionary<string, FileMethodScore> { ["a"] = Method("a", 0.62f), ["b"] = Method("b", 0.74f) };
+        var methods = new MethodRerankResult(files, 2, 0, false, false);
+
+        var results = FileScoreFusion.Fuse(candidates, new Dictionary<string, float>(), methods, "", 2);
+
+        results[0].Hit.Path.Should().Be("b");
+        var gap = results[0].Hit.Score - results[1].Hit.Score;
+        gap.Should().BeApproximately(0.40f / 0.95f, 0.01f);
+    }
+
+    [Fact]
+    public void MethodScoresTooCloseToRankAreLeftAlone()
+    {
+        var candidates = new[] { Hit("a", 5), Hit("b", 5) };
+        var files = new Dictionary<string, FileMethodScore> { ["a"] = Method("a", 0.700f), ["b"] = Method("b", 0.705f) };
+        var methods = new MethodRerankResult(files, 2, 0, false, false);
+
+        var results = FileScoreFusion.Fuse(candidates, new Dictionary<string, float>(), methods, "", 2);
+
+        (results[0].Hit.Score - results[1].Hit.Score).Should().BeLessThan(0.01f);
+    }
+
+    [Fact]
     public void StructuralBoostIsCappedAndCannotRescueVeryLowSimilarity()
     {
         FileScoreFusion.StructuralBonus(Method("Refund", 1), ["refund"], 1).Should().BeApproximately(0.08f, 0.00001f);
