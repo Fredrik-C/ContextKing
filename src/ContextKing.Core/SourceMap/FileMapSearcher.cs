@@ -156,8 +156,10 @@ public sealed class FileMapSearcher
         var tokens = text.Split([';', ',', '.', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         foreach (var token in tokens)
         {
+            // Query terms are lowercased by the tokenizer, so member/type tokens must be too —
+            // otherwise a term only ever counts documents that carry it in a path or file name.
             foreach (var part in PathTokenizer.MethodNameToPhrase(token).Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                yield return part;
+                yield return part.ToLowerInvariant();
         }
     }
 
