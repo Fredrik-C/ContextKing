@@ -173,12 +173,29 @@ public class MethodCandidateExtractorTests
         var options = new MethodExtractionOptions(CandidateFiles: 2, MaxMethodsPerFile: 2, MaxMethodsTotal: 3);
         var result = extractor.Extract(repo.Root, candidates, "retry", "Find retries", options);
         result.ParsedFiles.Should().Be(2);
-        result.Cards.Select(c => c.MemberName).Should().Equal("First", "Second", "Third");
+        // Round-robin: both files get their best member before either gets a second.
+        result.Cards.Select(c => c.MemberName).Should().Equal("First", "Third", "Second");
         extractor.Extract(repo.Root, candidates, "retry", "Find retries", options).Cards.Select(c => c.MemberName)
             .Should().Equal(result.Cards.Select(c => c.MemberName));
         var invalid = extractor.Extract(repo.Root, [Hit("../outside.cs"), Hit("missing.cs"), Hit("src/B.cs")], "retry", "Find retries");
         invalid.Failures.Should().Be(2);
         invalid.Cards.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void TightBudgetStillCardsEveryCandidateFile()
+    {
+        using var repo = new TempRepo();
+        repo.WriteFile("src/A.cs", "class A { void FirstRetry() { Run(); } void SecondRetry() { Run(); } }");
+        repo.WriteFile("src/B.cs", "class B { void ThirdRetry() { Run(); } void FourthRetry() { Run(); } }");
+        repo.WriteFile("src/C.cs", "class C { void FifthRetry() { Run(); } void SixthRetry() { Run(); } }");
+        var candidates = new[] { Hit("src/A.cs"), Hit("src/B.cs"), Hit("src/C.cs") };
+
+        var result = new MethodCandidateExtractor().Extract(repo.Root, candidates, "retry", "Find retries",
+            new MethodExtractionOptions(MaxMethodsTotal: 3));
+
+        // The last candidate must not be starved by the budget the first ones spend.
+        result.Cards.Select(c => c.FilePath).Should().BeEquivalentTo("src/A.cs", "src/B.cs", "src/C.cs");
     }
 
     private static FileSearchHit Hit(string path) => new(path, 1, 1, null, 1, 1, "src", path, "", "", "", []);

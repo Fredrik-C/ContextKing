@@ -9,7 +9,7 @@ Method reranking defaults to enabled, including existing `.ck.json` files that o
     "methodRerank": true,
     "methodRerankModel": "code-reranker",
     "methodCandidateFiles": 50,
-    "maxMethodsPerFile": 24,
+    "maxMethodsPerFile": 8,
     "maxMethodsTotal": 500,
     "maxMethodCardChars": 6000,
     "maxBodyChars": 3500,
@@ -27,7 +27,7 @@ Standard installations include the [model pack](../models/code-reranker/README.m
 | Setting | Default | Hard bounds |
 |---|---:|---:|
 | `methodCandidateFiles` | 50 | 1–100 |
-| `maxMethodsPerFile` | 24 | 1–100 |
+| `maxMethodsPerFile` | 8 | 1–100 |
 | `maxMethodsTotal` | 500 | 1–2000 |
 | `maxMethodCardChars` | 6000 | 128–16000 |
 | `maxBodyChars` | 3500 | 0–12000 |
