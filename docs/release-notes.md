@@ -1,3 +1,10 @@
+# v1.8.15
+
+- Improved `ck find-files` ranking with case-insensitive document frequency, member-term co-occurrence, restated-term damping, and consistent signal spreading before fusion.
+- Added method cards for bodiless C# declarations, including interface methods, so contract files can benefit from method reranking.
+- Improved reranking coverage and performance with round-robin card allocation, a smaller dense-mode card budget, more CPU threads, and bounded SQLite card-vector caching.
+- Added cache safety limits and uncached fallback for unavailable or corrupt cache stores.
+
 # v1.8.14
 
 - Added default-on local method-level reranking for `ck find-files`, using bounded live C#, TypeScript/TSX, Kotlin, and Python AST cards. File-level lexical retrieval remains first; method embeddings are ephemeral.
