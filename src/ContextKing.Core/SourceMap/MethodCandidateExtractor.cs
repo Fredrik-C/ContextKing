@@ -8,11 +8,11 @@ using TreeSitterLanguagePack;
 
 namespace ContextKing.Core.SourceMap;
 
-public sealed record MethodExtractionOptions(int CandidateFiles = 50, int MaxMethodsPerFile = 24,
+public sealed record MethodExtractionOptions(int CandidateFiles = 50, int MaxMethodsPerFile = 8,
     int MaxMethodsTotal = 500, int MaxCardChars = 6000, int MaxBodyChars = 3500,
     int LargeMethodThresholdChars = 8000, int LargeMethodExcerptChars = 800,
     int MaxMethodSourceChars = 20000, int DenseMethodThreshold = 100,
-    int DenseMethodExcerptChars = 800, int DenseMethodMaxCards = 300);
+    int DenseMethodExcerptChars = 800, int DenseMethodMaxCards = 180);
 public sealed record MethodExtractionResult(IReadOnlyList<MethodCandidateCard> Cards, int ParsedFiles, int Failures);
 
 /// <summary>Parses only supplied lexical candidates. Cards and syntax trees are never persisted.</summary>
@@ -22,7 +22,7 @@ public sealed class MethodCandidateExtractor
         string query, string task, MethodExtractionOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new();
-        var cards = new List<MethodCandidateCard>();
+        var perFile = new List<IReadOnlyList<MethodCandidateCard>>();
         var failures = 0;
         var parsed = 0;
         var root = Path.GetFullPath(repoRoot);
@@ -30,7 +30,7 @@ public sealed class MethodCandidateExtractor
         foreach (var hit in candidates.DistinctBy(h => h.Path.Replace('\\', '/'), StringComparer.Ordinal)
                      .Take(Math.Clamp(options.CandidateFiles, 1, 100)))
         {
-            if (cancellationToken.IsCancellationRequested || cards.Count >= total) break;
+            if (cancellationToken.IsCancellationRequested) break;
             try
             {
                 var path = Path.GetFullPath(Path.Combine(root, hit.Path));
@@ -44,11 +44,31 @@ public sealed class MethodCandidateExtractor
                 parsed++;
                 var extracted = ExtractSourceWithDiagnostics(relative.Replace('\\', '/'), source, query, task, options, out var parseFailure);
                 if (parseFailure) failures++;
-                cards.AddRange(extracted.Take(total - cards.Count));
+                if (extracted.Count > 0) perFile.Add(extracted);
             }
             catch (Exception) { failures++; }
         }
-        return new(ApplyDenseBodyLimit(cards, options), parsed, failures);
+        return new(ApplyDenseBodyLimit(RoundRobin(perFile, total), options), parsed, failures);
+    }
+
+    /// <summary>
+    /// Spends the card budget a round at a time, so every candidate file contributes its best
+    /// member before any file contributes a second. Filling the budget file by file instead lets
+    /// the highest-ranked files exhaust it, and a file that never gets a card cannot be scored by
+    /// the method stage at all - the one place its member names would have been read.
+    /// </summary>
+    private static IReadOnlyList<MethodCandidateCard> RoundRobin(
+        IReadOnlyList<IReadOnlyList<MethodCandidateCard>> perFile, int budget)
+    {
+        var cards = new List<MethodCandidateCard>(Math.Min(budget, perFile.Sum(x => x.Count)));
+        var depth = perFile.Count == 0 ? 0 : perFile.Max(x => x.Count);
+        for (var round = 0; round < depth && cards.Count < budget; round++)
+            foreach (var file in perFile)
+            {
+                if (cards.Count >= budget) break;
+                if (round < file.Count) cards.Add(file[round]);
+            }
+        return cards;
     }
 
     public IReadOnlyList<MethodCandidateCard> ExtractSource(string relativePath, string source,
@@ -91,10 +111,14 @@ public sealed class MethodCandidateExtractor
         {
             SyntaxNode? body = null;
             string? name = null;
+            // An interface or abstract method has no body, yet its name and signature are exactly
+            // what a caller searches for. Such a declaration is carded with an empty excerpt.
+            var declarationOnly = false;
             switch (node)
             {
                 case BaseMethodDeclarationSyntax method:
                     body = (SyntaxNode?)method.Body ?? method.ExpressionBody;
+                    declarationOnly = body is null;
                     name = method switch
                     {
                         MethodDeclarationSyntax m => m.Identifier.ValueText,
@@ -114,7 +138,7 @@ public sealed class MethodCandidateExtractor
                 case PropertyDeclarationSyntax property when property.ExpressionBody is not null:
                     body = property.ExpressionBody; name = property.Identifier.ValueText; break;
             }
-            if (body is null || name is null || node.ContainsDiagnostics) continue;
+            if ((body is null && !declarationOnly) || name is null || node.ContainsDiagnostics) continue;
             var evidence = new List<string>();
             var summary = new List<string>();
             foreach (var child in node.DescendantNodes(n => n == node || n is not (LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax)))
@@ -147,8 +171,11 @@ public sealed class MethodCandidateExtractor
             var type = containingDeclaration?.Identifier.ValueText ?? "<global>";
             if (containingDeclaration?.BaseList is { } bases)
                 foreach (var baseType in bases.Types) Add("base", baseType.Type.ToString());
-            cards.Add(new(path, "CSharp", type, name, source[node.SpanStart..body.SpanStart].Trim(),
-                string.Join('\n', summary.Distinct().Take(64)), Excerpt(source, node.SpanStart, node.Span.End, options),
+            var signature = (body is null ? source[node.SpanStart..node.Span.End] : source[node.SpanStart..body.SpanStart])
+                .Trim().TrimEnd(';');
+            cards.Add(new(path, "CSharp", type, name, signature,
+                string.Join('\n', summary.Distinct().Take(64)),
+                body is null ? "" : Excerpt(source, node.SpanStart, node.Span.End, options),
                 lines.StartLinePosition.Line + 1, lines.EndLinePosition.Line + 1, evidence.Distinct().Take(32).ToArray()));
 
             void Add(string kind, string value)

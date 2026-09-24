@@ -29,6 +29,11 @@ public readonly record struct ScoredFile(
 
 public sealed class FileMapSearcher
 {
+    private const float MemberHit = 3.5f;
+    private const float RestatedMemberHit = 1.5f;
+    private static readonly char[] MemberSeparators = [';', ','];
+    private const StringSplitOptions SplitMembers = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
+
     public IReadOnlyList<ScoredFile> Search(
         string dbPath,
         string query,
@@ -156,9 +161,56 @@ public sealed class FileMapSearcher
         var tokens = text.Split([';', ',', '.', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
         foreach (var token in tokens)
         {
+            // Query terms are lowercased by the tokenizer, so member/type tokens must be too —
+            // otherwise a term only ever counts documents that carry it in a path or file name.
             foreach (var part in PathTokenizer.MethodNameToPhrase(token).Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                yield return part;
+                yield return part.ToLowerInvariant();
         }
+    }
+
+    /// <summary>
+    /// Rewards query terms that meet inside a single member name. Matching the joined member blob
+    /// cannot tell "RequestTerminalRefundAsync" from a file where "terminal" and "refund" sit in
+    /// unrelated members, yet only the former is evidence that the file does what was asked for.
+    /// </summary>
+    private static float MemberCoOccurrenceBonus(
+        IndexedFile file,
+        IReadOnlyList<string> queryTerms,
+        IReadOnlyDictionary<string, float> termIdf)
+    {
+        if (queryTerms.Count < 2 || string.IsNullOrEmpty(file.MethodNames))
+            return 0f;
+
+        var typeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var type in file.TypeNames.Split(MemberSeparators, SplitMembers))
+            typeNames.Add(type);
+
+        var best = 0f;
+        var matched = new List<float>(queryTerms.Count);
+        foreach (var member in file.MethodNames.Split(MemberSeparators, SplitMembers))
+        {
+            // A constructor repeats its type name, so its terms co-occur for free.
+            if (typeNames.Contains(member))
+                continue;
+
+            matched.Clear();
+            var text = member.ToLowerInvariant();
+            foreach (var term in queryTerms)
+                if (text.Contains(term, StringComparison.Ordinal))
+                    matched.Add(termIdf[term]);
+
+            if (matched.Count < 2)
+                continue;
+
+            // Only the two rarest terms count. Long member names, such as descriptive test names
+            // and feature-flag accessors, would otherwise collect an unbounded bonus.
+            matched.Sort();
+            var bonus = matched[^1] + matched[^2];
+            if (bonus > best)
+                best = bonus;
+        }
+
+        return best;
     }
 
     private static (float Score, IReadOnlyList<string> MatchedTerms) LexicalScore(
@@ -175,15 +227,22 @@ public sealed class FileMapSearcher
 
         float score = 0f;
         var matchedTerms = new List<string>(queryTerms.Count);
+        var termIdf = new Dictionary<string, float>(queryTerms.Count, StringComparer.Ordinal);
         foreach (var term in queryTerms)
         {
             var idf = docFreq.TryGetValue(term, out var df)
                 ? MathF.Log(1f + (float)totalDocs / (1f + df))
                 : MathF.Log(1f + totalDocs);
+            termIdf[term] = idf;
+            var inType = typeText.Contains(term, StringComparison.Ordinal);
+            var inFile = fileText.Contains(term, StringComparison.Ordinal);
             var termHit = 0f;
-            if (methodText.Contains(term, StringComparison.Ordinal)) termHit += 3.5f;
-            if (typeText.Contains(term, StringComparison.Ordinal)) termHit += 2.5f;
-            if (fileText.Contains(term, StringComparison.Ordinal)) termHit += 2.0f;
+            // A member that repeats the term already in its file or type name restates what the
+            // file name said; only a member introducing the term is new evidence.
+            if (methodText.Contains(term, StringComparison.Ordinal))
+                termHit += inType || inFile ? RestatedMemberHit : MemberHit;
+            if (inType) termHit += 2.5f;
+            if (inFile) termHit += 2.0f;
             if (pathText.Contains(term, StringComparison.Ordinal)) termHit += 1.2f;
             if (termHit > 0f) matchedTerms.Add(term);
             score += termHit * idf;
@@ -191,6 +250,8 @@ public sealed class FileMapSearcher
 
         if (matchedTerms.Count > 0)
             score += 1.5f * ((float)matchedTerms.Count / queryTerms.Count);
+
+        score += MemberCoOccurrenceBonus(file, queryTerms, termIdf);
 
         var normalizedMustTerms = mustTerms is { Count: > 0 }
             ? mustTerms

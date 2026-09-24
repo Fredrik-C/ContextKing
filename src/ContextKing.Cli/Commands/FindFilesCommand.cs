@@ -162,13 +162,24 @@ internal static class FindFilesCommand
             var watch = Stopwatch.StartNew();
             var extraction = new MethodExtractionResult([], 0, 0);
             MethodRerankResult? scored = null;
+            EmbeddingCache? cache = null;
             var methodCandidates = MethodRerankCandidateSelector.Select(lexicalCandidates);
             try
             {
                 var codeEmbedder = (methodEmbedderFactory ?? CodeModelLocator.GetEmbedder)(settings.FindFiles.MethodRerankModel);
                 extraction = new MethodCandidateExtractor().Extract(repoRoot, methodCandidates, query, taskDescription,
                     settings.FindFiles.ToMethodExtractionOptions(), cancellationToken);
-                scored = new MethodSemanticReranker(codeEmbedder).Score(taskDescription, extraction.Cards,
+                // The cache is keyed by model identity, so a model swap misses rather than lying.
+                if (settings.FindFiles.MethodEmbeddingCache)
+                    cache = EmbeddingCache.Open(
+                        Path.GetDirectoryName(dbPath) ?? repoRoot,
+                        codeEmbedder is CodeEmbeddingModel pack
+                            ? $"{pack.Manifest.ModelId}@{pack.Manifest.ModelVersion}"
+                            : settings.FindFiles.MethodRerankModel,
+                        settings.FindFiles.MethodEmbeddingCacheMaxMb,
+                        settings.FindFiles.MethodEmbeddingCacheMaxAgeDays);
+                var scoringEmbedder = cache is null ? codeEmbedder : new CachingTextEmbedder(codeEmbedder, cache);
+                scored = new MethodSemanticReranker(scoringEmbedder).Score(taskDescription, extraction.Cards,
                     settings.FindFiles.MaxMethodCardChars, settings.FindFiles.MaxBodyChars, settings.FindFiles.FlatMethodThreshold, cancellationToken);
                 methodScores = scored.Files;
                 if (scored.EmbeddedCount > 0)
@@ -196,9 +207,12 @@ internal static class FindFilesCommand
                 // Parser/model exception messages may contain source inputs.
                 Console.Error.WriteLine($"[ck find-files] WARN: method rerank unavailable: {ex.GetType().Name}. Using metadata/lexical ranking.");
             }
+            cache?.Dispose();
             if (verbose)
             {
                 Console.Error.WriteLine($"[ck find-files] lexical candidates: {lexicalCandidates.Count}; method rerank candidates: {methodCandidates.Count}; method candidate files: {extraction.ParsedFiles}; methods extracted: {extraction.Cards.Count}; method cards embedded: {scored?.EmbeddedCount ?? 0}");
+                if (cache is not null)
+                    Console.Error.WriteLine($"[ck find-files] card cache hits: {cache.Hits}; misses: {cache.Misses}");
                 Console.Error.WriteLine($"[ck find-files] parse failures: {extraction.Failures}; embedding failures: {scored?.FailureCount ?? 0}; method stage duration: {watch.ElapsedMilliseconds} ms; method stage status: {methodStatus}");
                 if (methodScores.Count > 0)
                     Console.Error.WriteLine(FormattableString.Invariant($"[ck find-files] method semantic range: {methodScores.Values.Min(m => m.Score):0.0000}..{methodScores.Values.Max(m => m.Score):0.0000}"));
