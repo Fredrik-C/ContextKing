@@ -1,7 +1,7 @@
-## Code Navigation Protocol — mandatory for all source files (.cs, .ts, .tsx)
+## Code Navigation Protocol — mandatory for all supported source files (.cs, .ts, .tsx, .kt, .kts, .py)
 
 This codebase is large. Searching without narrowing scope first wastes tokens and reads wrong files.
-CK tools work on both C# and TypeScript/TSX files.
+CK tools work on C#, TypeScript/TSX, Kotlin, and Python files.
 
 **Command prefix:** `ck` (if in PATH), `~/.ck/bin/ck` (macOS/Linux fallback), or `%USERPROFILE%\.ck\bin\ck.exe` (Windows fallback).
 Use whichever resolves in your environment.
@@ -9,18 +9,18 @@ Use whichever resolves in your environment.
 ### The workflow
 
 ```
-1. FILES    → ck find-files "domain area concept operation" --task "<task intent>" [--path <root>]  ← REQUIRED FIRST / PRIMARY RETRIEVAL
+1. FILES    → ck find-files "domain area concept operation" --task "<task intent>" [--path <root>]  ← REQUIRED FIRST for source discovery
 2. KEYWORDS → ck get-keyword-map --query "same lexical terms"                            ← ONLY when file results are weak, broad, or vocabulary-mismatched
               ck find-files "original terms plus 1-2 selected hints" --task "<task intent>" ← refined retry
-3. RECALL   → ck recall --folder <confirmed-folder>                                      ← BEFORE reading any method body
-4. LOCATE   → ck find-symbol "<symbol>" --path <folder-or-file> [--kind type|member]
-              ck refs "<symbol>" --path <folder-or-file>                                 ← use when you need call-sites/usages
-5. FALLBACK (only when file-first results are weak/noisy):
+3. FALLBACK (only when file-first results are weak/noisy):
               ck find-files "..." --task "<task intent>" (use refined terms from keyword-map)
-              ck expand-folder --pattern "<keyword>" <folder>
-              ck signatures <folder>/                                                     (when no useful keyword)
-              grep -rn "<keyword>" <folder>/                                              (allowed only inside scoped folders)
-6. READ     → ck get-method-source <file> <MemberName>          ← prefer over full file reads
+              ck expand-folder --pattern "<keyword>" <folder>                            ← CK-based folder narrowing
+4. INSPECT  → ck signatures <candidate-file> [other candidate files...]
+              ck signatures <scoped-folder>/                                                ← inspect multiple candidates in a confirmed scope
+5. RECALL   → ck recall --folder <confirmed-folder>                                      ← BEFORE reading any method body
+6. LOCATE   → ck find-symbol "<symbol>" --path <folder-or-file> [--kind type|member]
+              ck refs "<symbol>" --path <folder-or-file>                                 ← use when you need call-sites/usages
+7. READ     → ck get-method-source <file> <MemberName>          ← prefer over full file reads
               ck get-constructors <file>                          ← when you need constructor(s)
               ck get-usings <file>                                ← when you need import context
               ck get-base-types <file>                            ← when you need inheritance info
@@ -28,12 +28,14 @@ Use whichever resolves in your environment.
               ck get-enum-members <file> <EnumName>               ← when you need enum values without reading full file
               ck read-full-file <file>                            ← use this when you already know the file and need full context
               ck build-check <project.csproj>                     ← compact build diagnostics (instead of build|tail/grep)
-7. EDIT     → make your changes
-8. LEARN    → ck learn — OPTIONAL; only for a durable, non-obvious conclusion (often a no-op)
+8. EDIT     → make your changes
+9. LEARN    → ck learn — OPTIONAL; only for a durable, non-obvious conclusion (often a no-op)
 ```
 
 **File-first retrieval, keyword-map only as a fallback.** Start source discovery with `ck find-files` using compact lexical code terms. If results are broad, weak, or vocabulary-mismatched, run `ck get-keyword-map` and add only one or two useful hints to the original query.
-Use `expand-folder` only after `find-files` has identified a plausible folder and you still need to narrow within it.
+Do not use `rg`, `grep`, `find`, globbing, or broad directory listings for ordinary source discovery or candidate inspection. After `find-files` returns candidate files, inspect them with `ck signatures`; then use targeted CK source extraction (`ck get-method-source`, `ck get-type-source`, and related commands) to read relevant declarations. Use `ck find-symbol` and `ck refs` for declaration and usage lookup. Use `ck expand-folder` only as CK-based fallback narrowing when the candidate set is still too broad or weak.
+
+Use `rg` for non-source text, exact literal searches (such as a specific error message or string value), or when CK has no command that can answer the question. For source-text fallback, keep the search as narrow as practical and do not substitute a broad `rg`/`grep` scan for the normal CK workflow. If the exact source file path is already known, skip file discovery and inspect that file with CK signatures/source extraction.
 
 **`find-files` query text must be lexical.** Phrase queries as code-like tokens that can match indexed fields:
 path/folder words, file-name words, type names, and method/member words. Avoid natural-language
@@ -90,13 +92,15 @@ type/signature counts, lexical and semantic score components, and matched query 
 ```bash
 # C# example:
 ck find-files "adyen terminal card-present refund" --task "Find card-present terminal refund implementation."
-ck expand-folder --pattern "Refund" <folder>
+ck signatures <candidate-file>
+ck recall --folder <folder>
 ck find-symbol "RefundInPersonPaymentAsync" --path <folder> --kind member
 ck get-method-source <file.cs> <ExactMemberName>
 
 # TypeScript example:
 ck find-files "backend rendering template fetcher" --task "Find backend invoice template rendering implementation."
-ck expand-folder --pattern "fetch\|render" <folder>
+ck signatures <candidate-file>
+ck recall --folder <folder>
 ck find-symbol "renderInvoiceTemplate" --path <folder> --kind member
 ck get-method-source <file.ts> <functionOrMethodName>
 ```
@@ -110,12 +114,14 @@ ck find-files "terminal card-present refund payment" --task "Find the reference 
 ck find-files "terminal card-present refund payment" --task "Find the target terminal refund payment implementation." --must "adyen"
 
 # 2. Explore reference implementation
-ck expand-folder --pattern "Refund" <stripe-folder>
+ck signatures <stripe-candidate-file>
+ck recall --folder <stripe-folder>
 ck find-symbol "RefundInPersonPaymentAsync" --path <stripe-folder> --kind member
 ck get-method-source <file> RefundInPersonPaymentAsync
 
 # 3. Explore target (what exists today)
-ck expand-folder --pattern "Refund" <adyen-folder>
+ck signatures <adyen-candidate-file>
+ck recall --folder <adyen-folder>
 ck find-symbol "RefundPaymentAsync" --path <adyen-folder> --kind member
 ck get-method-source <file> RefundPaymentAsync
 
@@ -130,17 +136,16 @@ ck find-files "payment gateway refund async" --task "Find async refund handling 
 ck signatures <folder1>/
 ck signatures <folder2>/
 # ... for each relevant folder
-# refs/grep within scoped folders for cross-references
+# CK reference lookup within scoped folders for cross-references
 ck refs "RefundPaymentAsync" --path <folder1>
-grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
 ```
 
 ### Rules
 
 1. **Start with `ck find-files` for source discovery.**
 2. **If its results are broad, weak, or vocabulary-mismatched, run `ck get-keyword-map`; retain the original terms and add at most one or two useful hints before one refined retry.**
-3. **When fallback scope is used, folders become source of truth.** Keep grep/rg/glob/find inside returned folders. If scope seems wrong, use `--explain` and refine.
-4. **Use `ck expand-folder` as the preferred exploration tool within scoped folders.** Always pass `--pattern` with 2-4 high-signal terms (domain + workflow + symbol/DTO/type), for example `Refund|Terminal|Interac` or `CardPresent|Refund|Command`. Use `ck signatures <folder>` when you have no useful keyword or want to see all members — for large folders, `signatures` applies adaptive relevance ranking unless `--all` is passed intentionally. Budget: at most 3 `expand-folder` calls per direction before moving to targeted file reads.
+3. **Use returned candidates as the inspection set.** Inspect candidate files with `ck signatures <file>`; use `ck signatures <scoped-folder>` to compare several candidates after file-first retrieval. If scope seems wrong, use `--explain` and refine `find-files`.
+4. **Use CK signatures and extraction for source inspection.** `ck expand-folder` is fallback CK-based narrowing when file-first results are too broad or weak; use a 2-4 term `--pattern` (domain + workflow + symbol/DTO/type), for example `Refund|Terminal|Interac`. For large folders, `signatures` applies adaptive relevance ranking unless `--all` is passed intentionally. Budget: at most 3 `expand-folder` calls per direction before targeted file reads.
 5. **Run `ck recall --folder <path>` before reading any method body.** Do this once per folder you intend to edit — not for every find-files result. Run it before targeted reads, not after — recall may surface exactly what you need and save the read entirely. Silent output means no knowledge exists yet, or brain is disabled for this repo.
 6. **Avoid full file reads — use targeted commands instead.** Never read a full file when a targeted command will do:
    - `ck get-method-source <file> <Name>` — single method or property
@@ -153,9 +158,9 @@ grep -rn "RefundPaymentAsync" <folder1>/ <folder2>/
 7. **Never re-run the exact same `find-files` or `expand-folder` command.** If output was broad/no-match, refine via `get-keyword-map` hints (for scope) or tighten the pattern (for expand-folder) before retrying.
 8. **Once you have a concrete file target, stop using `expand-folder` in that area.** Continue with `ck signatures <file>` and `ck get-method-source <file> <MemberName>`. If direction changed, reset with a new `find-files` query.
 9. **After 2 consecutive `expand-folder` no-match results in the same folder, stop expanding that folder.** Either run `get-keyword-map` + refined `find-files` or switch to another scoped folder.
-10. **grep / rg / glob / find on source files require context boundaries.** Use either `--path` from `find-files` results, or fallback scoped folders from `find-files`. Never run source search from repo root/module roots.
+10. **Do not use `rg`, `grep`, globbing, or `find` for ordinary source discovery or candidate inspection.** Start with `ck find-files`, inspect candidates with CK signatures, and read relevant code with CK source extraction. `rg` is for non-source text, exact literal searches, or questions CK cannot answer; keep source-text fallbacks as narrow as practical.
 11. **Don't guess symbol names.** If you don't know the name, run `ck signatures` first, then `ck find-symbol` to locate the declaration.
-12. **Prefer `ck refs` over broad text search for usage checks.** Once a symbol is confirmed, use `ck refs "<symbol>" --path <scoped-folder>` before fallback grep. Use grep/rg when references include dynamic strings or non-symbol patterns.
+12. **Prefer `ck refs` over text search for usage checks.** Once a symbol is confirmed, use `ck refs "<symbol>" --path <scoped-folder>`. Use `rg` only for exact literal matches or when CK cannot answer the usage question.
 13. **Use `ck recall --query "<text>"` for unfamiliar domain concepts** that span multiple folders — e.g., "how does X work across the system?" This is optional and supplementary; folder-scoped recall covers most cases.
 14. **`ck learn` is optional — often a no-op.** Run it only when the session produced a durable, non-obvious conclusion that cannot be understood by reading the code (the WHY, gotchas, cross-cutting relationships). Never use it to describe the changes you made — that is a changelog, not knowledge. If your draft restates the diff or is findable via signatures, skip it. Skipping is the common, correct outcome.
 15. **Never manipulate `.ck-knowledge/**/*.jsonl` directly.** No `cat/sed/awk/python` edits or ad-hoc appends. Knowledge writes and lazy backfill must go through CK commands only (`ck recall`, `ck learn`, `ck forget`).

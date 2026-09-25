@@ -7,6 +7,8 @@ description: Source discovery over path, file, type, and member names. Use this 
 
 Use this as the default entrypoint for source discovery.
 
+For source files whose path is not already known, run `ck find-files` before any source search or broad exploration. Do not use `rg`, `grep`, `find`, globbing, or directory listings to discover source candidates. After retrieval, inspect candidates with `ck signatures` and targeted CK source extraction. Use `rg` for non-source text, exact literal searches, or when CK cannot answer the question.
+
 ## Syntax
 
 ```bash

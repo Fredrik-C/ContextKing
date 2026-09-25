@@ -28,6 +28,12 @@ Tree-sitter extractors extend `TreeSitterExtractor<T>` abstract base class in `A
 - All extractors implement `ILanguageExtractor` with methods: `ExtractSignatures`, `ExtractMethodSource`, `ExtractAllConstructors`, `GetAllMemberNames`, `ExtractPublicNamesFromFile`, `ExtractPublicNamesFromSource`, `ExtractTypeAndMethodNames`
 - `SourceMapBuilder` uses `LanguageRegistry.Get()` for both signature and public name extraction
 
+## Source-Code Discovery
+- For source-code discovery, start with `ck find-files`. Do not use `rg`, `grep`, `find`, globbing, or broad directory listings to discover source files.
+- Inspect `find-files` candidates with `ck signatures`, then use targeted CK source extraction such as `ck get-method-source` or `ck get-type-source` to read the relevant code. Use `ck find-symbol` and `ck refs` for declaration and usage lookup.
+- Use `rg` for non-source text, exact literal searches, or questions CK cannot answer. Keep source-text fallbacks as narrow as practical.
+- If the exact source file path is already known, go directly to CK signatures/source extraction for that file instead of rediscovering it.
+
 ## TreeSitterLanguagePack API Notes
 - `Parser.Default()` → `SetLanguage("python"|"kotlin"|"typescript"|"tsx")` → `Parse(source)` returns `Tree?`
 - `Tree.RootNode()` returns `Node` (non-nullable, throws on failure)
